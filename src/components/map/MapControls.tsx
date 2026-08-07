@@ -1,6 +1,8 @@
 'use client';
 
 import type maplibregl from 'maplibre-gl';
+import { useApp } from '@/lib/store';
+import { photorealAvailable } from './photoreal';
 
 /**
  * Branded replacement for MapLibre's NavigationControl.
@@ -26,11 +28,14 @@ function ControlButton({
   label,
   onClick,
   disabled,
+  active = false,
   children,
 }: {
   label: string;
   onClick: () => void;
   disabled?: boolean;
+  /** Renders the pressed state, for buttons that toggle rather than act. */
+  active?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -39,8 +44,14 @@ function ControlButton({
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
+      aria-pressed={active || undefined}
       title={label}
-      className="flex h-9 w-9 items-center justify-center border-b border-hairline text-midnight transition-colors last:border-b-0 hover:bg-goldenrod-50 focus:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:text-subtle disabled:hover:bg-white"
+      className={
+        'flex h-9 w-9 items-center justify-center border-b border-hairline transition-colors last:border-b-0 focus:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:text-subtle disabled:hover:bg-white ' +
+        (active
+          ? 'bg-midnight text-goldenrod hover:bg-midnight-700'
+          : 'text-midnight hover:bg-goldenrod-50')
+      }
     >
       {children}
     </button>
@@ -68,6 +79,9 @@ function Icon({ children }: { children: React.ReactNode }) {
 }
 
 export default function MapControls({ map, onFitAll, canFitAll }: MapControlsProps) {
+  const photoreal = useApp((s) => s.photoreal);
+  const setPhotoreal = useApp((s) => s.setPhotoreal);
+
   return (
     <div className="pointer-events-auto absolute right-4 top-4 z-20 flex flex-col overflow-hidden rounded-card border border-hairline bg-white shadow-raised">
       <ControlButton label="Zoom in" disabled={!map} onClick={() => map?.zoomIn()}>
@@ -108,6 +122,24 @@ export default function MapControls({ map, onFitAll, canFitAll }: MapControlsPro
           <path d="M9 20H6.5A2.5 2.5 0 0 1 4 17.5V15" />
         </Icon>
       </ControlButton>
+
+      {/* Only offered when a Google key is configured. Without one the button
+          would be a dead end, and the free grey city is the honest default. */}
+      {photorealAvailable() && (
+        <ControlButton
+          label={photoreal ? 'Switch to plain massing' : 'Switch to photorealistic buildings'}
+          active={photoreal}
+          disabled={!map}
+          onClick={() => setPhotoreal(!photoreal)}
+        >
+          {/* A camera: this swaps the city for photography, not for another
+              colour scheme. */}
+          <Icon>
+            <path d="M4 8.5h3l1.6-2.2h6.8L17 8.5h3v10H4z" />
+            <circle cx="12" cy="13" r="3.2" />
+          </Icon>
+        </ControlButton>
+      )}
     </div>
   );
 }

@@ -30,6 +30,8 @@ interface AppState {
 
   filters: Filters;
   colorMode: ColorMode;
+  /** Google photorealistic tiles instead of the free grey city massing. */
+  photoreal: boolean;
 
   selectedBuildingId: string | null;
   selectedSpaceId: string | null;
@@ -50,6 +52,7 @@ interface AppState {
   setFilters: (patch: Partial<Filters>) => void;
   resetFilters: () => void;
   setColorMode: (m: ColorMode) => void;
+  setPhotoreal: (on: boolean) => void;
 
   selectBuilding: (id: string | null) => void;
   selectSpace: (id: string | null) => void;
@@ -72,6 +75,7 @@ export const useApp = create<AppState>((set, get) => ({
 
   filters: EMPTY_FILTERS,
   colorMode: 'rent',
+  photoreal: false,
 
   selectedBuildingId: null,
   selectedSpaceId: null,
@@ -123,6 +127,10 @@ export const useApp = create<AppState>((set, get) => ({
 
   setColorMode(colorMode) {
     set({ colorMode });
+  },
+
+  setPhotoreal(photoreal) {
+    set({ photoreal });
   },
 
   selectBuilding(selectedBuildingId) {

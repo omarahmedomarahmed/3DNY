@@ -17,6 +17,14 @@ import { useApp } from '@/lib/store';
 import { applyFilters } from '@/lib/filters';
 import type { BuildingWithSpaces } from '@/types';
 import { BAND_ZOOM_THRESHOLD, buildLayers, type MapPoint } from './layers';
+import { useCityContext } from './useCityContext';
+import {
+  buildPhotorealLayer,
+  loadPhotorealModule,
+  photorealAvailable,
+  probePhotoreal,
+  type PhotorealModule,
+} from './photoreal';
 import MapLegend from './MapLegend';
 import MapControls from './MapControls';
 import RadiusControl from './RadiusControl';
@@ -270,6 +278,9 @@ export default function MapView() {
   const [contextLost, setContextLost] = useState(false);
   const [zoom, setZoom] = useState(14);
   const [popup, setPopup] = useState<PopupState | null>(null);
+  const [photorealCredits, setPhotorealCredits] = useState<string[]>([]);
+  const [photorealError, setPhotorealError] = useState<string | null>(null);
+  const [photorealModule, setPhotorealModule] = useState<PhotorealModule | null>(null);
 
   const buildings = useApp((s) => s.buildings);
   const filters = useApp((s) => s.filters);
@@ -278,6 +289,7 @@ export default function MapView() {
   const selectedSpaceId = useApp((s) => s.selectedSpaceId);
   const hoveredBuildingId = useApp((s) => s.hoveredBuildingId);
   const radius = useApp((s) => s.radius);
+  const photoreal = useApp((s) => s.photoreal);
   const loading = useApp((s) => s.loading);
   const error = useApp((s) => s.error);
 
@@ -287,6 +299,10 @@ export default function MapView() {
   );
 
   useVisibleBuildings(map, filtered);
+
+  // The surrounding city, so the towers that carry data stand in Manhattan
+  // rather than in an empty plane.
+  const cityContext = useCityContext(map, zoom);
 
   // --- Map bootstrap. Runs once; layer updates go through the overlay.
   useEffect(() => {
@@ -377,6 +393,34 @@ export default function MapView() {
     };
   }, []);
 
+  // The tile reader is a megabyte of glTF machinery, so it is fetched the first
+  // time someone asks for photorealistic buildings and never before.
+  useEffect(() => {
+    if (!photoreal || photorealModule) return;
+    let live = true;
+
+    // Probe and download in parallel, but only commit if both succeed — a
+    // half-enabled photoreal mode is an empty map with no explanation.
+    void Promise.all([loadPhotorealModule(), probePhotoreal()])
+      .then(([mod, problem]) => {
+        if (!live) return;
+        if (problem) {
+          setPhotorealError(problem);
+          useApp.getState().setPhotoreal(false);
+          return;
+        }
+        setPhotorealModule(mod);
+      })
+      .catch(() => {
+        if (!live) return;
+        setPhotorealError('the 3D tile reader could not be downloaded.');
+        useApp.getState().setPhotoreal(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [photoreal, photorealModule]);
+
   /** deck.gl reports canvas-relative pixels; the popup is viewport-positioned. */
   const toViewport = useCallback((at: MapPoint): PopupAnchor => {
     const instance = mapRef.current;
@@ -399,6 +443,17 @@ export default function MapView() {
       setPopup({ buildingId, spaceId, at: toViewport(at) });
     };
 
+    const photorealLayer = photoreal
+      ? buildPhotorealLayer(photorealModule, {
+          onAttribution: setPhotorealCredits,
+          onError: (message) => {
+            // Back out rather than leave the map with no city at all.
+            setPhotorealError(message);
+            useApp.getState().setPhotoreal(false);
+          },
+        })
+      : null;
+
     overlay.setProps({
       layers: buildLayers({
         buildings,
@@ -409,6 +464,8 @@ export default function MapView() {
         colorMode,
         radius,
         zoom,
+        cityContext,
+        photoreal: photoreal && photorealLayer !== null,
         onBuildingClick: (id, at) => {
           const state = useApp.getState();
           state.selectBuilding(id);
@@ -424,6 +481,7 @@ export default function MapView() {
         },
         onSpaceClick: openSpace,
         onHover: (id) => useApp.getState().setHovered(id),
+        photorealLayer,
       }),
     });
   }, [
@@ -435,6 +493,9 @@ export default function MapView() {
     colorMode,
     radius,
     zoom,
+    cityContext,
+    photoreal,
+    photorealModule,
     toViewport,
   ]);
 
@@ -566,6 +627,32 @@ export default function MapView() {
           </div>
         )}
       </div>
+
+      {/* Google requires the copyright lines of whatever tiles are currently
+          drawn to be shown. It sits above the MapLibre attribution so the two
+          never overlap. */}
+      {photoreal && photorealCredits.length > 0 && (
+        <div className="pointer-events-none absolute bottom-8 right-2 z-20 max-w-md text-right">
+          <span className="rounded bg-white/85 px-1.5 py-0.5 text-[10px] leading-tight text-subtle">
+            {photorealCredits.join(', ')}
+          </span>
+        </div>
+      )}
+
+      {photorealError && (
+        <div className="pointer-events-auto absolute inset-x-0 top-4 z-30 flex justify-center">
+          <div className="flex items-center gap-3 rounded-full border border-warn/30 bg-warn-surface px-3 py-1.5 text-sm font-medium text-warn shadow-card">
+            <span>Photorealistic buildings unavailable — {photorealError}</span>
+            <button
+              type="button"
+              onClick={() => setPhotorealError(null)}
+              className="text-xs underline"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {popup && (
         <SpacePopup

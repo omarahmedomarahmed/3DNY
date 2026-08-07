@@ -85,8 +85,10 @@ For each row in the table below, type the name into the **Key** box, paste the v
 | `DATABASE_URL` | The everyday connection to the database | Neon → Connection Details → toggle **on** → copy (the one containing `-pooler`) | Required |
 | `DATABASE_URL_UNPOOLED` | A direct connection, used when the app creates or changes tables | Neon → Connection Details → toggle **off** → copy | Required |
 | `BLOB_READ_WRITE_TOKEN` | Permission to store space photos | Do not type this. Vercel adds it for you in Step 4 | Optional |
-| `NEXT_PUBLIC_PMTILES_URL` | The file of 3D building shapes | Only exists once someone has built and uploaded the tile file. Leave blank for now | Optional |
-| `NEXT_PUBLIC_BASEMAP_URL` | The streets and labels drawn underneath the buildings | Same as above. Leave blank for now | Optional |
+| `NEXT_PUBLIC_BASEMAP_STYLE` | A different street map underneath the buildings | Leave blank. The app uses a free one that needs no account | Optional |
+| `NEXT_PUBLIC_BASEMAP_URL` | Your own self-hosted map tiles | Only exists once someone has built and uploaded a tile file. Leave blank | Optional |
+| `NEXT_PUBLIC_GOOGLE_3D_TILES_KEY` | Photorealistic buildings — real photographed facades instead of grey shapes | Google Cloud. **This one costs money per use.** See "Photorealistic buildings" below | Optional |
+| `NYC_OPEN_DATA_APP_TOKEN` | Raises the limit on how often the app may ask the city for building shapes | data.cityofnewyork.us → Sign in → Developer Settings → Create App Token. Free | Optional |
 | `NEXT_PUBLIC_MAP_CENTER` | Where the map opens | Type it in exactly as shown below | Optional |
 
 The value for the last one is:
@@ -104,11 +106,13 @@ That is longitude and latitude, and it centres the map between Midtown and Midto
 | Left blank | What you lose | What still works |
 |---|---|---|
 | `BLOB_READ_WRITE_TOKEN` | Uploading photos to a space | Everything else, including all imported spec data |
-| `NEXT_PUBLIC_PMTILES_URL` | Extruded 3D building shapes and floor bands | Buildings still appear as points and markers; every profile, filter, comparison, and radius search works |
-| `NEXT_PUBLIC_BASEMAP_URL` | Detailed streets and labels under the map | The map still renders on a plain background |
+| `NEXT_PUBLIC_BASEMAP_STYLE` | Nothing — a free street map is built in | Everything |
+| `NEXT_PUBLIC_BASEMAP_URL` | Nothing — see above | Everything |
+| `NEXT_PUBLIC_GOOGLE_3D_TILES_KEY` | The photorealistic view. The camera button simply does not appear | The whole map, with the surrounding city drawn as grey shapes from free city records |
+| `NYC_OPEN_DATA_APP_TOKEN` | Nothing, unless the whole office is importing at once | Everything |
 | `NEXT_PUBLIC_MAP_CENTER` | Nothing — a default is built in | Everything |
 
-Do not delay a demo waiting for the two tile files. Get the database connected, import a sheet, and add the tiles later. Adding a variable later takes about a minute and one redeploy.
+Do not delay a demo waiting for any of these. Get the database connected, import a sheet, and add the tiles later. Adding a variable later takes about a minute and one redeploy.
 
 ---
 
@@ -220,6 +224,63 @@ seeded from the owner name on the city's tax record. You never start from a blan
 What to write in each field is covered in [docs/LANDLORD-SHEET.md](docs/LANDLORD-SHEET.md).
 This is the one part of the app that no data feed can fill in for you, and it is the part
 that makes the compare view worth showing to a client.
+
+---
+
+## Optional — Photorealistic buildings
+
+By default the city around your buildings is drawn as clean grey shapes, using
+free building records from New York City. That is what the map ships with, it
+costs nothing, and it needs no account anywhere.
+
+If you want the buildings to look like **photographs** — real facades, real
+rooftops, real signage — the app can use Google's photorealistic 3D imagery
+instead. A camera button appears on the map controls to switch between the two.
+
+**Read this before you set it up.**
+
+| | |
+|---|---|
+| It costs money | Google bills per use, against a credit card. There is a monthly free allowance, and a busy week of demos may or may not stay inside it |
+| It is not the default | The grey city is the everyday view. Photography is for the moment a client asks what the building actually looks like |
+| It can make availability harder to read | The whole point of this tool is that a yellow band on the 14th floor is the loudest thing on screen. Against photography it competes with a real city. The app compensates by drawing the availability bands over the imagery rather than inside it, but the plain view is still the clearer one for working |
+| The grey city always works | If the key is missing, wrong, or the imagery fails to load, the map falls back to grey and tells you. Nothing breaks |
+
+### Getting the key
+
+1. Go to **console.cloud.google.com** and sign in with a Google account.
+2. Click the project dropdown at the top, then **New Project**. Name it
+   `3dnyc` and click **Create**.
+3. In the search bar at the top, type **Map Tiles API** and open it. Click
+   **Enable**. Google will ask you to add a billing account if the project does
+   not have one — this is the part that costs money, and it is unavoidable for
+   this feature.
+4. In the search bar, type **Credentials** and open it.
+5. Click **Create credentials** → **API key**. Copy the key it shows you.
+6. Click **Edit API key** (or the pencil next to the new key) and set two
+   restrictions, both important:
+   - Under **Application restrictions**, choose **Websites** and add your app's
+     address, ending in `/*` — for example `https://3dny.vercel.app/*`. Without
+     this, anyone who views the page source can copy your key and spend your
+     money.
+   - Under **API restrictions**, choose **Restrict key** and tick only
+     **Map Tiles API**.
+7. Click **Save**.
+
+### Putting it in the app
+
+1. In Vercel, open your project → **Settings** → **Environment Variables**.
+2. Add `NEXT_PUBLIC_GOOGLE_3D_TILES_KEY` with the key you copied as its value.
+3. Go to the **Deployments** tab, open the most recent deployment's `…` menu,
+   and choose **Redeploy**.
+
+When it finishes, open the map. A camera button appears below the other map
+controls. Click it for photography, click it again for the grey city.
+
+If the button does not appear, the variable did not save or the redeploy has
+not finished. If the button appears but a yellow message says the imagery is
+unavailable, the key is restricted to the wrong address or the Map Tiles API
+was never enabled — step 3 and step 6 above.
 
 ---
 
