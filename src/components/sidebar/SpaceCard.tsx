@@ -71,12 +71,29 @@ function Field({
 }) {
   return (
     <div className={align === 'right' ? 'text-right' : ''}>
-      <div className="text-[10px] uppercase tracking-wide text-muted">{label}</div>
-      <div className={`text-xs text-slate-200 ${align === 'right' ? 'tabular-nums' : ''}`}>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
+        {label}
+      </div>
+      <div className={`mt-0.5 text-xs text-body ${align === 'right' ? 'tabular' : ''}`}>
         {children}
       </div>
     </div>
   );
+}
+
+/** Badge styles, kept in one place so the colour language stays consistent. */
+const BADGE = 'rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em]';
+
+/** Presentational only — a listing already available reads as vacant today. */
+function isVacantNow(availableFrom: string | null | undefined): boolean {
+  if (!availableFrom) return false;
+  const m = /^\d{4}-\d{2}-\d{2}/.exec(availableFrom.trim());
+  if (!m) return false;
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
+    now.getDate(),
+  ).padStart(2, '0')}`;
+  return m[0] <= today;
 }
 
 export default function SpaceCard({ building, space, distanceMiles }: SpaceCardProps) {
@@ -103,48 +120,50 @@ export default function SpaceCard({ building, space, distanceMiles }: SpaceCardP
     <article
       onMouseEnter={() => setHovered(building.id)}
       onMouseLeave={() => setHovered(null)}
-      className={`rounded border bg-panel transition-colors ${
-        selected ? 'border-accent' : 'border-edge hover:border-accent/60'
+      className={`border-b border-l-[3px] border-hairline bg-white transition-colors ${
+        selected
+          ? 'border-l-goldenrod bg-goldenrod-50'
+          : 'border-l-transparent hover:bg-goldenrod-50'
       }`}
     >
       <button
         type="button"
         onClick={open}
-        className="w-full space-y-2 px-3 py-2 text-left"
+        className="w-full space-y-2 px-4 py-3 text-left"
         aria-label={`${building.address_display}, ${space.floor_label}`}
       >
         <header className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <h3 className="truncate text-xs font-semibold text-slate-100">
+            <h3 className="truncate text-sm font-semibold text-ink">
               {building.address_display || 'Unknown address'}
             </h3>
             {building.building_name ? (
-              <p className="truncate text-[11px] text-muted">{building.building_name}</p>
+              <p className="truncate text-xs text-muted">{building.building_name}</p>
             ) : null}
           </div>
           <div className="shrink-0 text-right">
             <div
-              className={`text-xs font-semibold tabular-nums ${
-                rent.withheld ? 'text-muted' : 'text-slate-100'
+              className={`tabular text-base font-semibold leading-none ${
+                rent.withheld ? 'text-sm italic font-normal text-subtle' : 'text-ink'
               }`}
             >
               {rent.text}
             </div>
             {!rent.withheld ? (
-              <div className="text-[10px] text-muted">/ SF</div>
+              <div className="mt-0.5 text-[10px] uppercase tracking-wider text-subtle">/ SF</div>
             ) : null}
           </div>
         </header>
 
         <div className="flex flex-wrap items-center gap-1">
-          <span className="rounded border border-edge px-1.5 py-0.5 text-[11px] text-slate-200">
+          <span className="rounded border border-hairline-strong px-1.5 py-0.5 text-[11px] font-medium text-ink">
             {space.floor_label || 'Floor —'}
           </span>
           <span
             className={`rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${
               space.floor_portion === 'entire'
-                ? 'bg-accent/15 text-accent'
-                : 'bg-edge/60 text-muted'
+                ? 'bg-midnight-50 text-midnight-700'
+                : 'bg-surface-sunken text-muted'
             }`}
           >
             {space.floor_portion === 'entire' ? 'Entire' : 'Partial'}
@@ -153,20 +172,20 @@ export default function SpaceCard({ building, space, distanceMiles }: SpaceCardP
             <span
               className={`rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${
                 space.lease_type === 'sublet'
-                  ? 'bg-warn/15 text-warn'
-                  : 'bg-ok/15 text-ok'
+                  ? 'bg-info-surface text-stadium'
+                  : 'bg-midnight-50 text-midnight-700'
               }`}
             >
               {space.lease_type === 'sublet' ? 'Sublet' : 'Direct'}
             </span>
           ) : null}
           {building.class ? (
-            <span className="rounded border border-edge px-1.5 py-0.5 text-[10px] text-muted">
+            <span className="rounded border border-hairline-strong px-1.5 py-0.5 text-[10px] text-muted">
               Class {building.class}
             </span>
           ) : null}
           {distanceMiles !== undefined ? (
-            <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] tabular-nums text-accent">
+            <span className="tabular rounded bg-goldenrod-100 px-1.5 py-0.5 text-[10px] font-medium text-goldenrod-700">
               {formatMiles(distanceMiles)}
             </span>
           ) : null}
@@ -184,25 +203,25 @@ export default function SpaceCard({ building, space, distanceMiles }: SpaceCardP
           </Field>
         </div>
 
-        <div className="truncate text-[11px] text-muted" title={space.leasing_company ?? ''}>
+        <div className="truncate text-xs text-subtle" title={space.leasing_company ?? ''}>
           {space.leasing_company || 'Leasing company unknown'}
         </div>
       </button>
 
-      <footer className="flex justify-end border-t border-edge px-3 py-1.5">
+      <footer className="flex justify-end px-4 pb-3">
         <button
           type="button"
           onClick={() =>
             inCompare ? removeFromCompare(space.id) : addToCompare(space.id, building.id)
           }
           aria-pressed={inCompare}
-          className={`rounded border px-2 py-0.5 text-[11px] transition-colors ${
+          className={`rounded border px-2.5 py-1 text-[11px] font-medium transition-colors ${
             inCompare
-              ? 'border-accent bg-accent/15 text-accent'
-              : 'border-edge text-muted hover:border-accent/60 hover:text-slate-100'
+              ? 'border-goldenrod bg-goldenrod text-midnight'
+              : 'border-hairline-strong text-muted hover:border-midnight hover:text-ink'
           }`}
         >
-          {inCompare ? 'In compare · remove' : 'Add to compare'}
+          {inCompare ? '✓ In compare' : 'Add to compare'}
         </button>
       </footer>
     </article>

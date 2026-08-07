@@ -32,12 +32,12 @@ export default function DateFilter({
   return (
     <div className="space-y-1">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-xs font-medium text-slate-200">{label}</span>
+        <span className="text-xs font-medium text-body">{label}</span>
         {value ? (
           <button
             type="button"
             onClick={() => onChange(null)}
-            className="text-[10px] uppercase tracking-wide text-accent hover:underline"
+            className="text-[10px] font-semibold uppercase tracking-[0.14em] text-brightblue transition-colors hover:text-midnight"
           >
             Clear
           </button>
@@ -51,7 +51,7 @@ export default function DateFilter({
         min={min}
         max={max}
         onChange={(e) => onChange(normalise(e.target.value))}
-        className="w-full rounded border border-edge bg-ink px-2 py-1 text-xs tabular-nums text-slate-100 outline-none focus:border-accent [color-scheme:dark]"
+        className="tabular w-full rounded border border-hairline-strong bg-white px-2.5 py-1.5 text-xs text-ink focus:border-midnight [color-scheme:light]"
       />
 
       {presets && presets.length > 0 ? (
@@ -64,10 +64,10 @@ export default function DateFilter({
                 type="button"
                 onClick={() => onChange(preset.value)}
                 aria-pressed={active}
-                className={`rounded border px-1.5 py-0.5 text-[11px] transition-colors ${
+                className={`rounded border px-2 py-1 text-xs transition-colors ${
                   active
-                    ? 'border-accent bg-accent/15 text-accent'
-                    : 'border-edge text-muted hover:border-accent/60 hover:text-slate-100'
+                    ? 'border-goldenrod bg-goldenrod font-medium text-midnight'
+                    : 'border-hairline bg-white text-muted hover:border-midnight hover:text-ink'
                 }`}
               >
                 {preset.label}

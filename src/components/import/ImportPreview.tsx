@@ -9,10 +9,10 @@ interface ImportPreviewProps {
 }
 
 const BADGE_STYLES: Record<MatchConfidence, string> = {
-  exact: 'border-ok/40 bg-ok/10 text-ok',
-  manual: 'border-accent/40 bg-accent/10 text-accent',
-  fuzzy: 'border-warn/40 bg-warn/10 text-warn',
-  unmatched: 'border-danger/40 bg-danger/10 text-danger',
+  exact: 'border-ok/30 bg-ok-surface text-ok',
+  manual: 'border-info/30 bg-info-surface text-info',
+  fuzzy: 'border-goldenrod/50 bg-goldenrod-50 text-goldenrod-700',
+  unmatched: 'border-danger/30 bg-danger-surface text-danger',
 };
 
 export function MatchBadge({
@@ -25,7 +25,7 @@ export function MatchBadge({
   return (
     <span
       title={explanation || undefined}
-      className={`inline-block cursor-help rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${BADGE_STYLES[confidence]}`}
+      className={`inline-block cursor-help rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${BADGE_STYLES[confidence]}`}
     >
       {confidence}
     </span>
@@ -33,11 +33,12 @@ export function MatchBadge({
 }
 
 export function formatRent(row: MatchedRow) {
+  // Withheld is not zero, and must never be able to be read as a number.
   if (row.askingRentWithheld || row.askingRentPsf == null) {
-    return <span className="text-muted">Withheld</span>;
+    return <span className="italic text-muted">Withheld</span>;
   }
   return (
-    <span className="tabular-nums">
+    <span className="tabular font-medium text-ink">
       ${row.askingRentPsf.toLocaleString(undefined, { maximumFractionDigits: 2 })}
     </span>
   );
@@ -53,10 +54,10 @@ function formatDate(value: string | null): string {
 }
 
 function AgentCell({ row }: { row: MatchedRow }) {
-  if (!row.agentName && !row.agentEmail) return <span className="text-muted">—</span>;
+  if (!row.agentName && !row.agentEmail) return <span className="text-subtle">—</span>;
   return (
     <div className="leading-tight">
-      <div className="text-neutral-200">{row.agentName ?? '—'}</div>
+      <div className="text-body">{row.agentName ?? '—'}</div>
       {row.agentEmail && (
         <div
           title={
@@ -66,8 +67,8 @@ function AgentCell({ row }: { row: MatchedRow }) {
           }
           className={
             row.agentEmailSuspect
-              ? 'cursor-help text-[11px] text-warn line-through decoration-warn'
-              : 'text-[11px] text-muted'
+              ? 'cursor-help text-xs font-medium text-warmorange line-through decoration-warmorange'
+              : 'text-xs text-muted'
           }
         >
           {row.agentEmail}
@@ -83,7 +84,7 @@ function WarningIcon({ warnings }: { warnings: string[] }) {
     <span
       title={warnings.join('\n')}
       aria-label={`${warnings.length} warning${warnings.length === 1 ? '' : 's'}`}
-      className="ml-1 cursor-help select-none text-warn"
+      className="ml-1 cursor-help select-none text-warmorange"
     >
       ⚠
     </span>
@@ -91,14 +92,14 @@ function WarningIcon({ warnings }: { warnings: string[] }) {
 }
 
 const TH =
-  'sticky top-0 z-10 whitespace-nowrap border-b border-edge bg-panel px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-muted';
-const TD = 'border-b border-edge/60 px-3 py-2 align-top text-neutral-200';
+  'sticky top-0 z-10 whitespace-nowrap border-b border-hairline bg-white px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-[0.09em] text-muted';
+const TD = 'px-3 py-2.5 align-top text-body';
 
 /** Every parsed row, exactly as it will be committed. */
 export default function ImportPreview({ rows, skipped }: ImportPreviewProps) {
   return (
-    <div className="max-h-[60vh] overflow-auto rounded-lg border border-edge bg-panel">
-      <table className="w-full min-w-[1100px] border-collapse text-xs">
+    <div className="max-h-[60vh] overflow-auto rounded-card border border-hairline bg-white shadow-card">
+      <table className="w-full min-w-[1100px] border-collapse text-sm">
         <thead>
           <tr>
             <th className={TH}>Address</th>
@@ -113,28 +114,32 @@ export default function ImportPreview({ rows, skipped }: ImportPreviewProps) {
             <th className={TH}>Match</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className="divide-y divide-hairline">
           {rows.map((row) => {
             const isSkipped = skipped?.has(row.rowNumber) ?? false;
             return (
               <tr
                 key={row.rowNumber}
-                className={`hover:bg-ink/40 ${isSkipped ? 'opacity-40 line-through' : ''}`}
+                className={`transition-colors hover:bg-goldenrod-50 ${
+                  isSkipped ? 'opacity-50 line-through' : ''
+                }`}
               >
                 <td className={`${TD} max-w-[280px]`}>
                   <div className="flex items-start">
                     <div>
-                      <div className="text-neutral-100">{row.addressDisplay || row.addressRaw}</div>
+                      <div className="font-medium text-ink">
+                        {row.addressDisplay || row.addressRaw}
+                      </div>
                       {row.buildingName && (
-                        <div className="text-[11px] text-muted">{row.buildingName}</div>
+                        <div className="text-xs text-muted">{row.buildingName}</div>
                       )}
                     </div>
                     <WarningIcon warnings={row.warnings} />
                   </div>
                 </td>
                 <td className={`${TD} whitespace-nowrap`}>{row.floorLabel || '—'}</td>
-                <td className={`${TD} text-right tabular-nums`}>
-                  {row.sf != null ? row.sf.toLocaleString() : '—'}
+                <td className={`${TD} tabular text-right font-medium text-ink`}>
+                  {row.sf != null ? row.sf.toLocaleString() : <span className="text-subtle">—</span>}
                 </td>
                 <td className={`${TD} text-right`}>{formatRent(row)}</td>
                 <td className={`${TD} capitalize`}>{row.leaseType ?? '—'}</td>
@@ -159,7 +164,7 @@ export default function ImportPreview({ rows, skipped }: ImportPreviewProps) {
           })}
           {rows.length === 0 && (
             <tr>
-              <td className="px-3 py-6 text-center text-muted" colSpan={10}>
+              <td className="px-3 py-10 text-center text-sm text-muted" colSpan={10}>
                 No rows in this sheet.
               </td>
             </tr>

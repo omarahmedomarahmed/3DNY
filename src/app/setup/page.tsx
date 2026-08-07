@@ -2,21 +2,25 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import AppHeader from '@/components/shell/AppHeader';
 
 interface Health {
   ok: boolean;
-  database: string;
+  database: 'not configured' | 'connected' | 'error';
+  databaseError: string | null;
+  schemaReady: boolean;
   blob: boolean;
   buildingCount: number | null;
 }
 
 /**
- * A browser-clickable replacement for running migrations from a terminal.
- * SETUP.md points non-technical users here, so every outcome has to be
- * readable without knowing what a migration is.
+ * The browser-clickable replacement for running migrations from a terminal.
+ * SETUP.md points non-technical users here, so every state has to be readable
+ * without knowing what a migration is.
  */
 export default function SetupPage() {
   const [health, setHealth] = useState<Health | null>(null);
+  const [checking, setChecking] = useState(true);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -24,11 +28,14 @@ export default function SetupPage() {
   const [enrichResult, setEnrichResult] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    setChecking(true);
     try {
       const res = await fetch('/api/health', { cache: 'no-store' });
       setHealth(await res.json());
     } catch {
       setHealth(null);
+    } finally {
+      setChecking(false);
     }
   }, []);
 
@@ -45,8 +52,8 @@ export default function SetupPage() {
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? `Failed (${res.status})`);
       setResult(
-        `Database tables are ready (${body.statements} statements run). ` +
-          'You can click this again any time — it will not delete anything.',
+        `Tables are ready — ${body.statements} statements ran. You can click this again ` +
+          'at any time; it never deletes anything.',
       );
       await refresh();
     } catch (err) {
@@ -77,144 +84,190 @@ export default function SetupPage() {
     }
   }
 
-  const dbReady = health?.database === 'connected';
+  // Reachability and schema are separate questions. The migrate button has to
+  // work when the database is reachable but empty — that is exactly the state
+  // it exists to fix.
+  const reachable = health?.database === 'connected';
+  const schemaReady = Boolean(health?.schemaReady);
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-12">
-      <Link href="/" className="text-sm text-accent hover:underline">
-        ← Back to the map
-      </Link>
+    <div className="min-h-screen bg-surface-alt">
+      <AppHeader />
 
-      <h1 className="mt-6 text-2xl font-semibold">Setup</h1>
-      <p className="mt-2 text-sm text-muted">
-        Everything on this page is a button. There is nothing to install and no commands to
-        run. Full instructions are in SETUP.md in the repository.
-      </p>
+      <main className="mx-auto max-w-3xl px-6 py-12">
+        <h1 className="text-2xl font-semibold tracking-tight text-ink">Setup</h1>
+        <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
+          Everything on this page is a button. Nothing to install, no commands to run. The
+          full walkthrough is in SETUP.md.
+        </p>
 
-      <section className="mt-8 rounded-lg border border-edge bg-panel p-5">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Status</h2>
-        <dl className="mt-4 space-y-3 text-sm">
-          <Row
-            label="Database"
-            ok={dbReady}
-            value={
-              health === null
-                ? 'Checking…'
-                : dbReady
+        {/* Status ---------------------------------------------------------- */}
+        <section className="mt-10 overflow-hidden rounded-card border border-hairline bg-white shadow-card">
+          <div className="flex items-center justify-between border-b border-hairline px-5 py-3">
+            <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+              Status
+            </h2>
+            <button
+              onClick={refresh}
+              disabled={checking}
+              className="text-xs text-info hover:underline disabled:opacity-50"
+            >
+              {checking ? 'Checking…' : 'Re-check'}
+            </button>
+          </div>
+
+          <dl className="divide-y divide-hairline">
+            <Row
+              label="Database connection"
+              state={
+                checking && !health
+                  ? 'pending'
+                  : reachable
+                    ? 'ok'
+                    : health?.database === 'not configured'
+                      ? 'todo'
+                      : 'bad'
+              }
+              value={
+                checking && !health
+                  ? 'Checking…'
+                  : reachable
+                    ? 'Connected'
+                    : health?.database === 'not configured'
+                      ? 'DATABASE_URL is not set — add it in Vercel, then redeploy (SETUP.md step 3)'
+                      : (health?.databaseError ?? 'Could not connect')
+              }
+            />
+            <Row
+              label="Database tables"
+              state={checking && !health ? 'pending' : schemaReady ? 'ok' : 'todo'}
+              value={
+                checking && !health
+                  ? 'Checking…'
+                  : schemaReady
+                    ? 'Created'
+                    : reachable
+                      ? 'Not created yet — use the button below'
+                      : 'Waiting on the database connection'
+              }
+            />
+            <Row
+              label="Photo storage"
+              state={health?.blob ? 'ok' : 'optional'}
+              value={
+                health?.blob
                   ? 'Connected'
-                  : health.database === 'not configured'
-                    ? 'Not configured — add DATABASE_URL in Vercel (SETUP.md step 3)'
-                    : `Error — ${health.database}`
-            }
-          />
-          <Row
-            label="Photo storage"
-            ok={Boolean(health?.blob)}
-            value={
-              health?.blob
-                ? 'Connected'
-                : 'Not set up — optional. Add a Blob store in Vercel → Storage (SETUP.md step 4)'
-            }
-            optional
-          />
-          <Row
-            label="Buildings loaded"
-            ok={(health?.buildingCount ?? 0) > 0}
-            value={
-              health?.buildingCount === null || health?.buildingCount === undefined
-                ? '—'
-                : health.buildingCount === 0
-                  ? 'None yet — import a sheet to get started'
-                  : `${health.buildingCount}`
-            }
-            optional
-          />
-        </dl>
-      </section>
+                  : 'Not set up. Optional — add a Blob store in Vercel → Storage (SETUP.md step 4)'
+              }
+            />
+            <Row
+              label="Buildings loaded"
+              state={(health?.buildingCount ?? 0) > 0 ? 'ok' : 'optional'}
+              value={
+                health?.buildingCount === null || health?.buildingCount === undefined
+                  ? '—'
+                  : health.buildingCount === 0
+                    ? 'None yet — upload a sheet to get started'
+                    : `${health.buildingCount}`
+              }
+            />
+          </dl>
+        </section>
 
-      <section className="mt-6 rounded-lg border border-edge bg-panel p-5">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
-          Create database tables
-        </h2>
-        <p className="mt-2 text-sm text-muted">
-          Run this once after connecting the database. It creates the tables the app needs.
-          It is safe to click more than once — it never deletes existing data.
-        </p>
-
-        <button
-          onClick={createTables}
-          disabled={running || !dbReady}
-          className="mt-4 rounded bg-accent px-4 py-2 text-sm font-medium text-ink disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {running ? 'Creating tables…' : 'Create database tables'}
-        </button>
-
-        {!dbReady && (
-          <p className="mt-3 text-xs text-warn">
-            Connect the database first — this button turns on once DATABASE_URL is set.
+        {/* Create tables ---------------------------------------------------- */}
+        <section className="mt-6 rounded-card border border-hairline bg-white p-6 shadow-card">
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+            Create database tables
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-muted">
+            Run this once after connecting the database. Safe to click more than once — it
+            never deletes existing data.
           </p>
-        )}
-        {result && <p className="mt-3 text-sm text-ok">{result}</p>}
-        {error && <p className="mt-3 text-sm text-danger">{error}</p>}
-      </section>
 
-      <section className="mt-6 rounded-lg border border-edge bg-panel p-5">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
-          Refresh building shapes
-        </h2>
-        <p className="mt-2 text-sm text-muted">
-          Imports pull each building&apos;s real outline and height from NYC records
-          automatically. Use this if a building is showing as a plain box — it retries the
-          lookup for anything that is still missing.
+          <button
+            onClick={createTables}
+            disabled={running || !reachable}
+            className="mt-5 rounded bg-goldenrod px-5 py-2.5 text-sm font-semibold text-midnight transition-transform hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
+          >
+            {running
+              ? 'Creating tables…'
+              : schemaReady
+                ? 'Re-run table setup'
+                : 'Create database tables'}
+          </button>
+
+          {!reachable && (
+            <p className="mt-3 text-xs text-warn">
+              Connect the database first — this button turns on once the app can reach it.
+            </p>
+          )}
+          {result && <p className="mt-3 text-sm text-ok">{result}</p>}
+          {error && <p className="mt-3 text-sm text-danger">{error}</p>}
+        </section>
+
+        {/* Refresh geometry -------------------------------------------------- */}
+        <section className="mt-6 rounded-card border border-hairline bg-white p-6 shadow-card">
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+            Refresh building shapes
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-muted">
+            Imports pull each building&apos;s real outline and height from NYC records
+            automatically. Use this if a building is showing as a plain box — it retries the
+            lookup for anything still missing.
+          </p>
+          <button
+            onClick={enrich}
+            disabled={enriching || !schemaReady}
+            className="mt-5 rounded border border-hairline-strong px-5 py-2.5 text-sm font-medium text-ink transition-colors hover:border-midnight hover:bg-midnight-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {enriching ? 'Looking up building shapes…' : 'Refresh building shapes'}
+          </button>
+          {enrichResult && <p className="mt-3 text-sm text-ok">{enrichResult}</p>}
+        </section>
+
+        {/* Next --------------------------------------------------------------- */}
+        <section className="mt-6 rounded-card border border-hairline bg-midnight p-6">
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/60">
+            Next step
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-white/75">
+            Upload your weekly availability sheet and it appears on the map.
+          </p>
+          <Link
+            href="/import"
+            className="mt-5 inline-block rounded bg-goldenrod px-5 py-2.5 text-sm font-semibold text-midnight transition-transform hover:-translate-y-0.5"
+          >
+            Upload a sheet
+          </Link>
+        </section>
+
+        <p className="mt-10 text-xs leading-relaxed text-subtle">
+          This prototype has no sign-in — anyone with the link can open it. Keep confidential
+          landlord economics out of it until a sign-in is added.
         </p>
-        <button
-          onClick={enrich}
-          disabled={enriching || !dbReady}
-          className="mt-4 rounded border border-edge px-4 py-2 text-sm hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {enriching ? 'Looking up building shapes…' : 'Refresh building shapes'}
-        </button>
-        {enrichResult && <p className="mt-3 text-sm text-ok">{enrichResult}</p>}
-      </section>
-
-      <section className="mt-6 rounded-lg border border-edge bg-panel p-5">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Next step</h2>
-        <p className="mt-2 text-sm text-muted">
-          Upload your weekly availability sheet and it will appear on the map.
-        </p>
-        <Link
-          href="/import"
-          className="mt-4 inline-block rounded border border-edge px-4 py-2 text-sm hover:border-accent hover:text-accent"
-        >
-          Go to Import
-        </Link>
-      </section>
-
-      <p className="mt-8 text-xs text-muted">
-        This prototype has no login. Anyone with the link can open it. Do not upload
-        confidential landlord economics until a login is added.
-      </p>
-    </main>
+      </main>
+    </div>
   );
 }
 
-function Row({
-  label,
-  value,
-  ok,
-  optional,
-}: {
-  label: string;
-  value: string;
-  ok: boolean;
-  optional?: boolean;
-}) {
-  const color = ok ? 'bg-ok' : optional ? 'bg-muted' : 'bg-warn';
+type State = 'ok' | 'todo' | 'bad' | 'optional' | 'pending';
+
+const DOT: Record<State, string> = {
+  ok: 'bg-ok',
+  todo: 'bg-goldenrod',
+  bad: 'bg-danger',
+  optional: 'bg-hairline-strong',
+  pending: 'bg-hairline-strong animate-pulse',
+};
+
+function Row({ label, value, state }: { label: string; value: string; state: State }) {
   return (
-    <div className="flex items-start gap-3">
-      <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${color}`} />
-      <dt className="w-32 shrink-0 text-muted">{label}</dt>
-      <dd className="flex-1">{value}</dd>
+    <div className="flex items-start gap-3 px-5 py-4">
+      <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${DOT[state]}`} />
+      <dt className="w-40 shrink-0 text-sm text-muted">{label}</dt>
+      <dd className={`flex-1 text-sm ${state === 'bad' ? 'text-danger' : 'text-ink'}`}>
+        {value}
+      </dd>
     </div>
   );
 }

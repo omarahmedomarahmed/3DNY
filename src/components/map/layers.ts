@@ -93,7 +93,10 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         stroked: false,
         wireframe: false,
         pickable: false,
-        material: { ambient: 0.5, diffuse: 0.6, shininess: 8 },
+        // Mostly ambient: context massing should read as flat pale gray with
+        // just enough shading to separate faces, never as a lit object
+        // competing with the matches.
+        material: { ambient: 0.85, diffuse: 0.25, shininess: 1, specularColor: [255, 255, 255] },
         getPolygon: (b) => buildingRing(b) ?? [],
         getElevation: (b) => buildingHeightFt(b) * FT_TO_M,
         getFillColor: DIMMED_COLOR,
@@ -117,14 +120,18 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       wireframe: false,
       pickable: true,
       autoHighlight: false,
-      material: { ambient: 0.55, diffuse: 0.7, shininess: 12 },
+      // High ambient keeps the fill colour close to the legend swatch; a modest
+      // diffuse term still separates the lit and shaded faces on a white
+      // background. Specular is dropped so deep Midnight tones don't blow out.
+      material: { ambient: 0.72, diffuse: 0.45, shininess: 1, specularColor: [255, 255, 255] },
       getPolygon: (b) => buildingRing(b) ?? [],
       getElevation: (b) => buildingHeightFt(b) * FT_TO_M,
       getFillColor: (b): RGBA => {
         if (b.id === selectedBuildingId) return SELECTED_COLOR;
         if (b.id === hoveredBuildingId) {
           const [r, g, bl] = colorForBuilding(b, colorMode);
-          // Lift the hovered building toward white without losing its hue.
+          // Pull the hovered building toward Goldenrod. On the old dark theme
+          // this lifted toward white; on a white basemap that would erase it.
           return [
             Math.round((r + HOVER_COLOR[0]) / 2),
             Math.round((g + HOVER_COLOR[1]) / 2),
@@ -181,7 +188,9 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         wireframe: false,
         pickable: true,
         elevationScale: 1,
-        material: { ambient: 0.8, diffuse: 0.4, shininess: 20 },
+        // Nearly unlit, so Goldenrod stays Goldenrod on every face and the
+        // bands read as a clean stripe across the Midnight-toned massing.
+        material: { ambient: 0.92, diffuse: 0.16, shininess: 1, specularColor: [255, 255, 255] },
         getPolygon: (d) => d.ring,
         getElevation: (d) => d.heightM,
         getFillColor: (d): RGBA =>

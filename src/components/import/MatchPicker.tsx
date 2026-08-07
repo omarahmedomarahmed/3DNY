@@ -127,7 +127,7 @@ export default function MatchPicker({ row, onResolved }: MatchPickerProps) {
   );
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <div className="flex gap-2">
         <input
           value={query}
@@ -139,38 +139,48 @@ export default function MatchPicker({ row, onResolved }: MatchPickerProps) {
             }
           }}
           placeholder="Search a Manhattan address…"
-          className="flex-1 rounded border border-edge bg-ink px-2 py-1.5 text-xs text-neutral-100 placeholder:text-muted focus:border-accent focus:outline-none"
+          className="flex-1 rounded border border-hairline-strong bg-white px-3 py-2 text-sm text-ink placeholder:text-subtle focus:border-goldenrod focus:outline-none"
         />
         <button
           type="button"
           onClick={() => void search()}
           disabled={searching}
-          className="rounded border border-edge bg-panel px-3 py-1.5 text-xs text-neutral-200 hover:border-accent hover:text-accent disabled:opacity-50"
+          className="shrink-0 rounded bg-midnight px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-midnight-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {searching ? 'Searching…' : 'Search'}
         </button>
       </div>
 
-      {error && <p className="text-xs text-danger">{error}</p>}
+      {error && (
+        <p className="rounded border border-danger/30 bg-danger-surface px-3 py-2 text-sm text-danger">
+          {error}
+        </p>
+      )}
 
       {results !== null && results.length === 0 && !searching && (
-        <p className="text-xs text-muted">
+        <p className="text-sm text-muted">
           No Manhattan buildings matched. Try the street address without the building name.
         </p>
       )}
 
       {results && results.length > 0 && (
-        <ul className="divide-y divide-edge/60 overflow-hidden rounded border border-edge">
+        <ul className="divide-y divide-hairline overflow-hidden rounded border border-hairline bg-white shadow-card">
           {results.map((f, i) => {
             const key = candidateKey(f, i);
             const bin = f.properties?.addendum?.pad?.bin;
+            const chosen = saving === key;
             return (
-              <li key={key} className="flex items-center justify-between gap-3 bg-ink px-3 py-2">
+              <li
+                key={key}
+                className={`flex items-center justify-between gap-3 px-3 py-2.5 transition-colors ${
+                  chosen ? 'bg-ok-surface' : 'bg-white hover:bg-goldenrod-50'
+                }`}
+              >
                 <div className="min-w-0">
-                  <div className="truncate text-xs text-neutral-100">
+                  <div className="truncate text-sm font-medium text-ink">
                     {f.properties?.label ?? f.properties?.name ?? 'Unnamed result'}
                   </div>
-                  <div className="text-[11px] text-muted">
+                  <div className="tabular text-xs text-muted">
                     {bin ? `BIN ${bin}` : 'No BIN on record'}
                   </div>
                 </div>
@@ -178,9 +188,13 @@ export default function MatchPicker({ row, onResolved }: MatchPickerProps) {
                   type="button"
                   onClick={() => void choose(f, key)}
                   disabled={saving !== null}
-                  className="shrink-0 rounded border border-accent/60 bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent hover:bg-accent/20 disabled:opacity-50"
+                  className={`shrink-0 rounded px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed ${
+                    chosen
+                      ? 'bg-ok text-white'
+                      : 'bg-goldenrod text-midnight hover:bg-goldenrod-400 disabled:opacity-50'
+                  }`}
                 >
-                  {saving === key ? 'Saving…' : 'Use this building'}
+                  {chosen ? 'Saving…' : 'Use this building'}
                 </button>
               </li>
             );

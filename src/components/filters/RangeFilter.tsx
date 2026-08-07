@@ -45,8 +45,8 @@ export default function RangeFilter({
     value: number | null,
     placeholder: string | undefined,
   ) => (
-    <label className="flex flex-1 items-center gap-1 rounded border border-edge bg-ink px-2 py-1 focus-within:border-accent">
-      <span className="text-[10px] uppercase tracking-wide text-muted">
+    <label className="flex flex-1 items-center gap-1 rounded border border-hairline-strong bg-white px-2 py-1.5 focus-within:border-midnight">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
         {which === 'min' ? 'Min' : 'Max'}
       </span>
       {unit && unitPosition === 'prefix' ? (
@@ -66,7 +66,7 @@ export default function RangeFilter({
               : { min, max: parse(e.target.value) },
           )
         }
-        className="w-full min-w-0 bg-transparent text-right text-xs tabular-nums text-slate-100 outline-none placeholder:text-muted/50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        className="tabular w-full min-w-0 bg-transparent text-right text-xs font-medium text-ink outline-none placeholder:font-normal placeholder:text-muted [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
       />
       {unit && unitPosition === 'suffix' ? (
         <span className="text-xs text-muted">{unit}</span>
@@ -76,10 +76,10 @@ export default function RangeFilter({
 
   return (
     <div className="space-y-1">
-      <div className="text-xs font-medium text-slate-200">{label}</div>
+      <div className="text-xs font-medium text-body">{label}</div>
       <div className="flex items-center gap-2">
         {field('min', min, lowHint)}
-        <span className="text-xs text-muted">–</span>
+        <span className="text-xs text-subtle">–</span>
         {field('max', max, highHint)}
       </div>
     </div>

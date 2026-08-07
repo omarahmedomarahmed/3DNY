@@ -49,18 +49,20 @@ export default function RadiusResults() {
   const buildingCount = new Set(results.map((r) => r.building.id)).size;
 
   return (
-    <div className="flex h-full flex-col bg-ink">
-      <header className="space-y-2 border-b border-edge bg-panel px-3 py-2">
-        <h2 className="text-xs font-semibold leading-snug text-slate-100">
-          <span className="tabular-nums">{results.length}</span> available space
+    <div className="flex h-full flex-col border-l border-hairline bg-white">
+      <header className="sticky top-0 z-10 space-y-2.5 border-b border-hairline bg-white px-4 py-3">
+        <h2 className="text-sm font-semibold leading-snug text-ink">
+          <span className="tabular">{results.length}</span> available space
           {results.length === 1 ? '' : 's'} within {radiusLabel(radius.miles)} of {originLabel}
         </h2>
-        <p className="text-[11px] tabular-nums text-muted">
+        <p className="tabular text-xs text-muted">
           {buildingCount} building{buildingCount === 1 ? '' : 's'} · {formatSf(totalSf)} available
         </p>
 
-        <div className="flex flex-wrap items-center gap-1">
-          <span className="text-[10px] uppercase tracking-wide text-muted">Radius</span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.09em] text-muted">
+            Radius
+          </span>
           {RADIUS_CHOICES.map((miles) => {
             const active = Math.abs(radius.miles - miles) < 1e-6;
             return (
@@ -69,10 +71,10 @@ export default function RadiusResults() {
                 type="button"
                 aria-pressed={active}
                 onClick={() => setRadius({ ...radius, miles })}
-                className={`rounded border px-1.5 py-0.5 text-[11px] tabular-nums transition-colors ${
+                className={`tabular rounded px-2 py-1 text-xs transition-colors ${
                   active
-                    ? 'border-accent bg-accent/15 text-accent'
-                    : 'border-edge text-muted hover:border-accent/60 hover:text-slate-100'
+                    ? 'bg-goldenrod font-semibold text-midnight'
+                    : 'border border-hairline-strong bg-white text-muted hover:bg-goldenrod-50 hover:text-ink'
                 }`}
               >
                 {miles} mi
@@ -88,14 +90,14 @@ export default function RadiusResults() {
             onClick={() => {
               for (const { space, building } of results) addToCompare(space.id, building.id);
             }}
-            className="rounded border border-edge px-2 py-0.5 text-[11px] text-slate-200 transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded bg-midnight px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-midnight-700 disabled:cursor-not-allowed disabled:bg-midnight-200"
           >
             Add all to compare
           </button>
           <button
             type="button"
             onClick={() => setRadius(null)}
-            className="rounded border border-edge px-2 py-0.5 text-[11px] text-muted transition-colors hover:border-danger hover:text-danger"
+            className="rounded border border-hairline-strong bg-white px-3 py-1.5 text-xs text-muted transition-colors hover:border-danger hover:text-danger"
           >
             Clear radius
           </button>
@@ -104,11 +106,11 @@ export default function RadiusResults() {
 
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
         {results.length === 0 ? (
-          <div className="space-y-2 px-2 py-6 text-center">
-            <p className="text-xs text-slate-200">
+          <div className="space-y-3 px-6 py-14 text-center">
+            <p className="text-base font-semibold text-ink">
               No available spaces within {radiusLabel(radius.miles)} of {originLabel}.
             </p>
-            <p className="text-[11px] text-muted">
+            <p className="text-sm leading-relaxed text-muted">
               Widen the radius above, or clear it to go back to the map view.
             </p>
           </div>

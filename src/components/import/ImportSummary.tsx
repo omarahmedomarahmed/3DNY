@@ -1,6 +1,5 @@
 'use client';
 
-import type { ReactNode } from 'react';
 import type { ImportCounts } from './DropZone';
 
 interface ImportSummaryProps {
@@ -10,57 +9,89 @@ interface ImportSummaryProps {
   skipped?: number;
 }
 
-function Figure({ value, label, tone }: { value: number; label: string; tone: string }) {
+/**
+ * One stat tile. `tone` carries the meaning: green is clean, Goldenrod wants
+ * attention, red blocks the commit, neutral is bookkeeping.
+ */
+function Tile({
+  value,
+  label,
+  tone = 'neutral',
+  size = 'md',
+}: {
+  value: number;
+  label: string;
+  tone?: 'total' | 'ok' | 'gold' | 'danger' | 'neutral';
+  size?: 'md' | 'lg';
+}) {
+  const shell =
+    tone === 'total'
+      ? 'border-midnight bg-midnight'
+      : tone === 'ok'
+        ? 'border-ok/25 bg-ok-surface'
+        : tone === 'gold'
+          ? 'border-goldenrod/40 bg-goldenrod-50'
+          : tone === 'danger'
+            ? 'border-danger/25 bg-danger-surface'
+            : 'border-hairline bg-surface-alt';
+
+  const figure =
+    tone === 'total'
+      ? 'text-white'
+      : tone === 'ok'
+        ? 'text-ok'
+        : tone === 'gold'
+          ? 'text-goldenrod-700'
+          : tone === 'danger'
+            ? 'text-danger'
+            : 'text-ink';
+
+  const caption = tone === 'total' ? 'text-white/70' : 'text-muted';
+
   return (
-    <span className="whitespace-nowrap">
-      <span className={`font-semibold tabular-nums ${tone}`}>{value.toLocaleString()}</span>{' '}
-      <span className="text-muted">{label}</span>
-    </span>
+    <div
+      className={`min-w-[7.5rem] flex-1 rounded-card border px-4 py-3 ${shell} ${
+        size === 'lg' ? 'sm:min-w-[9.5rem]' : ''
+      }`}
+    >
+      <div
+        className={`tabular font-semibold leading-none ${figure} ${
+          size === 'lg' ? 'text-3xl' : 'text-2xl'
+        }`}
+      >
+        {value.toLocaleString()}
+      </div>
+      <div
+        className={`mt-2 text-[10px] font-semibold uppercase leading-tight tracking-[0.09em] ${caption}`}
+      >
+        {label}
+      </div>
+    </div>
   );
 }
 
-/** Headline banner: what the sheet contained and how much of it landed cleanly. */
+/** Headline stats: what the sheet contained and how much of it landed cleanly. */
 export default function ImportSummary({
   summary,
   duplicatesRemoved,
   skipped = 0,
 }: ImportSummaryProps) {
-  const parts: ReactNode[] = [
-    <Figure key="total" value={summary.total} label="rows read" tone="text-neutral-100" />,
-    <Figure key="exact" value={summary.exact} label="matched exactly" tone="text-ok" />,
-  ];
-
-  if (summary.manual > 0) {
-    parts.push(
-      <Figure key="manual" value={summary.manual} label="matched manually" tone="text-accent" />,
-    );
-  }
-  parts.push(<Figure key="fuzzy" value={summary.fuzzy} label="need review" tone="text-warn" />);
-  parts.push(
-    <Figure key="unmatched" value={summary.unmatched} label="unmatched" tone="text-danger" />,
-  );
-  if (duplicatesRemoved > 0) {
-    parts.push(
-      <Figure
-        key="dupes"
-        value={duplicatesRemoved}
-        label={duplicatesRemoved === 1 ? 'duplicate removed' : 'duplicates removed'}
-        tone="text-muted"
-      />,
-    );
-  }
-  if (skipped > 0) {
-    parts.push(<Figure key="skipped" value={skipped} label="skipped" tone="text-muted" />);
-  }
-
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-edge bg-panel px-4 py-3 text-sm">
-      {parts.map((p, i) => (
-        <span key={i} className="flex items-center gap-2">
-          {i > 0 && <span className="text-edge">·</span>}
-          {p}
-        </span>
-      ))}
+    <div className="flex flex-wrap gap-3">
+      <Tile value={summary.total} label="Rows read" tone="total" size="lg" />
+      <Tile value={summary.exact} label="Matched exactly" tone="ok" />
+      {summary.manual > 0 && (
+        <Tile value={summary.manual} label="Matched by hand" tone="ok" />
+      )}
+      <Tile value={summary.fuzzy} label="Need confirmation" tone="gold" />
+      <Tile value={summary.unmatched} label="Unmatched" tone="danger" />
+      {duplicatesRemoved > 0 && (
+        <Tile
+          value={duplicatesRemoved}
+          label={duplicatesRemoved === 1 ? 'Duplicate removed' : 'Duplicates removed'}
+        />
+      )}
+      {skipped > 0 && <Tile value={skipped} label="Skipped" />}
     </div>
   );
 }

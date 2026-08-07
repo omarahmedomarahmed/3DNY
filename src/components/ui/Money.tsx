@@ -102,7 +102,7 @@ export function monthsUntil(iso: string | null | undefined): number | null {
 // ---------------------------------------------------------------------------
 
 export function Dash({ className }: { className?: string }) {
-  return <span className={className ?? 'text-muted'}>{EM_DASH}</span>;
+  return <span className={className ?? 'text-subtle'}>{EM_DASH}</span>;
 }
 
 export function Rent({
@@ -122,8 +122,8 @@ export function Rent({
     );
   }
   const text = formatRent(psf);
-  if (text === null) return <Dash className={className ?? 'text-muted'} />;
-  return <span className={`tabular-nums ${className ?? ''}`.trim()}>{text}</span>;
+  if (text === null) return <Dash className={className ?? 'text-subtle'} />;
+  return <span className={`tabular ${className ?? ''}`.trim()}>{text}</span>;
 }
 
 export function Sf({
@@ -134,8 +134,8 @@ export function Sf({
   className?: string;
 }) {
   const text = formatSf(value);
-  if (text === null) return <Dash className={className ?? 'text-muted'} />;
-  return <span className={`tabular-nums ${className ?? ''}`.trim()}>{text}</span>;
+  if (text === null) return <Dash className={className ?? 'text-subtle'} />;
+  return <span className={`tabular ${className ?? ''}`.trim()}>{text}</span>;
 }
 
 export function DateText({
@@ -154,9 +154,9 @@ export function DateText({
   const text = full ? formatFullDate(value) : formatMonthYear(value);
   if (text === null) {
     if (fallback) return <span className={`text-muted ${className ?? ''}`.trim()}>{fallback}</span>;
-    return <Dash className={className ?? 'text-muted'} />;
+    return <Dash className={className ?? 'text-subtle'} />;
   }
-  return <span className={`tabular-nums ${className ?? ''}`.trim()}>{text}</span>;
+  return <span className={`tabular ${className ?? ''}`.trim()}>{text}</span>;
 }
 
 export function Num({
@@ -169,9 +169,9 @@ export function Num({
   className?: string;
 }) {
   const text = formatNumber(value);
-  if (text === null) return <Dash className={className ?? 'text-muted'} />;
+  if (text === null) return <Dash className={className ?? 'text-subtle'} />;
   return (
-    <span className={`tabular-nums ${className ?? ''}`.trim()}>
+    <span className={`tabular ${className ?? ''}`.trim()}>
       {text}
       {suffix ? ` ${suffix}` : ''}
     </span>
@@ -188,12 +188,12 @@ export function RentRange({
   max: number | null | undefined;
   className?: string;
 }) {
-  if (min === null || min === undefined) return <Dash className={className ?? 'text-muted'} />;
+  if (min === null || min === undefined) return <Dash className={className ?? 'text-subtle'} />;
   if (max === null || max === undefined || max === min) {
     return <Rent psf={min} className={className} />;
   }
   return (
-    <span className={`tabular-nums ${className ?? ''}`.trim()}>
+    <span className={`tabular ${className ?? ''}`.trim()}>
       {`$${min.toFixed(2)} – $${max.toFixed(2)} /SF`}
     </span>
   );
