@@ -10,6 +10,7 @@ import {
 } from '@/lib/floor-bands';
 import type { BuildingWithSpaces, ColorMode, FloorBand } from '@/types';
 import type { ContextBuilding } from '@/lib/city-context';
+import { MULLIONS_DARK, MULLIONS_LIGHT } from './mullions';
 import {
   DIMMED_COLOR,
   FLOOR_BAND_COLOR,
@@ -274,6 +275,9 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       wireframe: false,
       pickable: true,
       autoHighlight: false,
+      // Walls only, and only while they are walls: in photorealistic mode the
+      // footprint is a flat plate with no side faces to draw them on.
+      extensions: photoreal ? [] : [theme === 'dark' ? MULLIONS_DARK : MULLIONS_LIGHT],
       // Tuned for a real sun rather than a flat ambient wash: enough diffuse
       // that the lit and shaded walls of a tower differ plainly as the camera
       // orbits, and a small specular term so the highlight travels across the
@@ -324,7 +328,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
     const lines: FloorLineDatum[] = [];
     // The plate thickness is a fixed fraction of a metre rather than of the
     // floor height: a slab reads the same on a 12ft floor and a 20ft one.
-    const PLATE_M = 0.3;
+    const PLATE_M = 0.18;
     for (const building of active) {
       for (const line of computeFloorLines(building)) {
         lines.push({

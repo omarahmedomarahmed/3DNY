@@ -269,7 +269,7 @@ const LIGHT_THEME: ThemeColors = {
   cityContext: rgba('#C6CFDE', 255),
   // Darker than the facade on a light map: a floor line is a shadow gap
   // between plates, not a highlight.
-  floorLine: rgba('#0A1428', 52),
+  floorLine: rgba('#0A1428', 42),
   labelText: rgba(BRAND.midnight, 255),
   labelBg: rgba(SURFACE.white, 242),
   labelBorder: rgba(SURFACE.hairlineStrong, 255),

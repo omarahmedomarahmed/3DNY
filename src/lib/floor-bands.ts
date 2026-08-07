@@ -187,7 +187,7 @@ export function computeFloorLines(building: Building): FloorLine[] {
 
   // Just proud of the wall, and well inside the availability collar, so the
   // three surfaces never fight for the same depth.
-  const skin = insetRing(ring, 1.005);
+  const skin = insetRing(ring, 1.0015);
 
   const lines: FloorLine[] = [];
   for (let floor = 1; floor < count; floor++) {
