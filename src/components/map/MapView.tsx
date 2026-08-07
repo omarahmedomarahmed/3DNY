@@ -17,6 +17,7 @@ import { useApp } from '@/lib/store';
 import { applyFilters } from '@/lib/filters';
 import type { BuildingWithSpaces } from '@/types';
 import { BAND_ZOOM_THRESHOLD, buildLayers, type MapPoint } from './layers';
+import { useCityContext } from './useCityContext';
 import MapLegend from './MapLegend';
 import MapControls from './MapControls';
 import RadiusControl from './RadiusControl';
@@ -288,6 +289,10 @@ export default function MapView() {
 
   useVisibleBuildings(map, filtered);
 
+  // The surrounding city, so the towers that carry data stand in Manhattan
+  // rather than in an empty plane.
+  const cityContext = useCityContext(map, zoom);
+
   // --- Map bootstrap. Runs once; layer updates go through the overlay.
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -409,6 +414,7 @@ export default function MapView() {
         colorMode,
         radius,
         zoom,
+        cityContext,
         onBuildingClick: (id, at) => {
           const state = useApp.getState();
           state.selectBuilding(id);
@@ -435,6 +441,7 @@ export default function MapView() {
     colorMode,
     radius,
     zoom,
+    cityContext,
     toViewport,
   ]);
 

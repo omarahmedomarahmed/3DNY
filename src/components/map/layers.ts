@@ -8,7 +8,9 @@ import {
   computeFloorBands,
 } from '@/lib/floor-bands';
 import type { BuildingWithSpaces, ColorMode, FloorBand } from '@/types';
+import type { ContextBuilding } from '@/lib/city-context';
 import {
+  CITY_CONTEXT_COLOR,
   DIMMED_COLOR,
   FLOOR_BAND_COLOR,
   FLOOR_BAND_PARTIAL_COLOR,
@@ -57,6 +59,8 @@ export interface BuildLayersOptions {
   colorMode: ColorMode;
   radius: RadiusSelection | null;
   zoom?: number;
+  /** The surrounding city, from NYC footprints. Drawn beneath everything. */
+  cityContext?: ContextBuilding[];
   /** `at` is where the pointer was, so the popup can anchor to the click. */
   onBuildingClick: (buildingId: string, at: MapPoint) => void;
   onSpaceClick: (spaceId: string, buildingId: string, at: MapPoint) => void;
@@ -95,14 +99,18 @@ function ringCenter(ring: [number, number][]): [number, number] {
 }
 
 /**
- * "1440 Broadway" → "1440". A bare street number is what a broker says out
- * loud, and it is the only part of an address that fits in a pill.
+ * The whole first line of the address — "1440 Broadway", not "1440". A bare
+ * number is ambiguous the moment two streets are on screen at once, which is
+ * most of the time in Midtown.
+ *
+ * Only the trailing city/state/zip is dropped, and only when it appears after
+ * a comma. Addresses that are already one line come back untouched.
  */
-function streetNumber(address: string): string {
+function firstAddressLine(address: string): string {
   const trimmed = (address ?? '').trim();
   if (!trimmed) return '—';
-  const first = trimmed.split(/\s+/)[0];
-  return /\d/.test(first) ? first : trimmed.slice(0, 14);
+  const line = (trimmed.split(/\s*[\n,]\s*/)[0] ?? trimmed).trim();
+  return line || trimmed;
 }
 
 /** Lowest asking rent as a compact whole number, or "Withheld". */
@@ -114,8 +122,14 @@ function lowestRentLabel(b: BuildingWithSpaces): string {
   return `$${Math.round(rent)}`;
 }
 
+/**
+ * Two lines: the street address, then the economics. A full address and a rent
+ * side by side make a pill wide enough to cover its neighbours, so the rent
+ * drops underneath where it costs no horizontal room.
+ */
 function labelText(b: BuildingWithSpaces): string {
-  return `${streetNumber(b.address_display)}  ·  ${lowestRentLabel(b)}`;
+  const spaces = b.spaceCount === 1 ? '1 space' : `${b.spaceCount} spaces`;
+  return `${firstAddressLine(b.address_display)}\n${lowestRentLabel(b)}  ·  ${spaces}`;
 }
 
 export function buildLayers(opts: BuildLayersOptions): Layer[] {
@@ -128,6 +142,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
     colorMode,
     radius,
     zoom = 0,
+    cityContext,
     onBuildingClick,
     onSpaceClick,
     onHover,
@@ -135,6 +150,46 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
 
   const filteredIds = new Set(filtered.map((b) => b.id));
   const layers: Layer[] = [];
+
+  // --- The city itself. Drawn first so everything with data sits on top of it,
+  // and never pickable: this is scenery, and a click that selects a random
+  // warehouse in the middle of a meeting is worse than no scenery at all.
+  //
+  // BINs we already render are skipped, otherwise the tower carrying the data
+  // would be buried inside an identical gray copy of itself.
+  if (cityContext && cityContext.length > 0) {
+    const ownBins = new Set(
+      buildings.map((b) => b.bin).filter((bin): bin is string => Boolean(bin)),
+    );
+    const scenery = cityContext.filter((c) => !c.b || !ownBins.has(c.b));
+
+    if (scenery.length > 0) {
+      layers.push(
+        new PolygonLayer<ContextBuilding>({
+          id: 'city-context',
+          data: scenery,
+          extruded: true,
+          filled: true,
+          stroked: false,
+          wireframe: false,
+          pickable: false,
+          // More diffuse than the filtered-out massing, not less: a city with
+          // no face shading is a fog bank. The separation between lit and
+          // shaded walls is what makes it read as buildings, and the fill is
+          // desaturated enough that it still cannot be mistaken for data.
+          material: {
+            ambient: 0.66,
+            diffuse: 0.55,
+            shininess: 1,
+            specularColor: [255, 255, 255],
+          },
+          getPolygon: (c) => c.r,
+          getElevation: (c) => c.h * FT_TO_M,
+          getFillColor: CITY_CONTEXT_COLOR,
+        }),
+      );
+    }
+  }
 
   // --- Context: everything the filters excluded, kept as dim massing so the
   // map never empties out mid-meeting.
@@ -338,6 +393,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
           getText: (d) => d.text,
           getSize: 12,
           sizeUnits: 'pixels',
+          lineHeight: 1.35,
           characterSet: 'auto',
           fontFamily:
             'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',

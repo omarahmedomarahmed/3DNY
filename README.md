@@ -11,6 +11,7 @@ Built to be used live in a tenant meeting.
 ## What it does
 
 - **Drop a CSV → the map updates.** The weekly "Space Added This Week" sheet imports as-is, no reformatting.
+- **The real city around them.** Every other building in view is drawn from NYC's footprint and roof-height records, so your towers stand inside Manhattan instead of floating in an empty plane. Scenery only — it is never clickable, coloured or labelled.
 - **Buildings highlight** by asking rent, availability, or class.
 - **Floor-level bands.** Zoom into a tower and each available floor is its own highlighted band. Click one for that space.
 - **Space detail** with photos you upload yourself.

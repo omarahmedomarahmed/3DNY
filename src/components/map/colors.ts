@@ -85,6 +85,14 @@ export const SELECTED_COLOR: RGBA = rgba(BRAND.warmOrange, 255);
  */
 export const DIMMED_COLOR: RGBA = rgba('#D8DCE4', 130);
 
+/**
+ * The surrounding city — every building the sheet says nothing about. Paler
+ * and slightly cooler than the dimmed state, and partly transparent, so the
+ * hierarchy is unambiguous at a glance: coloured is the answer, gray is a
+ * building you filtered out, and this is Manhattan.
+ */
+export const CITY_CONTEXT_COLOR: RGBA = rgba('#C6CFDE', 255);
+
 /** Hover lifts a building toward Goldenrod; on white, lifting to white hides it. */
 export const HOVER_COLOR: RGBA = rgba(BRAND.goldenrod, 255);
 
