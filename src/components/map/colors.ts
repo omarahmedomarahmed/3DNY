@@ -253,6 +253,8 @@ export interface ThemeColors {
   dimmed: RGBA;
   /** The surrounding city from NYC footprints. */
   cityContext: RGBA;
+  /** Floor plate lines drawn up every facade. */
+  floorLine: RGBA;
   labelText: RGBA;
   labelBg: RGBA;
   labelBorder: RGBA;
@@ -265,6 +267,9 @@ export interface ThemeColors {
 const LIGHT_THEME: ThemeColors = {
   dimmed: rgba('#D8DCE4', 130),
   cityContext: rgba('#C6CFDE', 255),
+  // Darker than the facade on a light map: a floor line is a shadow gap
+  // between plates, not a highlight.
+  floorLine: rgba('#0A1428', 52),
   labelText: rgba(BRAND.midnight, 255),
   labelBg: rgba(SURFACE.white, 242),
   labelBorder: rgba(SURFACE.hairlineStrong, 255),
@@ -282,6 +287,9 @@ const LIGHT_THEME: ThemeColors = {
 const DARK_THEME: ThemeColors = {
   dimmed: rgba('#2A3345', 170),
   cityContext: rgba('#39435A', 255),
+  // Lighter than the facade on a dark map — the same reading inverted, as a
+  // lit slot between floor plates.
+  floorLine: rgba('#9FB4D8', 46),
   labelText: rgba('#F4F7FC', 255),
   labelBg: rgba('#0B1220', 232),
   labelBorder: rgba('#46536E', 255),

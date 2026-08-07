@@ -6,6 +6,7 @@ import {
   buildingHeightFt,
   buildingRing,
   computeFloorBands,
+  computeFloorLines,
 } from '@/lib/floor-bands';
 import type { BuildingWithSpaces, ColorMode, FloorBand } from '@/types';
 import type { ContextBuilding } from '@/lib/city-context';
@@ -84,6 +85,12 @@ export interface BuildLayersOptions {
 
 /** A polygon ring carrying a fixed z, so deck.gl extrudes from that base. */
 type Ring3 = [number, number, number][];
+
+/** One floor plate line on a facade, ready to extrude. */
+interface FloorLineDatum {
+  ring: Ring3;
+  heightM: number;
+}
 
 interface BandDatum extends FloorBand {
   ring: Ring3;
@@ -304,6 +311,52 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       },
     }),
   );
+
+  // --- The facade skin: every floor plate of every building on screen, drawn
+  // as a thin ring one shade off the wall. This is what makes an extrusion
+  // read as a building rather than a coloured block — a stack of floors you
+  // can count, at the building's own derived floor height, so an availability
+  // band lands exactly on the line for the floor the sheet named.
+  //
+  // Decorative and never pickable. It appears at the same zoom as the bands,
+  // because below that the lines are closer together than a pixel.
+  if (zoom >= BAND_ZOOM_THRESHOLD && !photoreal) {
+    const lines: FloorLineDatum[] = [];
+    // The plate thickness is a fixed fraction of a metre rather than of the
+    // floor height: a slab reads the same on a 12ft floor and a 20ft one.
+    const PLATE_M = 0.3;
+    for (const building of active) {
+      for (const line of computeFloorLines(building)) {
+        lines.push({
+          ring: ringWithZ(line.polygon, line.baseFt * FT_TO_M),
+          heightM: PLATE_M,
+        });
+      }
+    }
+
+    if (lines.length > 0) {
+      layers.push(
+        new PolygonLayer<FloorLineDatum>({
+          id: 'facade-floor-lines',
+          data: lines,
+          extruded: true,
+          filled: true,
+          stroked: false,
+          wireframe: false,
+          pickable: false,
+          // Unlit. A floor line is a gap between plates, and shading it would
+          // make the stack shimmer as the camera orbits.
+          material: false,
+          getPolygon: (d) => d.ring,
+          getElevation: (d) => d.heightM,
+          getFillColor: palette.floorLine,
+          updateTriggers: {
+            getFillColor: [theme],
+          },
+        }),
+      );
+    }
+  }
 
   // --- Floor bands: the selected tower always, everything else once the user
   // is zoomed in enough for the stripes to be legible.
