@@ -11,6 +11,7 @@ Built to be used live in a tenant meeting.
 ## What it does
 
 - **Drop a CSV → the map updates.** The weekly "Space Added This Week" sheet imports as-is, no reformatting.
+- **Photorealistic mode.** An optional camera toggle swaps the grey massing for Google's photographed 3D imagery — real facades and rooftops. Off by default, needs a Google Cloud key, and bills per use; availability bands draw over the imagery so they stay readable. See SETUP.md.
 - **The real city around them.** Every other building in view is drawn from NYC's footprint and roof-height records, so your towers stand inside Manhattan instead of floating in an empty plane. Scenery only — it is never clickable, coloured or labelled.
 - **Buildings highlight** by asking rent, availability, or class.
 - **Floor-level bands.** Zoom into a tower and each available floor is its own highlighted band. Click one for that space.
@@ -116,6 +117,10 @@ terminal commands — every step is a click in Neon, Vercel or the app itself.
 | 8 | Back at `/setup`, upload the Cresa logo and position it for the nav and footer |
 | 9 | Open `/landlords` and write up the landlords the import seeded for you |
 
+Optional, and the only part that costs money per use: a Google Cloud key turns
+on photorealistic buildings. SETUP.md covers it, including how to restrict the
+key so it cannot be spent by anyone who views the page.
+
 Only `DATABASE_URL` is genuinely required. Photos and the detailed basemap are optional —
 the app runs and demos without them.
 
@@ -123,7 +128,7 @@ the app runs and demos without them.
 
 ## Not in this version
 
-Authentication · Salesforce integration (tenants are CSV or manual for now) · Placer.ai · landlord breakeven and operating-expense figures · transit walk times · photorealistic mode · submarkets beyond Midtown and Midtown South.
+Authentication · Salesforce integration (tenants are CSV or manual for now) · Placer.ai · landlord breakeven and operating-expense figures · transit walk times · submarkets beyond Midtown and Midtown South.
 
 ---
 

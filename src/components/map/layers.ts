@@ -61,6 +61,14 @@ export interface BuildLayersOptions {
   zoom?: number;
   /** The surrounding city, from NYC footprints. Drawn beneath everything. */
   cityContext?: ContextBuilding[];
+  /**
+   * True while Google's photorealistic mesh is the ground truth. The grey
+   * massing is redundant then, and the layers that carry data have to draw
+   * without depth testing or the mesh swallows them.
+   */
+  photoreal?: boolean;
+  /** Google's tileset layer, already constructed. Drawn under everything. */
+  photorealLayer?: Layer | null;
   /** `at` is where the pointer was, so the popup can anchor to the click. */
   onBuildingClick: (buildingId: string, at: MapPoint) => void;
   onSpaceClick: (spaceId: string, buildingId: string, at: MapPoint) => void;
@@ -143,6 +151,8 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
     radius,
     zoom = 0,
     cityContext,
+    photoreal = false,
+    photorealLayer = null,
     onBuildingClick,
     onSpaceClick,
     onHover,
@@ -151,13 +161,17 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
   const filteredIds = new Set(filtered.map((b) => b.id));
   const layers: Layer[] = [];
 
+  // The photoreal mesh is the ground itself — first in, so everything with
+  // data draws over it.
+  if (photorealLayer) layers.push(photorealLayer);
+
   // --- The city itself. Drawn first so everything with data sits on top of it,
   // and never pickable: this is scenery, and a click that selects a random
   // warehouse in the middle of a meeting is worse than no scenery at all.
   //
   // BINs we already render are skipped, otherwise the tower carrying the data
   // would be buried inside an identical gray copy of itself.
-  if (cityContext && cityContext.length > 0) {
+  if (!photoreal && cityContext && cityContext.length > 0) {
     const ownBins = new Set(
       buildings.map((b) => b.bin).filter((bin): bin is string => Boolean(bin)),
     );
@@ -193,9 +207,9 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
 
   // --- Context: everything the filters excluded, kept as dim massing so the
   // map never empties out mid-meeting.
-  const context = buildings.filter(
-    (b) => !filteredIds.has(b.id) && buildingRing(b) !== null,
-  );
+  const context = photoreal
+    ? []
+    : buildings.filter((b) => !filteredIds.has(b.id) && buildingRing(b) !== null);
 
   if (context.length > 0) {
     layers.push(
@@ -228,9 +242,17 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
     new PolygonLayer<BuildingWithSpaces>({
       id: 'buildings',
       data: active,
-      extruded: true,
+      // Against photogrammetry the building already exists in full detail, so
+      // re-extruding our own box on top of it would only z-fight with the real
+      // facade. The footprint stays as a coloured plate at street level: it
+      // keeps the colour-by-rent reading, keeps the building clickable, and
+      // sits where a real shadow would.
+      extruded: !photoreal,
       filled: true,
-      stroked: false,
+      stroked: photoreal,
+      getLineColor: LABEL_BORDER_COLOR,
+      getLineWidth: 2,
+      lineWidthUnits: 'pixels',
       wireframe: false,
       pickable: true,
       autoHighlight: false,
@@ -266,7 +288,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       },
       updateTriggers: {
         getFillColor: [colorMode, selectedBuildingId, hoveredBuildingId, active.length],
-        getElevation: [active.length],
+        getElevation: [active.length, photoreal],
       },
     }),
   );
@@ -327,6 +349,11 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
           onHover(info.object ? info.object.buildingId : null);
           return false;
         },
+        // Photogrammetry is opaque, so a band drawn at its true position on the
+        // 14th floor is inside the mesh and therefore invisible. Drawing it
+        // without depth testing is the only way availability stays the loudest
+        // thing on screen — the same trade already made for the name-plates.
+        ...(photoreal ? { parameters: { depthCompare: 'always' as const } } : {}),
         updateTriggers: {
           getFillColor: [selectedSpaceId, colorMode],
           getElevation: [bands.length],

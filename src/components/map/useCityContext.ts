@@ -10,11 +10,14 @@ import {
 } from '@/lib/city-context';
 
 /**
- * Below this, a viewport covers more of the city than the request cap allows,
- * and extruded massing that small reads as noise anyway. Above it, the
- * surrounding city appears and the map stops looking like a diagram.
+ * Below this the viewport covers more ground than one request can carry.
+ *
+ * It sits deliberately below the zoom the map opens at once it has framed the
+ * imported buildings — roughly 13 — because the opening frame is the first
+ * thing anyone sees, and an empty plane there is exactly the impression the
+ * city context exists to prevent.
  */
-export const CITY_CONTEXT_ZOOM = 13.5;
+export const CITY_CONTEXT_ZOOM = 12.4;
 
 /** Wait for the pan to settle before spending a request on the new viewport. */
 const SETTLE_MS = 400;
