@@ -36,7 +36,11 @@ const MAX_SPAN = 0.2;
  * are swallowed: scenery that does not arrive should never interrupt a meeting,
  * and the map is fully usable without it.
  */
-export function useCityContext(map: maplibregl.Map | null, zoom: number) {
+export function useCityContext(
+  map: maplibregl.Map | null,
+  zoom: number,
+  enabled = true,
+) {
   const [buildings, setBuildings] = useState<ContextBuilding[]>([]);
   const cache = useRef(new Map<string, ContextBuilding[]>());
   const inflight = useRef<Set<string>>(new Set());
@@ -44,6 +48,13 @@ export function useCityContext(map: maplibregl.Map | null, zoom: number) {
 
   useEffect(() => {
     if (!map) return;
+    // Nothing to fetch when the clean map is showing: the city would be
+    // downloaded, held in memory and never drawn.
+    if (!enabled) {
+      setBuildings([]);
+      lastKey.current = null;
+      return;
+    }
     if (zoom < CITY_CONTEXT_ZOOM) {
       setBuildings([]);
       lastKey.current = null;
@@ -115,7 +126,7 @@ export function useCityContext(map: maplibregl.Map | null, zoom: number) {
       if (timer) clearTimeout(timer);
       map.off('moveend', schedule);
     };
-  }, [map, zoom]);
+  }, [map, zoom, enabled]);
 
   return buildings;
 }

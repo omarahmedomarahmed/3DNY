@@ -126,7 +126,12 @@ export function computeFloorBands(
         top = roof;
       }
 
-      const factor = s.floor_portion === 'partial' ? 0.9 : 0.96;
+      // A collar just OUTSIDE the facade, not inside it. Inset bands sat within
+      // the tower's own opaque walls, so they were invisible in the ordinary
+      // view and only appeared with photorealistic mode on, where depth
+      // testing is off. Scaling about the centroid keeps the band the exact
+      // shape of the building's footprint.
+      const factor = s.floor_portion === 'partial' ? 1.02 : 1.035;
 
       return {
         spaceId: s.id,
@@ -144,3 +149,54 @@ export function computeFloorBands(
 
 /** Feet → metres, which is what deck.gl's elevation units expect. */
 export const FT_TO_M = 0.3048;
+
+/** One drawn floor line on a facade. */
+export interface FloorLine {
+  buildingId: string;
+  floorNumber: number;
+  /** Feet above ground of the floor plate. */
+  baseFt: number;
+  polygon: [number, number][];
+}
+
+/**
+ * Beyond this many floors the lines stop being readable and start being cost.
+ * No Manhattan office tower in the sheet comes close, but bad source data can.
+ */
+const MAX_DRAWN_FLOORS = 120;
+
+/**
+ * Every floor plate of a building, as a thin ring around the facade.
+ *
+ * This is what turns a coloured extrusion into something that reads as a
+ * building: a stack of floors you can count, at the building's own derived
+ * floor height, so a Goldenrod availability band lands exactly on the line for
+ * the floor the sheet named. Purely a skin — never pickable, never coloured by
+ * data, and one shade off the facade so it never competes with availability.
+ */
+export function computeFloorLines(building: Building): FloorLine[] {
+  const ring = buildingRing(building);
+  if (!ring) return [];
+
+  const { height } = floorHeightFt(building);
+  if (height <= 0) return [];
+
+  const roof = buildingHeightFt(building);
+  const count = Math.min(Math.floor(roof / height), MAX_DRAWN_FLOORS);
+  if (count < 2) return [];
+
+  // Just proud of the wall, and well inside the availability collar, so the
+  // three surfaces never fight for the same depth.
+  const skin = insetRing(ring, 1.0015);
+
+  const lines: FloorLine[] = [];
+  for (let floor = 1; floor < count; floor++) {
+    lines.push({
+      buildingId: building.id,
+      floorNumber: floor + 1,
+      baseFt: floor * height,
+      polygon: skin,
+    });
+  }
+  return lines;
+}

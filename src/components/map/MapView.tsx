@@ -8,6 +8,7 @@ import {
   AmbientLight,
   DirectionalLight,
   LightingEffect,
+  _SunLight,
   type PickingInfo,
 } from '@deck.gl/core';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -46,6 +47,14 @@ const BAND_LABEL = 'Floor bands appear at zoom ' + BAND_ZOOM_THRESHOLD;
  */
 const CARTO_POSITRON_STYLE =
   'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
+
+/**
+ * The dark counterpart. Streets and labels drop away to near-black, which is
+ * what makes a lit facade and a Goldenrod band carry a room — a bright white
+ * map on a projector washes both out.
+ */
+const CARTO_DARK_STYLE =
+  'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 const CARTO_ATTRIBUTION = '© OpenStreetMap contributors © CARTO';
 
 function parseCenter(raw: string | undefined): [number, number] {
@@ -190,7 +199,7 @@ function pmtilesStyle(url: string): maplibregl.StyleSpecification {
  * Whatever is chosen, a load failure downgrades to the blank style rather than
  * leaving a broken map (see the `error` handler in the bootstrap effect).
  */
-function resolveBasemap(): {
+function resolveBasemap(theme: 'dark' | 'light'): {
   style: string | maplibregl.StyleSpecification;
   attribution: string | undefined;
   needsPmtiles: boolean;
@@ -210,31 +219,57 @@ function resolveBasemap(): {
   }
 
   return {
-    style: CARTO_POSITRON_STYLE,
+    style: theme === 'dark' ? CARTO_DARK_STYLE : CARTO_POSITRON_STYLE,
     attribution: CARTO_ATTRIBUTION,
     needsPmtiles: false,
   };
 }
 
 /**
- * Extrusions have to read against a near-white ground. A strong ambient term
- * keeps fills close to the legend swatches, and two directional lights — a key
- * from the south-west plus a weak fill — separate adjacent faces so towers
- * don't collapse into flat silhouettes.
+ * A real sun over Manhattan, casting real shadows.
+ *
+ * `_SunLight` derives its direction from the viewport's own latitude and
+ * longitude plus a timestamp, so the light is where the sun actually was — and
+ * because the direction is fixed in the world rather than to the camera, the
+ * lit faces and the shadows stay put as you orbit. That is what makes rotating
+ * feel like walking around a model instead of spinning a picture.
+ *
+ * Mid-morning in June, chosen deliberately: the sun is high enough that streets
+ * are not lost in shadow, and far enough east that towers throw long, readable
+ * shadows down the avenues.
  */
-const LIGHTING = new LightingEffect({
-  ambient: new AmbientLight({ color: [255, 255, 255], intensity: 1.5 }),
-  key: new DirectionalLight({
-    color: [255, 255, 255],
-    intensity: 1.05,
-    direction: [-1, -3, -1],
-  }),
-  fill: new DirectionalLight({
-    color: [214, 224, 240],
-    intensity: 0.6,
-    direction: [2, 1, -1.2],
-  }),
-});
+const SUN_TIMESTAMP = Date.UTC(2025, 5, 21, 14, 30);
+
+function buildLighting(theme: 'dark' | 'light'): LightingEffect {
+  const effect = new LightingEffect({
+    // Ambient carries most of the exposure and the sun supplies the modelling.
+    // The split matters: too much directional intensity drove the blue channel
+    // of Midnight-toned buildings to clip, which turned them electric cyan.
+    ambient: new AmbientLight({
+      color: [255, 255, 255],
+      intensity: theme === 'dark' ? 1.0 : 1.25,
+    }),
+    sun: new _SunLight({
+      timestamp: SUN_TIMESTAMP,
+      color: [255, 250, 238],
+      intensity: 0.65,
+      _shadow: true,
+    }),
+    // A cool bounce from the opposite side, standing in for skylight off the
+    // buildings behind you. Keeps shaded faces from going flat.
+    fill: new DirectionalLight({
+      color: theme === 'dark' ? [120, 150, 205] : [206, 220, 242],
+      intensity: 0.3,
+      direction: [1, 1, -0.7],
+    }),
+  });
+
+  // On white, a shadow is a blue-grey tint rather than the default near-black,
+  // which reads as a hole punched in the map. On the dark map it has to be
+  // darker than the ground it falls on, or it disappears.
+  effect.shadowColor = theme === 'dark' ? [0, 0, 0, 0.45] : [0, 30, 90, 0.16];
+  return effect;
+}
 
 function escapeHtml(value: string): string {
   return value
@@ -297,6 +332,8 @@ export default function MapView() {
   const hoveredBuildingId = useApp((s) => s.hoveredBuildingId);
   const radius = useApp((s) => s.radius);
   const photoreal = useApp((s) => s.photoreal);
+  const showContext = useApp((s) => s.showContext);
+  const mapTheme = useApp((s) => s.mapTheme);
   const loading = useApp((s) => s.loading);
   const error = useApp((s) => s.error);
 
@@ -309,13 +346,13 @@ export default function MapView() {
 
   // The surrounding city, so the towers that carry data stand in Manhattan
   // rather than in an empty plane.
-  const cityContext = useCityContext(map, zoom);
+  const cityContext = useCityContext(map, zoom, showContext);
 
   // --- Map bootstrap. Runs once; layer updates go through the overlay.
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
-    const basemap = resolveBasemap();
+    const basemap = resolveBasemap(useApp.getState().mapTheme);
     let protocol: { remove?: () => void } | null = null;
 
     if (basemap.needsPmtiles) {
@@ -363,7 +400,7 @@ export default function MapView() {
     const overlay = new MapboxOverlay({
       interleaved: false,
       layers: [],
-      effects: [LIGHTING],
+      effects: [buildLighting(useApp.getState().mapTheme)],
       getTooltip: buildTooltip,
     });
     instance.addControl(overlay as unknown as maplibregl.IControl);
@@ -474,6 +511,24 @@ export default function MapView() {
     };
   }, [photoreal, photorealModule]);
 
+  // Swapping the style rather than remounting the map: a remount would drop
+  // the camera, the deck.gl overlay and every loaded tile.
+  const firstTheme = useRef(true);
+  useEffect(() => {
+    const instance = mapRef.current;
+    if (!instance) return;
+    if (firstTheme.current) {
+      firstTheme.current = false;
+      return;
+    }
+    try {
+      instance.setStyle(resolveBasemap(mapTheme).style);
+      overlayRef.current?.setProps({ effects: [buildLighting(mapTheme)] });
+    } catch {
+      // A failed style swap leaves the previous basemap up, which is fine.
+    }
+  }, [mapTheme, map]);
+
   /** deck.gl reports canvas-relative pixels; the popup is viewport-positioned. */
   const toViewport = useCallback((at: MapPoint): PopupAnchor => {
     const instance = mapRef.current;
@@ -481,6 +536,28 @@ export default function MapView() {
     const rect = instance.getCanvas().getBoundingClientRect();
     return { x: rect.left + at.x, y: rect.top + at.y };
   }, []);
+
+  // Built once per session rather than on every render. A fresh Tile3DLayer
+  // carries a fresh `loadOptions` object, and deck.gl treats that as a changed
+  // layer — which is why changing the pitch was re-downloading the tileset
+  // from scratch. The callbacks are stable, so nothing here needs rebuilding.
+  const photorealLayer = useMemo(
+    () =>
+      photorealModule
+        ? buildPhotorealLayer(photorealModule, {
+            onAttribution: setPhotorealCredits,
+            onFirstTile: () => setPhotorealDrawn(true),
+            onError: (message) => {
+              // Back out rather than leave the map with no city at all.
+              setPhotorealError(message);
+              useApp.getState().setPhotoreal(false);
+            },
+          })
+        : null,
+    [photorealModule],
+  );
+
+  const activePhotorealLayer = photoreal && photorealInView ? photorealLayer : null;
 
   // --- Layer sync.
   useEffect(() => {
@@ -496,18 +573,6 @@ export default function MapView() {
       setPopup({ buildingId, spaceId, at: toViewport(at) });
     };
 
-    const photorealLayer = photoreal && photorealInView
-      ? buildPhotorealLayer(photorealModule, {
-          onAttribution: setPhotorealCredits,
-          onFirstTile: () => setPhotorealDrawn(true),
-          onError: (message) => {
-            // Back out rather than leave the map with no city at all.
-            setPhotorealError(message);
-            useApp.getState().setPhotoreal(false);
-          },
-        })
-      : null;
-
     overlay.setProps({
       layers: buildLayers({
         buildings,
@@ -522,7 +587,9 @@ export default function MapView() {
         // Not simply "the mode is on": until a tile has actually drawn, the
         // free grey city stays. Handing over early is what turned a slow or
         // refused tile fetch into a blank map.
-        photoreal: photoreal && photorealLayer !== null && photorealDrawn,
+        photoreal: activePhotorealLayer !== null && photorealDrawn,
+        showContext,
+        theme: mapTheme,
         onBuildingClick: (id, at) => {
           const state = useApp.getState();
           state.selectBuilding(id);
@@ -538,7 +605,7 @@ export default function MapView() {
         },
         onSpaceClick: openSpace,
         onHover: (id) => useApp.getState().setHovered(id),
-        photorealLayer,
+        photorealLayer: activePhotorealLayer,
       }),
     });
   }, [
@@ -552,9 +619,10 @@ export default function MapView() {
     zoom,
     cityContext,
     photoreal,
-    photorealInView,
+    activePhotorealLayer,
     photorealDrawn,
-    photorealModule,
+    showContext,
+    mapTheme,
     toViewport,
   ]);
 

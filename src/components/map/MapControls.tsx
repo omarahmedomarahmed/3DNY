@@ -17,6 +17,12 @@ import { photorealAvailable } from './photoreal';
 /** The pitch the map opens at; "reset" means back to that, not flat. */
 const HOME_PITCH = 50;
 
+/** Degrees per click of the angle controls. */
+const PITCH_STEP = 10;
+
+/** MapLibre's own ceiling. Past this the horizon fills the frame. */
+const MAX_PITCH = 85;
+
 interface MapControlsProps {
   map: maplibregl.Map | null;
   /** Frames every loaded building. Disabled when there is nothing to frame. */
@@ -81,6 +87,10 @@ function Icon({ children }: { children: React.ReactNode }) {
 export default function MapControls({ map, onFitAll, canFitAll }: MapControlsProps) {
   const photoreal = useApp((s) => s.photoreal);
   const setPhotoreal = useApp((s) => s.setPhotoreal);
+  const showContext = useApp((s) => s.showContext);
+  const setShowContext = useApp((s) => s.setShowContext);
+  const mapTheme = useApp((s) => s.mapTheme);
+  const setMapTheme = useApp((s) => s.setMapTheme);
 
   return (
     <div className="pointer-events-auto absolute right-4 top-4 z-20 flex flex-col overflow-hidden rounded-card border border-hairline bg-white shadow-raised">
@@ -122,22 +132,41 @@ export default function MapControls({ map, onFitAll, canFitAll }: MapControlsPro
         </Icon>
       </ControlButton>
 
-      {/* Tilt between flat-on and the pitched view the map opens at, so a plan
-          view of the block is one click away from a skyline view. */}
+      {/* Pitch, in steps, exactly like rotation — so the camera can be set
+          anywhere between straight down and street level rather than jumping
+          between two fixed positions. MapLibre caps pitch at 85. */}
       <ControlButton
-        label="Tilt the view"
+        label="Raise the view angle"
         disabled={!map}
         onClick={() =>
           map?.easeTo({
-            pitch: (map.getPitch() ?? 0) > HOME_PITCH / 2 ? 0 : HOME_PITCH,
-            duration: 500,
+            pitch: Math.min(MAX_PITCH, (map.getPitch() ?? 0) + PITCH_STEP),
+            duration: 350,
+          })
+        }
+      >
+        {/* A plane tipping away from the viewer. */}
+        <Icon>
+          <path d="M3 15.5 12 19l9-3.5-9-3.5z" />
+          <path d="M12 9.5V4" />
+          <polyline points="9.4,6.2 12,3.6 14.6,6.2" />
+        </Icon>
+      </ControlButton>
+
+      <ControlButton
+        label="Lower the view angle"
+        disabled={!map}
+        onClick={() =>
+          map?.easeTo({
+            pitch: Math.max(0, (map.getPitch() ?? 0) - PITCH_STEP),
+            duration: 350,
           })
         }
       >
         <Icon>
-          <path d="M3 16.5 12 20l9-3.5" />
-          <path d="M6.5 12.2 12 14.4l5.5-2.2" />
-          <path d="M9.5 8.2 12 9.2l2.5-1" />
+          <path d="M3 9.5 12 6l9 3.5-9 3.5z" />
+          <path d="M12 15.5V21" />
+          <polyline points="9.4,18.8 12,21.4 14.6,18.8" />
         </Icon>
       </ControlButton>
 
@@ -164,6 +193,48 @@ export default function MapControls({ map, onFitAll, canFitAll }: MapControlsPro
           <path d="M15 4h2.5A2.5 2.5 0 0 1 20 6.5V9" />
           <path d="M20 15v2.5a2.5 2.5 0 0 1-2.5 2.5H15" />
           <path d="M9 20H6.5A2.5 2.5 0 0 1 4 17.5V15" />
+        </Icon>
+      </ControlButton>
+
+      {/* Theme. Dark is the default because these maps are shown in dim rooms
+          on projectors, where a white basemap washes the buildings out. */}
+      <ControlButton
+        label={mapTheme === 'dark' ? 'Switch to the light map' : 'Switch to the dark map'}
+        disabled={!map}
+        onClick={() => setMapTheme(mapTheme === 'dark' ? 'light' : 'dark')}
+      >
+        {mapTheme === 'dark' ? (
+          // A sun, offering the light map.
+          <Icon>
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.2 5.2l1.4 1.4M17.4 17.4l1.4 1.4M18.8 5.2l-1.4 1.4M6.6 17.4l-1.4 1.4" />
+          </Icon>
+        ) : (
+          // A crescent, offering the dark map.
+          <Icon>
+            <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z" />
+          </Icon>
+        )}
+      </ControlButton>
+
+      {/* The clean map is the default: only buildings that actually have space
+          in them. This brings the rest of the city back for orientation. */}
+      <ControlButton
+        label={
+          showContext
+            ? 'Hide buildings with nothing available'
+            : 'Show the surrounding city'
+        }
+        active={showContext}
+        disabled={!map}
+        onClick={() => setShowContext(!showContext)}
+      >
+        {/* A skyline of three blocks. */}
+        <Icon>
+          <path d="M3 20h18" />
+          <path d="M5 20V12h4v8" />
+          <path d="M10.5 20V6h4v14" />
+          <path d="M16 20v-6h3v6" />
         </Icon>
       </ControlButton>
 
