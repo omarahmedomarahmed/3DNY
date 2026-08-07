@@ -1,6 +1,4 @@
-import { neon, neonConfig } from '@neondatabase/serverless';
-
-neonConfig.fetchConnectionCache = true;
+import { neon } from '@neondatabase/serverless';
 
 let cached: ReturnType<typeof neon> | null = null;
 
