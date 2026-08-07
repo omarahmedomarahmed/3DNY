@@ -84,6 +84,17 @@ export interface BuildLayersOptions {
   onHover: (buildingId: string | null) => void;
 }
 
+/**
+ * Opts a layer out of casting shadows.
+ *
+ * Decoration that stands proud of a wall — the floor plates, the availability
+ * collar — throws a stripe of shadow across the facade behind it, which reads
+ * as another building's shadow falling on ours. `shadowEnabled` is honoured by
+ * deck.gl's shadow pass but missing from its published prop types, so it is
+ * spread in as an untyped object rather than suppressed at each call site.
+ */
+const NO_SHADOW = { shadowEnabled: false } as {};
+
 /** A polygon ring carrying a fixed z, so deck.gl extrudes from that base. */
 type Ring3 = [number, number, number][];
 
@@ -343,6 +354,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         new PolygonLayer<FloorLineDatum>({
           id: 'facade-floor-lines',
           data: lines,
+          ...NO_SHADOW,
           extruded: true,
           filled: true,
           stroked: false,
@@ -390,6 +402,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       new PolygonLayer<BandDatum>({
         id: 'floor-bands',
         data: bands,
+        ...NO_SHADOW,
         extruded: true,
         filled: true,
         stroked: false,
