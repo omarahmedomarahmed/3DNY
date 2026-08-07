@@ -27,6 +27,9 @@ import {
   PHOTOREAL_MIN_ZOOM,
   type PhotorealModule,
 } from './photoreal';
+
+/** How long to wait for the first tile before calling the mode broken. */
+const PHOTOREAL_LOAD_TIMEOUT_MS = 20000;
 import MapLegend from './MapLegend';
 import MapControls from './MapControls';
 import RadiusControl from './RadiusControl';
@@ -284,6 +287,7 @@ export default function MapView() {
   const [photorealError, setPhotorealError] = useState<string | null>(null);
   const [photorealModule, setPhotorealModule] = useState<PhotorealModule | null>(null);
   const [photorealInView, setPhotorealInView] = useState(false);
+  const [photorealDrawn, setPhotorealDrawn] = useState(false);
 
   const buildings = useApp((s) => s.buildings);
   const filters = useApp((s) => s.filters);
@@ -403,6 +407,7 @@ export default function MapView() {
     const instance = mapRef.current;
     if (!instance || !photoreal) {
       setPhotorealInView(false);
+      setPhotorealDrawn(false);
       return;
     }
 
@@ -415,6 +420,21 @@ export default function MapView() {
       instance.off('move', check);
     };
   }, [photoreal, map]);
+
+  // If the camera is somewhere the imagery should exist and none has arrived
+  // after a reasonable wait, say so. Silence here is the worst outcome: the
+  // grey city has stood down, the toggle looks on, and nothing explains it.
+  useEffect(() => {
+    if (!photoreal || !photorealInView || photorealDrawn) return;
+    const timer = setTimeout(() => {
+      setPhotorealError(
+        'no imagery arrived. The key may be restricted to a different address, ' +
+          'or the Map Tiles API may not be enabled for it.',
+      );
+      useApp.getState().setPhotoreal(false);
+    }, PHOTOREAL_LOAD_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [photoreal, photorealInView, photorealDrawn]);
 
   // Turning the mode on from a wide view would otherwise show nothing at all,
   // because the tiles are suppressed out there. Fly in instead of explaining.
@@ -479,6 +499,7 @@ export default function MapView() {
     const photorealLayer = photoreal && photorealInView
       ? buildPhotorealLayer(photorealModule, {
           onAttribution: setPhotorealCredits,
+          onFirstTile: () => setPhotorealDrawn(true),
           onError: (message) => {
             // Back out rather than leave the map with no city at all.
             setPhotorealError(message);
@@ -498,7 +519,10 @@ export default function MapView() {
         radius,
         zoom,
         cityContext,
-        photoreal: photoreal && photorealLayer !== null,
+        // Not simply "the mode is on": until a tile has actually drawn, the
+        // free grey city stays. Handing over early is what turned a slow or
+        // refused tile fetch into a blank map.
+        photoreal: photoreal && photorealLayer !== null && photorealDrawn,
         onBuildingClick: (id, at) => {
           const state = useApp.getState();
           state.selectBuilding(id);
@@ -529,6 +553,7 @@ export default function MapView() {
     cityContext,
     photoreal,
     photorealInView,
+    photorealDrawn,
     photorealModule,
     toViewport,
   ]);
@@ -658,6 +683,11 @@ export default function MapView() {
         {photoreal && !photorealInView && (
           <div className="absolute left-1/2 bottom-4 -translate-x-1/2 rounded-full border border-hairline bg-white/95 px-3 py-1 text-[11px] font-medium text-body shadow-card">
             Photorealistic buildings appear closer in, over Manhattan
+          </div>
+        )}
+        {photoreal && photorealInView && !photorealDrawn && (
+          <div className="absolute left-1/2 bottom-4 -translate-x-1/2 rounded-full border border-hairline bg-white/95 px-3 py-1 text-[11px] font-medium text-body shadow-card">
+            Loading photorealistic imagery…
           </div>
         )}
         {!photoreal && zoom < BAND_ZOOM_THRESHOLD && !selectedBuildingId && buildings.length > 0 && (

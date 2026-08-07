@@ -55,10 +55,11 @@ export const PHOTOREAL_MIN_ZOOM = 15;
 /**
  * Screen-space error is the tolerance for how coarse a tile may look before a
  * finer one is fetched. The library's default of 8 is close to lossless and
- * enormously expensive; at 24 a facade still reads correctly in a meeting and
- * a viewport costs a fraction of the tiles.
+ * enormously expensive; at 16 a facade still reads correctly in a meeting and
+ * a viewport costs a fraction of the tiles. Raising it further keeps cutting
+ * the bill, at the cost of visibly coarser buildings.
  */
-const MAX_SCREEN_SPACE_ERROR = 24;
+const MAX_SCREEN_SPACE_ERROR = 16;
 
 /** Whether the current camera is somewhere the mode should be drawn at all. */
 export function photorealInRange(
@@ -160,7 +161,13 @@ export function photorealAvailable(): boolean {
 export interface PhotorealOptions {
   /** Receives the copyright lines for the tiles currently drawn. */
   onAttribution: (credits: string[]) => void;
-  /** Called once if the tileset cannot be loaded, so the UI can back out. */
+  /**
+   * Fires the first time real imagery is on screen. Until it does, the caller
+   * keeps the free grey city drawn — handing over before the mesh exists is
+   * what turns a slow tile fetch into an empty map.
+   */
+  onFirstTile: () => void;
+  /** Called if the tileset cannot be loaded, so the UI can back out. */
   onError: (message: string) => void;
 }
 
@@ -194,6 +201,16 @@ export function buildPhotorealLayer(
     // Scenery, like the grey massing it replaces: a click must never land on
     // a photogrammetry mesh instead of on a building with data.
     pickable: false,
+    onTileLoad: () => opts.onFirstTile(),
+    onTileError: (_tile: unknown, message: string, url: string) => {
+      // Per-tile failures are what a wrong key or an exhausted quota actually
+      // look like from here — the root can succeed and every child still 403.
+      opts.onError(
+        message
+          ? `Google refused a tile: ${message}`
+          : `Google refused a tile (${url}).`,
+      );
+    },
     onTilesetLoad: (tileset: any) => {
       tileset.options.onTraversalComplete = (selected: any[]) => {
         const credits = new Set<string>();
@@ -210,7 +227,6 @@ export function buildPhotorealLayer(
         return selected;
       };
     },
-    onTileError: undefined,
     onError: (err: Error) => {
       opts.onError(
         err?.message ??

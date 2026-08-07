@@ -99,7 +99,17 @@ async function readCache(url: string): Promise<Response | null> {
     const cache = await caches.open(CACHE_NAME);
     const hit = await cache.match(tileCacheKey(url));
     if (!hit) return null;
-    if (isFresh(hit)) return hit;
+    if (isFresh(hit)) {
+      // A Response built from the cache has an empty `url`, and loaders.gl
+      // resolves relative references against it. Restoring the real address
+      // keeps a cache hit indistinguishable from a network response.
+      try {
+        Object.defineProperty(hit, 'url', { value: url, configurable: true });
+      } catch {
+        // Non-configurable in this browser; the tile still loads.
+      }
+      return hit;
+    }
     await cache.delete(tileCacheKey(url));
     return null;
   } catch {
@@ -110,7 +120,7 @@ async function readCache(url: string): Promise<Response | null> {
 async function writeCache(url: string, res: Response): Promise<void> {
   if (!cacheAvailable()) return;
   try {
-    const body = await res.clone().arrayBuffer();
+    const body = await res.arrayBuffer();
     const headers = new Headers();
     // Only the headers a tile actually needs are carried over; copying the
     // whole set would persist Google's auth and rate-limit headers to disk.
@@ -142,18 +152,36 @@ export function createCachingFetch(apiKey: string, rootUrl: string) {
   return async function cachingFetch(url: string, options?: RequestInit): Promise<Response> {
     const headers = new Headers(options?.headers ?? {});
     headers.set('X-GOOG-API-KEY', apiKey);
-    const request = { ...options, headers };
+    const request: RequestInit = { ...options, headers };
 
-    if (tileCacheKey(url) === tileCacheKey(rootUrl)) {
+    // Anything unexpected in the caching path must end in an ordinary network
+    // fetch. A cache is an optimisation; it is never allowed to be the reason
+    // the map is empty.
+    try {
+      if (tileCacheKey(url) === tileCacheKey(rootUrl)) {
+        return await fetch(url, request);
+      }
+
+      const hit = await readCache(url);
+      if (hit) return hit;
+
+      const res = await fetch(url, request);
+      if (res.ok) {
+        // Clone synchronously, before this response is handed back. Cloning
+        // later — from inside the async write — races the caller's read of the
+        // body and throws "already used", which silently disabled caching.
+        let copy: Response | null = null;
+        try {
+          copy = res.clone();
+        } catch {
+          copy = null;
+        }
+        if (copy) void writeCache(url, copy);
+      }
+      return res;
+    } catch {
       return fetch(url, request);
     }
-
-    const hit = await readCache(url);
-    if (hit) return hit;
-
-    const res = await fetch(url, request);
-    if (res.ok) void writeCache(url, res);
-    return res;
   };
 }
 
