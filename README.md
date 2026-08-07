@@ -28,10 +28,26 @@ Full detail: **[PLAN.md](./PLAN.md)**
 
 | | |
 |---|---|
-| Plan | ✅ Complete |
-| Build | Not started |
+| Plan | Complete — [PLAN.md](./PLAN.md) |
+| Build | Complete and deployable |
+| Production build | Passing |
+| Parser tests | 26 passing against both real sample sheets |
 | Coverage | Midtown + Midtown South |
-| Sample data | `data/samples/` — two real weekly sheets |
+
+Setup instructions: **[SETUP.md](./SETUP.md)** — about 20 minutes, all browser clicks,
+no terminal commands.
+
+### Measured against your two real sheets
+
+| | Midtown | Midtown South |
+|---|---|---|
+| Listings read | 29 | 14 (1 duplicate collapsed) |
+| Unique addresses | 17 | 8 |
+| Matched exactly | 15 | 4 |
+| Needs one-click confirmation | 2 | 3 |
+| Needs a manual map pick | 0 | 1 (`One Soho Sq`) |
+
+Six review decisions on the first import, then zero — every choice is remembered.
 
 ---
 
@@ -63,7 +79,7 @@ Column-by-column parsing rules are in [PLAN.md §4](./PLAN.md#4-csv-contract).
 
 Addresses in the sheet are free text; the map needs an exact building. The importer resolves them against NYC's official building records and reports what it found:
 
-> **30 rows imported — 27 matched exactly, 2 need review, 1 unmatched**
+> **14 listings read — 4 matched exactly, 3 need confirmation, 1 unmatched, 1 duplicate removed**
 
 Anything not matched exactly goes to a review queue where you click the right building on the map. **That choice is remembered permanently**, so the same address never asks again. After two or three weekly imports the review queue is effectively empty.
 
@@ -83,29 +99,21 @@ Cases already present in the sample data and handled: building names appended af
 
 ## Setup
 
-No terminal required for any of it.
+**[SETUP.md](./SETUP.md)** is the full guide. It takes about 20 minutes and contains no
+terminal commands — every step is a click in Neon, Vercel or the app itself.
 
-| Step | Where | What |
-|---|---|---|
-| 1 | Neon console | Create a project. Copy the connection string. |
-| 2 | Vercel dashboard | Import this repository as a new project. |
-| 3 | Vercel → Settings → Environment Variables | Paste the values from the table below. |
-| 4 | Vercel → Storage | Add a Blob store (for space photos). The token is injected automatically. |
-| 5 | Vercel → Deployments | Deploy. |
-| 6 | The app | Open the URL, go to **Import**, drag your CSV in. |
+| Step | Where |
+|---|---|
+| 1 | Create a database at neon.tech, copy both connection strings |
+| 2 | Import this repository at vercel.com |
+| 3 | Paste the environment variables (table in SETUP.md step 3) |
+| 4 | Add a Blob store in Vercel → Storage, for space photos |
+| 5 | Deploy |
+| 6 | Open `/setup` in the app and click **Create database tables** |
+| 7 | Open `/import` and drag your CSV in |
 
-### Environment variables
-
-| Name | Value | Where it comes from |
-|---|---|---|
-| `DATABASE_URL` | Neon pooled connection string | Neon console → Connection Details |
-| `DATABASE_URL_UNPOOLED` | Neon direct connection string | Neon console → Connection Details → Direct |
-| `BLOB_READ_WRITE_TOKEN` | auto | Injected by Vercel when you add a Blob store |
-| `NEXT_PUBLIC_PMTILES_URL` | Blob URL of the building tiles | Set after the tile file is uploaded |
-| `NEXT_PUBLIC_BASEMAP_URL` | Blob URL of the basemap tiles | Set after the basemap file is uploaded |
-| `NEXT_PUBLIC_MAP_CENTER` | `-73.98,40.75` | Midtown / Midtown South |
-
-Database tables are created automatically on first deploy.
+Only `DATABASE_URL` is genuinely required. Photos and the detailed basemap are optional —
+the app runs and demos without them.
 
 ---
 
@@ -118,7 +126,20 @@ Authentication · Salesforce integration (tenants are CSV or manual for now) · 
 ## Repository
 
 ```
-PLAN.md              Full build plan — scope, data model, CSV contract, phases, risks
-data/samples/        Two real weekly availability sheets, used as test fixtures
-3DNYC.MD             Original product brief
+SETUP.md                  Click-by-click setup. No terminal commands.
+PLAN.md                   Scope, data model, CSV contract, phases, risks
+docs/CSV-SPEC.md          Exact column contract for the weekly sheet
+docs/LANDLORD-SHEET.md    How to write landlord insights
+src/lib/csv-parser.ts     Reads the weekly sheet as produced
+src/lib/address-matcher.ts  Resolves addresses to NYC building identifiers
+src/lib/footprints.ts     Pulls real building outlines and heights from NYC data
+src/lib/floor-bands.ts    Turns "the 45th floor" into a band on the tower
+src/components/map/       3D map, floor highlights, radius
+src/components/import/    Drop zone, preview, review queue
+src/components/detail/    Building profile, space detail, landlord panel
+src/components/compare/   Compare tray and side-by-side view
+src/components/filters/   Filter rail
+data/samples/             Two real weekly sheets plus landlord and tenant templates
+tests/                    Parser tests run against the real sheets
+3DNYC.MD                  Original product brief
 ```

@@ -20,17 +20,13 @@ interface ReviewQueueProps {
 const PERMANENCE_NOTE =
   'Your choice is saved permanently — this address will match automatically from now on.';
 
-function RowHeader({ row }: { row: MatchedRow }) {
+function RowHeader({ row, listings }: { row: MatchedRow; listings: string }) {
   return (
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
-        <div className="text-sm font-medium text-neutral-100">
-          {row.addressRaw}
-          <span className="ml-2 text-xs font-normal text-muted">row {row.rowNumber}</span>
-        </div>
+        <div className="text-sm font-medium text-neutral-100">{row.addressRaw}</div>
         <div className="text-xs text-muted">
-          {row.floorLabel}
-          {row.sf != null && ` · ${row.sf.toLocaleString()} SF`}
+          {listings} in this sheet
           {row.leasingCompany && ` · ${row.leasingCompany}`}
         </div>
       </div>
@@ -49,7 +45,20 @@ export default function ReviewQueue({
   onUnskip,
   onResolved,
 }: ReviewQueueProps) {
-  const queue = rows.filter((r) => queueIds.has(r.rowNumber));
+  // One card per address, not per row. A building with six available floors
+  // arrives as six rows with the same address and the same match problem;
+  // asking about it six times makes a 4-address queue look like a 14-row chore.
+  const flagged = rows.filter((r) => queueIds.has(r.rowNumber));
+  const listingCounts = new Map<string, number>();
+  for (const r of flagged) {
+    listingCounts.set(r.addressDisplay, (listingCounts.get(r.addressDisplay) ?? 0) + 1);
+  }
+  const seen = new Set<string>();
+  const queue = flagged.filter((r) => {
+    if (seen.has(r.addressDisplay)) return false;
+    seen.add(r.addressDisplay);
+    return true;
+  });
 
   if (queue.length === 0) {
     return (
@@ -65,6 +74,11 @@ export default function ReviewQueue({
       !skipped.has(r.rowNumber) &&
       !accepted.has(r.rowNumber),
   ).length;
+
+  const listingLabel = (address: string) => {
+    const n = listingCounts.get(address) ?? 1;
+    return n === 1 ? '1 listing' : `${n} listings`;
+  };
 
   return (
     <div className="space-y-4">
@@ -99,7 +113,7 @@ export default function ReviewQueue({
                     : 'border-warn/40'
             }`}
           >
-            <RowHeader row={row} />
+            <RowHeader row={row} listings={listingLabel(row.addressDisplay)} />
 
             <div className="mt-3 rounded border border-edge bg-ink px-3 py-2 text-xs">
               <div className="text-muted">Geocoder found</div>
@@ -114,14 +128,16 @@ export default function ReviewQueue({
             {state === 'resolved' && (
               <p className="mt-3 text-xs text-ok">
                 Resolved
-                {row.match.resolvedAddress ? ` to ${row.match.resolvedAddress}` : ''} — this row
-                will be imported.
+                {row.match.resolvedAddress ? ` to ${row.match.resolvedAddress}` : ''} —{' '}
+                {listingLabel(row.addressDisplay)} will be imported.
               </p>
             )}
 
             {state === 'skipped' && (
               <div className="mt-3 flex items-center gap-3">
-                <p className="text-xs text-muted">Skipped — this row will not be imported.</p>
+                <p className="text-xs text-muted">
+                  Skipped — {listingLabel(row.addressDisplay)} will not be imported.
+                </p>
                 <button
                   type="button"
                   onClick={() => onUnskip(row.rowNumber)}
@@ -149,7 +165,7 @@ export default function ReviewQueue({
                     onClick={() => onSkip(row.rowNumber)}
                     className="rounded border border-edge px-3 py-1.5 text-xs text-muted hover:border-danger hover:text-danger"
                   >
-                    Skip this row
+                    Skip this address
                   </button>
                 </div>
 

@@ -77,38 +77,62 @@ export default function ImportPage() {
   }, []);
 
   const handleResolved = useCallback((rowNumber: number, match: ResolvedMatch) => {
-    setRows((prev) =>
-      prev.map((r) =>
-        r.rowNumber === rowNumber
-          ? {
-              ...r,
-              match: {
-                ...r.match,
-                confidence: 'manual',
-                buildingId: match.buildingId,
-                bin: match.bin,
-                bbl: match.bbl,
-                lon: match.lon,
-                lat: match.lat,
-                resolvedAddress: match.resolvedAddress,
-                explanation: `Matched by hand to ${match.resolvedAddress}. Saved as a permanent alias.`,
-              },
-            }
-          : r,
-      ),
-    );
-    setSkipped((prev) => {
-      if (!prev.has(rowNumber)) return prev;
-      const next = new Set(prev);
-      next.delete(rowNumber);
+    setRows((prev) => {
+      // A building with six available floors arrives as six rows sharing one
+      // address. Resolving that address once has to settle all of them —
+      // otherwise the review queue asks the same question six times.
+      const target = prev.find((r) => r.rowNumber === rowNumber);
+      if (!target) return prev;
+
+      const resolvedRowNumbers = new Set<number>();
+      const next = prev.map((r) => {
+        if (r.addressDisplay !== target.addressDisplay) return r;
+        resolvedRowNumbers.add(r.rowNumber);
+        return {
+          ...r,
+          match: {
+            ...r.match,
+            confidence: 'manual' as const,
+            buildingId: match.buildingId,
+            bin: match.bin,
+            bbl: match.bbl,
+            lon: match.lon,
+            lat: match.lat,
+            resolvedAddress: match.resolvedAddress,
+            explanation: `Matched by hand to ${match.resolvedAddress}. Saved as a permanent alias.`,
+          },
+        };
+      });
+
+      setSkipped((prevSkipped) => {
+        if (![...resolvedRowNumbers].some((n) => prevSkipped.has(n))) return prevSkipped;
+        const updated = new Set(prevSkipped);
+        for (const n of resolvedRowNumbers) updated.delete(n);
+        return updated;
+      });
+
       return next;
     });
   }, []);
 
-  const toggleIn = (set: Set<number>, rowNumber: number, on: boolean) => {
+  /**
+   * Review decisions are made per address, not per row, so every listing that
+   * shares the clicked row's address moves together.
+   */
+  const toggleAddress = (
+    set: Set<number>,
+    rowNumber: number,
+    on: boolean,
+    allRows: MatchedRow[],
+  ) => {
+    const target = allRows.find((r) => r.rowNumber === rowNumber);
     const next = new Set(set);
-    if (on) next.add(rowNumber);
-    else next.delete(rowNumber);
+    for (const r of allRows) {
+      if (target && r.addressDisplay !== target.addressDisplay) continue;
+      if (!target && r.rowNumber !== rowNumber) continue;
+      if (on) next.add(r.rowNumber);
+      else next.delete(r.rowNumber);
+    }
     return next;
   };
 
@@ -268,9 +292,9 @@ export default function ImportPage() {
               queueIds={queueIds}
               accepted={accepted}
               skipped={skipped}
-              onAccept={(n) => setAccepted((prev) => toggleIn(prev, n, true))}
-              onSkip={(n) => setSkipped((prev) => toggleIn(prev, n, true))}
-              onUnskip={(n) => setSkipped((prev) => toggleIn(prev, n, false))}
+              onAccept={(n) => setAccepted((prev) => toggleAddress(prev, n, true, rows))}
+              onSkip={(n) => setSkipped((prev) => toggleAddress(prev, n, true, rows))}
+              onUnskip={(n) => setSkipped((prev) => toggleAddress(prev, n, false, rows))}
               onResolved={handleResolved}
             />
             <div className="flex flex-wrap items-center gap-3">

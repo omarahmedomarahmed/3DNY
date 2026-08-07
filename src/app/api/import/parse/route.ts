@@ -55,9 +55,24 @@ async function matchAddresses(rows: ParsedRow[]): Promise<Map<string, Match>> {
   const matches = new Map<string, Match>();
   let first = true;
 
+  // Parsing and geocoding need no database. Only the saved-alias lookup does,
+  // so a missing DATABASE_URL degrades to "no aliases known" rather than
+  // failing the whole preview — the user still sees their sheet parsed, and
+  // committing is what actually requires the database.
+  let aliasesAvailable = true;
+  const lookupAlias = async (value: string): Promise<string | null> => {
+    if (!aliasesAvailable) return null;
+    try {
+      return await findAlias(value);
+    } catch {
+      aliasesAvailable = false;
+      return null;
+    }
+  };
+
   for (const [display, raw] of representative) {
     const aliasId =
-      (await findAlias(raw)) ?? (raw === display ? null : await findAlias(display));
+      (await lookupAlias(raw)) ?? (raw === display ? null : await lookupAlias(display));
 
     if (aliasId) {
       matches.set(display, {
