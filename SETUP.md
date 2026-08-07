@@ -277,6 +277,28 @@ instead. A camera button appears on the map controls to switch between the two.
 When it finishes, open the map. A camera button appears below the other map
 controls. Click it for photography, click it again for the grey city.
 
+### What it does to keep the bill down
+
+Google charges per tile requested, and the imagery covers the whole planet — so
+left unchecked, one wide view of the map bills for everything the camera can see
+out to the horizon. Three limits are built in:
+
+| Limit | Why |
+|---|---|
+| **Manhattan only** | Outside a box around the island the map falls back to the free grey city. You are not paying to render New Jersey |
+| **Close-in only** | Below street-level zoom the imagery is switched off. Turning the mode on from a wide view flies the camera in rather than showing nothing, and a note explains it if you pan away |
+| **Saved on your computer** | Imagery you have already seen is kept in the browser and reused on every later visit, so reloading a block is instant and is not charged again |
+
+The saved imagery is keyed so that it survives reloads and new sessions. If it
+ever needs clearing — imagery looking wrong or out of date — there is a
+**Clear saved imagery on this computer** button on the `/setup` page. Clearing
+loses nothing; the next view simply downloads afresh.
+
+To see what you are actually spending, go to Google Cloud Console → **APIs &
+Services** → **Dashboard** and open **Map Tiles API**. If a number there ever
+looks wrong, turn the camera button off — the grey city costs nothing and every
+other feature works identically.
+
 If the button does not appear, the variable did not save or the redeploy has
 not finished. If the button appears but a yellow message says the imagery is
 unavailable, the key is restricted to the wrong address or the Map Tiles API

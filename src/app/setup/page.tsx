@@ -6,6 +6,8 @@ import AppHeader from '@/components/shell/AppHeader';
 import LogoUploader from '@/components/brand/LogoUploader';
 import { SkylineBand, GridPattern } from '@/components/brand/Skyline';
 import Icon from '@/components/ui/Icon';
+import { photorealAvailable } from '@/components/map/photoreal';
+import { clearTileCache } from '@/lib/tile-cache';
 
 interface Health {
   ok: boolean;
@@ -29,6 +31,7 @@ export default function SetupPage() {
   const [error, setError] = useState<string | null>(null);
   const [enriching, setEnriching] = useState(false);
   const [enrichResult, setEnrichResult] = useState<string | null>(null);
+  const [cacheCleared, setCacheCleared] = useState(false);
 
   const refresh = useCallback(async () => {
     setChecking(true);
@@ -239,6 +242,36 @@ export default function SetupPage() {
           </button>
           {enrichResult && <p className="mt-3 text-sm text-ok">{enrichResult}</p>}
         </section>
+
+        {/* Photorealistic imagery ---------------------------------------------- */}
+        {photorealAvailable() && (
+          <section className="mt-6 rounded-card border border-hairline bg-white p-6 shadow-card">
+            <h2 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+              <Icon name="camera" size={14} />
+              Photorealistic imagery
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              The camera button on the map switches the grey city for real
+              photography. Imagery is kept on this computer after the first view, so
+              coming back to a block is instant and is not charged again. Clearing it
+              only means the next visit downloads afresh — nothing is lost.
+            </p>
+            <button
+              onClick={async () => {
+                await clearTileCache();
+                setCacheCleared(true);
+              }}
+              className="mt-5 rounded border border-hairline-strong px-5 py-2.5 text-sm font-medium text-ink transition-colors hover:border-midnight hover:bg-midnight-50"
+            >
+              Clear saved imagery on this computer
+            </button>
+            {cacheCleared && (
+              <p className="mt-3 text-sm text-ok">
+                Cleared. The next photorealistic view downloads fresh imagery.
+              </p>
+            )}
+          </section>
+        )}
 
         {/* Branding ------------------------------------------------------------ */}
         <section className="mt-6 rounded-card border border-hairline bg-white p-6 shadow-card">
