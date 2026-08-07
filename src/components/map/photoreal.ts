@@ -59,7 +59,17 @@ export const PHOTOREAL_MIN_ZOOM = 15;
  * a viewport costs a fraction of the tiles. Raising it further keeps cutting
  * the bill, at the cost of visibly coarser buildings.
  */
-const MAX_SCREEN_SPACE_ERROR = 16;
+const MAX_SCREEN_SPACE_ERROR = 20;
+
+/**
+ * How much tile geometry to keep resident, in MB.
+ *
+ * The library's default is small enough that tilting to plan view and back
+ * evicted everything, so the return trip re-downloaded a viewport that had
+ * been on screen seconds earlier. Holding more trades memory for both latency
+ * and billed requests, which is the right trade for a tool used in a meeting.
+ */
+const MAX_MEMORY_MB = 400;
 
 /** Whether the current camera is somewhere the mode should be drawn at all. */
 export function photorealInRange(
@@ -196,6 +206,7 @@ export function buildPhotorealLayer(
       // Extracted by Tile3DLayer and handed to the Tileset3D constructor.
       tileset: {
         maximumScreenSpaceError: MAX_SCREEN_SPACE_ERROR,
+        maximumMemoryUsage: MAX_MEMORY_MB,
       },
     },
     // Scenery, like the grey massing it replaces: a click must never land on

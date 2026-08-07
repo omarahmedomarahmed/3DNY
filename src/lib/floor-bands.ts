@@ -126,7 +126,12 @@ export function computeFloorBands(
         top = roof;
       }
 
-      const factor = s.floor_portion === 'partial' ? 0.9 : 0.96;
+      // A collar just OUTSIDE the facade, not inside it. Inset bands sat within
+      // the tower's own opaque walls, so they were invisible in the ordinary
+      // view and only appeared with photorealistic mode on, where depth
+      // testing is off. Scaling about the centroid keeps the band the exact
+      // shape of the building's footprint.
+      const factor = s.floor_portion === 'partial' ? 1.02 : 1.035;
 
       return {
         spaceId: s.id,

@@ -10,30 +10,29 @@ import {
 import type { BuildingWithSpaces, ColorMode, FloorBand } from '@/types';
 import type { ContextBuilding } from '@/lib/city-context';
 import {
-  CITY_CONTEXT_COLOR,
   DIMMED_COLOR,
   FLOOR_BAND_COLOR,
   FLOOR_BAND_PARTIAL_COLOR,
   HOVER_COLOR,
-  LABEL_BG_COLOR,
-  LABEL_BORDER_COLOR,
-  LABEL_TEXT_COLOR,
-  RADIUS_FILL,
-  RADIUS_LINE,
   SELECTED_COLOR,
   colorForBuilding,
+  themeColors,
 } from './colors';
-import type { RGBA } from './colors';
+import type { MapTheme, RGBA } from './colors';
 
-/** Zoom at which floor bands appear for every building, not just the selection. */
-export const BAND_ZOOM_THRESHOLD = 16;
+/**
+ * Zoom at which floor bands appear for every building, not just the selection.
+ * Low enough that the stack of floors is part of what a building looks like,
+ * rather than something you have to go looking for.
+ */
+export const BAND_ZOOM_THRESHOLD = 14.5;
 
 /**
  * Zoom at which each building gets a name-plate. Deliberately half a step
  * below the band threshold: the labels arrive first and tell you *what* you're
  * looking at, then the bands arrive and tell you *where* in the tower.
  */
-export const LABEL_ZOOM_THRESHOLD = 15.5;
+export const LABEL_ZOOM_THRESHOLD = 15.6;
 
 /** Canvas-relative pixel position of the click that opened something. */
 export interface MapPoint {
@@ -69,6 +68,14 @@ export interface BuildLayersOptions {
   photoreal?: boolean;
   /** Google's tileset layer, already constructed. Drawn under everything. */
   photorealLayer?: Layer | null;
+  /**
+   * Draw the buildings with nothing available — the surrounding city and the
+   * ones the filters excluded. Off gives the clean map: only what is being
+   * shown, nothing else on screen to explain.
+   */
+  showContext?: boolean;
+  /** Dark or light basemap. Only the recessive colours change with it. */
+  theme?: MapTheme;
   /** `at` is where the pointer was, so the popup can anchor to the click. */
   onBuildingClick: (buildingId: string, at: MapPoint) => void;
   onSpaceClick: (spaceId: string, buildingId: string, at: MapPoint) => void;
@@ -153,12 +160,15 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
     cityContext,
     photoreal = false,
     photorealLayer = null,
+    showContext = false,
+    theme = 'dark',
     onBuildingClick,
     onSpaceClick,
     onHover,
   } = opts;
 
   const filteredIds = new Set(filtered.map((b) => b.id));
+  const palette = themeColors(theme);
   const layers: Layer[] = [];
 
   // The photoreal mesh is the ground itself — first in, so everything with
@@ -171,7 +181,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
   //
   // BINs we already render are skipped, otherwise the tower carrying the data
   // would be buried inside an identical gray copy of itself.
-  if (!photoreal && cityContext && cityContext.length > 0) {
+  if (showContext && !photoreal && cityContext && cityContext.length > 0) {
     const ownBins = new Set(
       buildings.map((b) => b.bin).filter((bin): bin is string => Boolean(bin)),
     );
@@ -192,14 +202,14 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
           // shaded walls is what makes it read as buildings, and the fill is
           // desaturated enough that it still cannot be mistaken for data.
           material: {
-            ambient: 0.66,
+            ambient: 0.62,
             diffuse: 0.55,
             shininess: 1,
             specularColor: [255, 255, 255],
           },
           getPolygon: (c) => c.r,
           getElevation: (c) => c.h * FT_TO_M,
-          getFillColor: CITY_CONTEXT_COLOR,
+          getFillColor: palette.cityContext,
         }),
       );
     }
@@ -207,9 +217,10 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
 
   // --- Context: everything the filters excluded, kept as dim massing so the
   // map never empties out mid-meeting.
-  const context = photoreal
-    ? []
-    : buildings.filter((b) => !filteredIds.has(b.id) && buildingRing(b) !== null);
+  const context =
+    photoreal || !showContext
+      ? []
+      : buildings.filter((b) => !filteredIds.has(b.id) && buildingRing(b) !== null);
 
   if (context.length > 0) {
     layers.push(
@@ -227,9 +238,9 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         material: { ambient: 0.85, diffuse: 0.25, shininess: 1, specularColor: [255, 255, 255] },
         getPolygon: (b) => buildingRing(b) ?? [],
         getElevation: (b) => buildingHeightFt(b) * FT_TO_M,
-        getFillColor: DIMMED_COLOR,
+        getFillColor: palette.dimmed,
         updateTriggers: {
-          getFillColor: [filtered.length],
+          getFillColor: [filtered.length, theme],
         },
       }),
     );
@@ -250,16 +261,17 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       extruded: !photoreal,
       filled: true,
       stroked: photoreal,
-      getLineColor: LABEL_BORDER_COLOR,
+      getLineColor: palette.labelBorder,
       getLineWidth: 2,
       lineWidthUnits: 'pixels',
       wireframe: false,
       pickable: true,
       autoHighlight: false,
-      // High ambient keeps the fill colour close to the legend swatch; a modest
-      // diffuse term still separates the lit and shaded faces on a white
-      // background. Specular is dropped so deep Midnight tones don't blow out.
-      material: { ambient: 0.72, diffuse: 0.45, shininess: 1, specularColor: [255, 255, 255] },
+      // Tuned for a real sun rather than a flat ambient wash: enough diffuse
+      // that the lit and shaded walls of a tower differ plainly as the camera
+      // orbits, and a small specular term so the highlight travels across the
+      // facade with the point of view rather than sitting still.
+      material: { ambient: 0.62, diffuse: 0.6, shininess: 12, specularColor: [38, 44, 58] },
       getPolygon: (b) => buildingRing(b) ?? [],
       getElevation: (b) => buildingHeightFt(b) * FT_TO_M,
       getFillColor: (b): RGBA => {
@@ -287,7 +299,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         return false;
       },
       updateTriggers: {
-        getFillColor: [colorMode, selectedBuildingId, hoveredBuildingId, active.length],
+        getFillColor: [colorMode, selectedBuildingId, hoveredBuildingId, active.length, theme],
         getElevation: [active.length, photoreal],
       },
     }),
@@ -303,7 +315,10 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
   const bands: BandDatum[] = [];
   for (const building of bandSources) {
     for (const band of computeFloorBands(building, building.spaces)) {
-      const heightM = Math.max(0.5, (band.topFt - band.baseFt) * FT_TO_M);
+      // A part floor is drawn as a thinner stripe than a whole one, so the two
+      // are distinguishable at a glance and not only by colour.
+      const thickness = band.portion === 'partial' ? 0.55 : 0.92;
+      const heightM = Math.max(0.5, (band.topFt - band.baseFt) * thickness * FT_TO_M);
       bands.push({
         ...band,
         building,
@@ -380,8 +395,8 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         stroked: true,
         pickable: false,
         getPolygon: (d) => d.ring,
-        getFillColor: RADIUS_FILL,
-        getLineColor: RADIUS_LINE,
+        getFillColor: palette.radiusFill,
+        getLineColor: palette.radiusLine,
         getLineWidth: 3,
         lineWidthUnits: 'pixels',
         updateTriggers: {
@@ -425,9 +440,9 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
           fontFamily:
             'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
           fontWeight: 700,
-          getColor: LABEL_TEXT_COLOR,
-          getBackgroundColor: LABEL_BG_COLOR,
-          getBorderColor: LABEL_BORDER_COLOR,
+          getColor: palette.labelText,
+          getBackgroundColor: palette.labelBg,
+          getBorderColor: palette.labelBorder,
           getBorderWidth: 1,
           backgroundPadding: [7, 4, 7, 4],
           getTextAnchor: 'middle',
@@ -436,6 +451,9 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
           parameters: { depthCompare: 'always' },
           updateTriggers: {
             getText: [colorMode, active.length],
+            getColor: [theme],
+            getBackgroundColor: [theme],
+            getBorderColor: [theme],
             getPosition: [active.length],
           },
         }),

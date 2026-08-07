@@ -233,3 +233,63 @@ export function gradientForMode(mode: ColorMode): string {
   });
   return `linear-gradient(to right, ${segments.join(', ')})`;
 }
+
+// ---------------------------------------------------------------------------
+// Themes
+// ---------------------------------------------------------------------------
+
+export type MapTheme = 'dark' | 'light';
+
+/**
+ * The colours that have to change with the basemap.
+ *
+ * The rent, size and class ramps are deliberately NOT in here: they are the
+ * legend, and a swatch that means "$110/SF" has to mean the same thing on both
+ * themes. Only the recessive parts — the city that is not the answer, and the
+ * name-plates that sit over it — get a per-theme value.
+ */
+export interface ThemeColors {
+  /** Buildings the filters excluded. */
+  dimmed: RGBA;
+  /** The surrounding city from NYC footprints. */
+  cityContext: RGBA;
+  labelText: RGBA;
+  labelBg: RGBA;
+  labelBorder: RGBA;
+  radiusFill: RGBA;
+  radiusLine: RGBA;
+  /** Tint that cast shadows are drawn in, as RGBA 0-1 alpha. */
+  shadow: [number, number, number, number];
+}
+
+const LIGHT_THEME: ThemeColors = {
+  dimmed: rgba('#D8DCE4', 130),
+  cityContext: rgba('#C6CFDE', 255),
+  labelText: rgba(BRAND.midnight, 255),
+  labelBg: rgba(SURFACE.white, 242),
+  labelBorder: rgba(SURFACE.hairlineStrong, 255),
+  radiusFill: rgba(BRAND.goldenrod, 28),
+  radiusLine: rgba(BRAND.midnight, 215),
+  shadow: [0, 30, 90, 0.16],
+};
+
+/**
+ * On a dark basemap the whole hierarchy inverts: the recessive city has to be
+ * a shade ABOVE the ground rather than below it, or the buildings read as holes
+ * punched in the map. Name-plates become dark pills with near-white type, which
+ * is the only combination that survives both a black street and a lit facade.
+ */
+const DARK_THEME: ThemeColors = {
+  dimmed: rgba('#2A3345', 170),
+  cityContext: rgba('#39435A', 255),
+  labelText: rgba('#F4F7FC', 255),
+  labelBg: rgba('#0B1220', 232),
+  labelBorder: rgba('#46536E', 255),
+  radiusFill: rgba(BRAND.goldenrod, 34),
+  radiusLine: rgba(BRAND.goldenrod, 225),
+  shadow: [0, 0, 0, 0.34],
+};
+
+export function themeColors(theme: MapTheme): ThemeColors {
+  return theme === 'dark' ? DARK_THEME : LIGHT_THEME;
+}

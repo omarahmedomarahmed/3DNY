@@ -32,6 +32,14 @@ interface AppState {
   colorMode: ColorMode;
   /** Google photorealistic tiles instead of the free grey city massing. */
   photoreal: boolean;
+  /**
+   * Whether buildings with nothing available are drawn at all — the grey city
+   * and the filtered-out massing. Off by default: the clean map is the one
+   * that gets shown to a client.
+   */
+  showContext: boolean;
+  /** Basemap and recessive-colour theme. Dark reads better in a dim room. */
+  mapTheme: 'dark' | 'light';
 
   selectedBuildingId: string | null;
   selectedSpaceId: string | null;
@@ -53,6 +61,8 @@ interface AppState {
   resetFilters: () => void;
   setColorMode: (m: ColorMode) => void;
   setPhotoreal: (on: boolean) => void;
+  setShowContext: (on: boolean) => void;
+  setMapTheme: (t: 'dark' | 'light') => void;
 
   selectBuilding: (id: string | null) => void;
   selectSpace: (id: string | null) => void;
@@ -76,6 +86,8 @@ export const useApp = create<AppState>((set, get) => ({
   filters: EMPTY_FILTERS,
   colorMode: 'rent',
   photoreal: false,
+  showContext: false,
+  mapTheme: 'dark',
 
   selectedBuildingId: null,
   selectedSpaceId: null,
@@ -131,6 +143,14 @@ export const useApp = create<AppState>((set, get) => ({
 
   setPhotoreal(photoreal) {
     set({ photoreal });
+  },
+
+  setShowContext(showContext) {
+    set({ showContext });
+  },
+
+  setMapTheme(mapTheme) {
+    set({ mapTheme });
   },
 
   selectBuilding(selectedBuildingId) {
