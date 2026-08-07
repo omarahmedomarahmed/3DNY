@@ -22,7 +22,9 @@ import {
   buildPhotorealLayer,
   loadPhotorealModule,
   photorealAvailable,
+  photorealInRange,
   probePhotoreal,
+  PHOTOREAL_MIN_ZOOM,
   type PhotorealModule,
 } from './photoreal';
 import MapLegend from './MapLegend';
@@ -281,6 +283,7 @@ export default function MapView() {
   const [photorealCredits, setPhotorealCredits] = useState<string[]>([]);
   const [photorealError, setPhotorealError] = useState<string | null>(null);
   const [photorealModule, setPhotorealModule] = useState<PhotorealModule | null>(null);
+  const [photorealInView, setPhotorealInView] = useState(false);
 
   const buildings = useApp((s) => s.buildings);
   const filters = useApp((s) => s.filters);
@@ -393,6 +396,36 @@ export default function MapView() {
     };
   }, []);
 
+  // Where the camera is decides whether the tiles are drawn at all. Tracked on
+  // move rather than read during render, because the whole point is to stop the
+  // traversal from ever seeing a wide, tilted frame.
+  useEffect(() => {
+    const instance = mapRef.current;
+    if (!instance || !photoreal) {
+      setPhotorealInView(false);
+      return;
+    }
+
+    const check = () =>
+      setPhotorealInView(photorealInRange(instance.getCenter(), instance.getZoom()));
+
+    check();
+    instance.on('move', check);
+    return () => {
+      instance.off('move', check);
+    };
+  }, [photoreal, map]);
+
+  // Turning the mode on from a wide view would otherwise show nothing at all,
+  // because the tiles are suppressed out there. Fly in instead of explaining.
+  useEffect(() => {
+    const instance = mapRef.current;
+    if (!photoreal || !instance) return;
+    if (instance.getZoom() < PHOTOREAL_MIN_ZOOM) {
+      instance.easeTo({ zoom: PHOTOREAL_MIN_ZOOM, duration: 900 });
+    }
+  }, [photoreal]);
+
   // The tile reader is a megabyte of glTF machinery, so it is fetched the first
   // time someone asks for photorealistic buildings and never before.
   useEffect(() => {
@@ -443,7 +476,7 @@ export default function MapView() {
       setPopup({ buildingId, spaceId, at: toViewport(at) });
     };
 
-    const photorealLayer = photoreal
+    const photorealLayer = photoreal && photorealInView
       ? buildPhotorealLayer(photorealModule, {
           onAttribution: setPhotorealCredits,
           onError: (message) => {
@@ -495,6 +528,7 @@ export default function MapView() {
     zoom,
     cityContext,
     photoreal,
+    photorealInView,
     photorealModule,
     toViewport,
   ]);
@@ -621,7 +655,12 @@ export default function MapView() {
           onFitAll={() => fitAll(700)}
           canFitAll={buildingPoints(buildings).length > 0}
         />
-        {zoom < BAND_ZOOM_THRESHOLD && !selectedBuildingId && buildings.length > 0 && (
+        {photoreal && !photorealInView && (
+          <div className="absolute left-1/2 bottom-4 -translate-x-1/2 rounded-full border border-hairline bg-white/95 px-3 py-1 text-[11px] font-medium text-body shadow-card">
+            Photorealistic buildings appear closer in, over Manhattan
+          </div>
+        )}
+        {!photoreal && zoom < BAND_ZOOM_THRESHOLD && !selectedBuildingId && buildings.length > 0 && (
           <div className="absolute left-1/2 bottom-4 -translate-x-1/2 rounded-full border border-hairline bg-white/95 px-3 py-1 text-[11px] font-medium text-body shadow-card">
             {BAND_LABEL}
           </div>

@@ -1,4 +1,5 @@
 import type { Layer } from '@deck.gl/core';
+import { createCachingFetch } from '@/lib/tile-cache';
 
 /**
  * Photorealistic mode: Google's 3D Tiles, the only source of actual
@@ -27,6 +28,51 @@ const GOOGLE_TILESET = 'https://tile.googleapis.com/v1/3dtiles/root.json';
 
 /** How long to wait for Google before calling the mode unavailable. */
 const PROBE_TIMEOUT_MS = 8000;
+
+/**
+ * Manhattan, with enough margin to see across the rivers.
+ *
+ * The tileset covers the planet, and the traversal loads whatever the camera
+ * can see — so a pitched view framed on the whole portfolio was pulling in the
+ * tri-state area, 1,813 billed requests in a single page open. Outside this box
+ * the mode falls back to the free grey city, because a photoreal New Jersey is
+ * not what anyone opened this tool for.
+ */
+export const PHOTOREAL_BOUNDS = {
+  west: -74.05,
+  south: 40.68,
+  east: -73.9,
+  north: 40.89,
+} as const;
+
+/**
+ * Below this the horizon covers half a state. The mode is about a building's
+ * facade, which needs this close anyway, and the request count falls off a
+ * cliff on the other side of it.
+ */
+export const PHOTOREAL_MIN_ZOOM = 15;
+
+/**
+ * Screen-space error is the tolerance for how coarse a tile may look before a
+ * finer one is fetched. The library's default of 8 is close to lossless and
+ * enormously expensive; at 24 a facade still reads correctly in a meeting and
+ * a viewport costs a fraction of the tiles.
+ */
+const MAX_SCREEN_SPACE_ERROR = 24;
+
+/** Whether the current camera is somewhere the mode should be drawn at all. */
+export function photorealInRange(
+  center: { lng: number; lat: number },
+  zoom: number,
+): boolean {
+  return (
+    zoom >= PHOTOREAL_MIN_ZOOM &&
+    center.lng >= PHOTOREAL_BOUNDS.west &&
+    center.lng <= PHOTOREAL_BOUNDS.east &&
+    center.lat >= PHOTOREAL_BOUNDS.south &&
+    center.lat <= PHOTOREAL_BOUNDS.north
+  );
+}
 
 /**
  * The 3D-tiles reader and its glTF dependencies are around a megabyte, and most
@@ -135,10 +181,15 @@ export function buildPhotorealLayer(
     id: 'google-photoreal',
     data: GOOGLE_TILESET,
     loader: Tiles3DLoader,
-    // The key travels as a header rather than a query parameter so it is not
-    // baked into every child tile URL the traversal generates.
+    // A caching fetch rather than a plain header block: it adds the key to
+    // every request and answers from disk for any tile already seen, so a
+    // reload costs nothing instead of re-billing the whole viewport.
     loadOptions: {
-      fetch: { headers: { 'X-GOOG-API-KEY': key } },
+      fetch: createCachingFetch(key, GOOGLE_TILESET),
+      // Extracted by Tile3DLayer and handed to the Tileset3D constructor.
+      tileset: {
+        maximumScreenSpaceError: MAX_SCREEN_SPACE_ERROR,
+      },
     },
     // Scenery, like the grey massing it replaces: a click must never land on
     // a photogrammetry mesh instead of on a building with data.
