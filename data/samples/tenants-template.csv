@@ -1,0 +1,8 @@
+Address,Company,Floors,SF,Lease Expiration,Industry,Notes
+100 Park Avenue,Example Law Partners LLP,7-14,"291,000",03/31/2032,Legal,Anchor tenant. Example row — replace with your own data.
+100 Park Avenue,Northbridge Consumer Brands,15-18,"88,400",Jun 2028,Consumer Goods,Example row. Floors written as a range.
+200 Park Avenue,Harlan Media Group,Partial 32-34,"120,000",12/31/2029,Advertising,Example row. Partial floors are written in plain text.
+777 Third Avenue,Vance Kerr Realty,4,"22,150",Sep 2027,Real Estate,Example row. Expiration written as month and year.
+102 Madison Avenue,Ridgeline Health Marketing,8-10,"46,900",08/31/2026,Healthcare Marketing,Example row. Expiration written as MM/DD/YYYY.
+118 W 22nd Street,Fetch Supply Co,"9, 10","31,200",Feb 2028,Consumer Products,"Example row. Commas inside a cell require the cell to be quoted."
+24-32 Union Sq E,Union Square Growth Partners,7,"14,600",Feb 2030,Venture Capital,Example row. Hyphenated address ranges are fine.

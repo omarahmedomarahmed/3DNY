@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+  background: #0d1117;
+  color: #e6edf3;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial,
+    sans-serif;
+  overscroll-behavior: none;
+}
+
+/* Numbers in tables line up only with tabular figures. Brokers scan columns
+   of rents and square footages, so this is load-bearing, not decoration. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: #0d1117;
+}
+::-webkit-scrollbar-thumb {
+  background: #2b3441;
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3d4756;
+}
+
+.maplibregl-ctrl-attrib {
+  background: rgba(13, 17, 23, 0.8) !important;
+  color: #8b949e !important;
+  font-size: 10px;
+}
+.maplibregl-ctrl-attrib a {
+  color: #8b949e !important;
+}
