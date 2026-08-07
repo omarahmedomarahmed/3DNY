@@ -28,6 +28,10 @@ interface MapControlsProps {
   /** Frames every loaded building. Disabled when there is nothing to frame. */
   onFitAll: () => void;
   canFitAll: boolean;
+  /** Captures the selected building as a shareable sheet. */
+  onStackSnapshot: (withPhotoreal: boolean) => void;
+  canSnapshot: boolean;
+  snapshotBusy: boolean;
 }
 
 function ControlButton({
@@ -38,7 +42,7 @@ function ControlButton({
   children,
 }: {
   label: string;
-  onClick: () => void;
+  onClick: (event?: React.MouseEvent) => void;
   disabled?: boolean;
   /** Renders the pressed state, for buttons that toggle rather than act. */
   active?: boolean;
@@ -47,7 +51,7 @@ function ControlButton({
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={(event) => onClick(event)}
       disabled={disabled}
       aria-label={label}
       aria-pressed={active || undefined}
@@ -84,7 +88,14 @@ function Icon({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function MapControls({ map, onFitAll, canFitAll }: MapControlsProps) {
+export default function MapControls({
+  map,
+  onFitAll,
+  canFitAll,
+  onStackSnapshot,
+  canSnapshot,
+  snapshotBusy,
+}: MapControlsProps) {
   const photoreal = useApp((s) => s.photoreal);
   const setPhotoreal = useApp((s) => s.setPhotoreal);
   const showContext = useApp((s) => s.showContext);
@@ -193,6 +204,27 @@ export default function MapControls({ map, onFitAll, canFitAll }: MapControlsPro
           <path d="M15 4h2.5A2.5 2.5 0 0 1 20 6.5V9" />
           <path d="M20 15v2.5a2.5 2.5 0 0 1-2.5 2.5H15" />
           <path d="M9 20H6.5A2.5 2.5 0 0 1 4 17.5V15" />
+        </Icon>
+      </ControlButton>
+
+      {/* Stack Snapshot. Acts on the selected building: frames it, captures the
+          stack, and writes a PNG with every available floor and the landlord
+          beside it. Holding Shift borrows Google's imagery for the capture
+          alone, so a photoreal sheet costs one building rather than a session. */}
+      <ControlButton
+        label={
+          canSnapshot
+            ? 'Stack snapshot of the selected building (hold Shift for photorealistic)'
+            : 'Select a building first, then take a stack snapshot'
+        }
+        disabled={!map || !canSnapshot}
+        active={snapshotBusy}
+        onClick={(event) => onStackSnapshot(Boolean(event?.shiftKey))}
+      >
+        {/* A framed stack: a picture with layers in it. */}
+        <Icon>
+          <rect x="3.2" y="4.5" width="17.6" height="15" rx="2" />
+          <path d="M7 9.5h10M7 13h10M7 16.2h6" />
         </Icon>
       </ControlButton>
 

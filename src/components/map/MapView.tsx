@@ -19,6 +19,9 @@ import { applyFilters } from '@/lib/filters';
 import type { BuildingWithSpaces } from '@/types';
 import { BAND_ZOOM_THRESHOLD, buildLayers, type MapPoint } from './layers';
 import { useCityContext } from './useCityContext';
+import { buildingHeightFt, buildingRing } from '@/lib/floor-bands';
+import { composeSnapshot, downloadSnapshot } from '@/lib/stack-snapshot';
+import type { Landlord } from '@/types';
 import {
   buildPhotorealLayer,
   loadPhotorealModule,
@@ -271,6 +274,55 @@ function buildLighting(theme: 'dark' | 'light'): LightingEffect {
   return effect;
 }
 
+/** Resolves once the map has stopped moving, with a floor on the wait. */
+function settle(map: maplibregl.Map, minMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      map.off('idle', finish);
+      setTimeout(resolve, minMs);
+    };
+    map.on('idle', finish);
+    // A map that is already idle never fires the event.
+    setTimeout(finish, 2500);
+  });
+}
+
+/** One animation frame, so the last paint has actually landed. */
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+/** Polls a predicate up to a deadline. Resolves either way — never throws. */
+function waitFor(test: () => boolean, timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const tick = () => {
+      if (test() || Date.now() - started > timeoutMs) {
+        resolve();
+        return;
+      }
+      setTimeout(tick, 250);
+    };
+    tick();
+  });
+}
+
+/** The landlord profile for one building, or null if there is not one yet. */
+async function fetchLandlord(id: string): Promise<Landlord | null> {
+  try {
+    const res = await fetch('/api/landlords', { cache: 'no-store' });
+    if (!res.ok) return null;
+    const rows = (await res.json()) as Landlord[];
+    return rows.find((l) => l.id === id) ?? null;
+  } catch {
+    // A snapshot without landlord notes is still worth having.
+    return null;
+  }
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -322,7 +374,13 @@ export default function MapView() {
   const [photorealError, setPhotorealError] = useState<string | null>(null);
   const [photorealModule, setPhotorealModule] = useState<PhotorealModule | null>(null);
   const [photorealInView, setPhotorealInView] = useState(false);
+  const [snapshotBusy, setSnapshotBusy] = useState(false);
+  const [snapshotStage, setSnapshotStage] = useState<string | null>(null);
+  const [snapshotError, setSnapshotError] = useState<string | null>(null);
   const [photorealDrawn, setPhotorealDrawn] = useState(false);
+  // The snapshot waits on this from inside an async function, where a state
+  // value captured at call time would never update.
+  const photorealDrawnRef = useRef(false);
 
   const buildings = useApp((s) => s.buildings);
   const filters = useApp((s) => s.filters);
@@ -369,6 +427,10 @@ export default function MapView() {
       pitch: 50,
       bearing: -20,
       antialias: true,
+      // Required for Stack Snapshot: without it the basemap's drawing buffer is
+      // cleared as soon as the frame is presented, and every capture of it
+      // comes back transparent. deck.gl's own canvas already preserves.
+      preserveDrawingBuffer: true,
       attributionControl: {
         compact: true,
         ...(basemap.attribution ? { customAttribution: basemap.attribution } : {}),
@@ -445,6 +507,7 @@ export default function MapView() {
     if (!instance || !photoreal) {
       setPhotorealInView(false);
       setPhotorealDrawn(false);
+      photorealDrawnRef.current = false;
       return;
     }
 
@@ -529,6 +592,162 @@ export default function MapView() {
     }
   }, [mapTheme, map]);
 
+  /**
+   * Flattens the two stacked WebGL canvases into one bitmap.
+   *
+   * The basemap is drawn first, then deck.gl's overlay on top, which is the
+   * same order the screen composites them in. Both are read at their own
+   * device resolution and the result is cropped to a square-ish frame centred
+   * on the map, so a snapshot is not dominated by empty sky.
+   */
+  const captureMapImage = useCallback((): HTMLCanvasElement | null => {
+    const instance = mapRef.current;
+    if (!instance) return null;
+
+    const base = instance.getCanvas();
+    const deckCanvas = overlayRef.current?.getCanvas?.() as HTMLCanvasElement | undefined;
+
+    // Compose at full size first, then crop. Cropping the source canvases
+    // directly would need the two to agree on backing size, which they do not
+    // when the device pixel ratio is fractional.
+    const flat = document.createElement('canvas');
+    flat.width = base.width;
+    flat.height = base.height;
+    const flatCtx = flat.getContext('2d');
+    if (!flatCtx) return null;
+
+    flatCtx.drawImage(base, 0, 0);
+    if (deckCanvas) {
+      flatCtx.drawImage(deckCanvas, 0, 0, flat.width, flat.height);
+    }
+
+    // A centred square. The map viewport is wide because the app is, but a
+    // single framed building in a 16:9 frame is mostly empty ground.
+    const side = Math.min(flat.width, flat.height);
+    const out = document.createElement('canvas');
+    out.width = side;
+    out.height = side;
+    const ctx = out.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(
+      flat,
+      Math.round((flat.width - side) / 2),
+      Math.round((flat.height - side) / 2),
+      side,
+      side,
+      0,
+      0,
+      side,
+      side,
+    );
+    return out;
+  }, []);
+
+  /**
+   * Stack Snapshot. Frames the building, waits for the map to settle, captures
+   * it, and composes the sheet beside it.
+   *
+   * Photorealistic imagery can be switched on for the capture alone and put
+   * back afterwards, so a snapshot can be photoreal without the map having to
+   * be — which is the point: you pay Google for one building, not a session.
+   */
+  const takeStackSnapshot = useCallback(
+    async (buildingId: string, wantPhotoreal: boolean) => {
+      const instance = mapRef.current;
+      if (!instance || snapshotBusy) return;
+
+      const state = useApp.getState();
+      const building = state.buildings.find((b) => b.id === buildingId);
+      if (!building) return;
+
+      const ring = buildingRing(building);
+      if (!ring) {
+        setSnapshotError('This building has no footprint yet, so there is nothing to capture.');
+        return;
+      }
+
+      const restorePhotoreal = state.photoreal;
+      setSnapshotBusy(true);
+      setSnapshotError(null);
+      setSnapshotStage('Framing the building…');
+
+      try {
+        // Frame it: tight on the footprint, pitched enough that the stack of
+        // floors is visible rather than seen from directly above.
+        let west = 180;
+        let south = 90;
+        let east = -180;
+        let north = -90;
+        for (const [lon, lat] of ring) {
+          west = Math.min(west, lon);
+          east = Math.max(east, lon);
+          south = Math.min(south, lat);
+          north = Math.max(north, lat);
+        }
+        // fitBounds frames the FOOTPRINT, which is a ground extent — but the
+        // building rises out of it, and at this pitch a tall tower runs most of
+        // the way up the screen. So the top padding scales with the building's
+        // own height, or the roof lands outside the frame.
+        const heightFt = buildingHeightFt(building);
+        const topPad = Math.min(640, Math.max(220, 150 + heightFt * 0.62));
+        instance.fitBounds(
+          [
+            [west, south],
+            [east, north],
+          ],
+          {
+            padding: { top: topPad, bottom: 150, left: 260, right: 260 },
+            pitch: 58,
+            duration: 900,
+            maxZoom: 17.4,
+          },
+        );
+        await settle(instance, 1400);
+
+        if (wantPhotoreal && photorealAvailable()) {
+          setSnapshotStage('Loading photorealistic imagery…');
+          state.setPhotoreal(true);
+          // The tiles arrive asynchronously; give them a bounded wait rather
+          // than capturing a half-built mesh.
+          await waitFor(() => useApp.getState().photoreal === false || photorealDrawnRef.current, 14000);
+          await settle(instance, 1600);
+        }
+
+        setSnapshotStage('Capturing…');
+        // One more frame, then read immediately — the buffers are preserved,
+        // but the last paint still has to have happened.
+        instance.triggerRepaint();
+        await nextFrame();
+        const mapImage = captureMapImage();
+        if (!mapImage) throw new Error('The map could not be read.');
+
+        setSnapshotStage('Composing the sheet…');
+        const landlord = building.landlord_id
+          ? await fetchLandlord(building.landlord_id)
+          : null;
+
+        const sheet = composeSnapshot({
+          building,
+          landlord,
+          mapImage,
+          capturedAt: new Date(),
+          photoreal: wantPhotoreal && useApp.getState().photoreal,
+        });
+        downloadSnapshot(sheet, building);
+        setSnapshotStage(null);
+      } catch (err) {
+        setSnapshotError((err as Error).message || 'The snapshot could not be created.');
+        setSnapshotStage(null);
+      } finally {
+        if (useApp.getState().photoreal !== restorePhotoreal) {
+          useApp.getState().setPhotoreal(restorePhotoreal);
+        }
+        setSnapshotBusy(false);
+      }
+    },
+    [captureMapImage, snapshotBusy],
+  );
+
   /** deck.gl reports canvas-relative pixels; the popup is viewport-positioned. */
   const toViewport = useCallback((at: MapPoint): PopupAnchor => {
     const instance = mapRef.current;
@@ -546,7 +765,10 @@ export default function MapView() {
       photorealModule
         ? buildPhotorealLayer(photorealModule, {
             onAttribution: setPhotorealCredits,
-            onFirstTile: () => setPhotorealDrawn(true),
+            onFirstTile: () => {
+              photorealDrawnRef.current = true;
+              setPhotorealDrawn(true);
+            },
             onError: (message) => {
               // Back out rather than leave the map with no city at all.
               setPhotorealError(message);
@@ -747,6 +969,13 @@ export default function MapView() {
           map={map}
           onFitAll={() => fitAll(700)}
           canFitAll={buildingPoints(buildings).length > 0}
+          onStackSnapshot={(withPhotoreal) => {
+            if (selectedBuildingId) {
+              void takeStackSnapshot(selectedBuildingId, withPhotoreal);
+            }
+          }}
+          canSnapshot={Boolean(selectedBuildingId) && !snapshotBusy}
+          snapshotBusy={snapshotBusy}
         />
         {photoreal && !photorealInView && (
           <div className="absolute left-1/2 bottom-4 -translate-x-1/2 rounded-full border border-hairline bg-white/95 px-3 py-1 text-[11px] font-medium text-body shadow-card">
@@ -787,6 +1016,21 @@ export default function MapView() {
             >
               Dismiss
             </button>
+          </div>
+        </div>
+      )}
+
+      {(snapshotStage || snapshotError) && (
+        <div className="pointer-events-none absolute inset-x-0 top-4 z-30 flex justify-center">
+          <div
+            className={
+              'rounded-full px-4 py-2 text-sm font-semibold shadow-float ' +
+              (snapshotError
+                ? 'border border-danger/30 bg-danger-surface text-danger'
+                : 'border border-hairline bg-white text-ink')
+            }
+          >
+            {snapshotError ?? snapshotStage}
           </div>
         </div>
       )}
