@@ -24,7 +24,7 @@ export default function MapLegend() {
   const stops = stopsForMode(colorMode);
 
   return (
-    <div className="pointer-events-auto absolute bottom-4 left-4 z-10 w-72 rounded-card border border-hairline bg-white p-3 text-xs shadow-raised">
+    <div className="pointer-events-auto absolute bottom-4 left-4 z-10 w-80 rounded-card border border-hairline-strong bg-white p-3.5 text-sm shadow-float">
       {/* Segmented control: one active segment, no ambiguity about the mode. */}
       <div
         role="group"
@@ -38,7 +38,7 @@ export default function MapLegend() {
             onClick={() => setColorMode(m.id)}
             aria-pressed={colorMode === m.id}
             className={
-              'flex-1 border-r border-hairline px-1.5 py-1.5 text-xs font-medium transition-colors last:border-r-0 ' +
+              'flex-1 border-r border-hairline px-1.5 py-2 text-[13px] font-semibold transition-colors last:border-r-0 ' +
               (colorMode === m.id
                 ? 'bg-midnight text-white'
                 : 'bg-white text-muted hover:bg-goldenrod-50 hover:text-ink')
@@ -49,7 +49,7 @@ export default function MapLegend() {
         ))}
       </div>
 
-      <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.09em] text-muted">
+      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.09em] text-body">
         {CAPTIONS[colorMode]}
       </div>
 
@@ -58,20 +58,20 @@ export default function MapLegend() {
           {stops.map((s) => (
             <li key={s.label} className="flex items-center gap-2">
               <span
-                className="h-3 w-3 shrink-0 rounded-sm border border-hairline-strong"
+                className="h-3.5 w-3.5 shrink-0 rounded-sm border border-hairline-strong"
                 style={{ background: cssRgb(s.color) }}
               />
-              <span className="text-xs text-body">{s.label}</span>
+              <span className="text-[13px] font-medium text-ink">{s.label}</span>
             </li>
           ))}
         </ul>
       ) : (
         <>
           <div
-            className="h-3 w-full rounded-sm border border-hairline-strong"
+            className="h-4 w-full rounded-sm border border-hairline-strong"
             style={{ background: gradientForMode(colorMode) }}
           />
-          <div className="tabular mt-1.5 flex justify-between text-[10px] font-medium text-muted">
+          <div className="tabular mt-1.5 flex justify-between text-[11px] font-semibold text-body">
             {stops.map((s) => (
               <span key={s.label}>{s.label}</span>
             ))}
@@ -79,7 +79,7 @@ export default function MapLegend() {
         </>
       )}
 
-      <div className="mt-3 border-t border-hairline pt-2.5 text-[10px] leading-snug text-muted">
+      <div className="mt-3 border-t border-hairline pt-2.5 text-[11px] leading-snug text-muted">
         Floor bands are derived from building height ÷ floor count — accurate to
         roughly one floor.
       </div>

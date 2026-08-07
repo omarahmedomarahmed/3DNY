@@ -1,4 +1,4 @@
-import { PolygonLayer } from '@deck.gl/layers';
+import { PolygonLayer, TextLayer } from '@deck.gl/layers';
 import type { Layer, PickingInfo } from '@deck.gl/core';
 import { circle as turfCircle } from '@turf/turf';
 import {
@@ -13,6 +13,9 @@ import {
   FLOOR_BAND_COLOR,
   FLOOR_BAND_PARTIAL_COLOR,
   HOVER_COLOR,
+  LABEL_BG_COLOR,
+  LABEL_BORDER_COLOR,
+  LABEL_TEXT_COLOR,
   RADIUS_FILL,
   RADIUS_LINE,
   SELECTED_COLOR,
@@ -22,6 +25,19 @@ import type { RGBA } from './colors';
 
 /** Zoom at which floor bands appear for every building, not just the selection. */
 export const BAND_ZOOM_THRESHOLD = 16;
+
+/**
+ * Zoom at which each building gets a name-plate. Deliberately half a step
+ * below the band threshold: the labels arrive first and tell you *what* you're
+ * looking at, then the bands arrive and tell you *where* in the tower.
+ */
+export const LABEL_ZOOM_THRESHOLD = 15.5;
+
+/** Canvas-relative pixel position of the click that opened something. */
+export interface MapPoint {
+  x: number;
+  y: number;
+}
 
 export interface RadiusSelection {
   lon: number;
@@ -41,8 +57,9 @@ export interface BuildLayersOptions {
   colorMode: ColorMode;
   radius: RadiusSelection | null;
   zoom?: number;
-  onBuildingClick: (buildingId: string) => void;
-  onSpaceClick: (spaceId: string) => void;
+  /** `at` is where the pointer was, so the popup can anchor to the click. */
+  onBuildingClick: (buildingId: string, at: MapPoint) => void;
+  onSpaceClick: (spaceId: string, buildingId: string, at: MapPoint) => void;
   onHover: (buildingId: string | null) => void;
 }
 
@@ -55,8 +72,50 @@ interface BandDatum extends FloorBand {
   building: BuildingWithSpaces;
 }
 
+/** One name-plate: a position in the air above a tower plus its pill text. */
+interface LabelDatum {
+  buildingId: string;
+  position: [number, number, number];
+  text: string;
+}
+
 function ringWithZ(ring: [number, number][], z: number): Ring3 {
   return ring.map(([lon, lat]) => [lon, lat, z] as [number, number, number]);
+}
+
+/** Average of the ring vertices — close enough to a centroid for a label. */
+function ringCenter(ring: [number, number][]): [number, number] {
+  let sx = 0;
+  let sy = 0;
+  for (const [x, y] of ring) {
+    sx += x;
+    sy += y;
+  }
+  return [sx / ring.length, sy / ring.length];
+}
+
+/**
+ * "1440 Broadway" → "1440". A bare street number is what a broker says out
+ * loud, and it is the only part of an address that fits in a pill.
+ */
+function streetNumber(address: string): string {
+  const trimmed = (address ?? '').trim();
+  if (!trimmed) return '—';
+  const first = trimmed.split(/\s+/)[0];
+  return /\d/.test(first) ? first : trimmed.slice(0, 14);
+}
+
+/** Lowest asking rent as a compact whole number, or "Withheld". */
+function lowestRentLabel(b: BuildingWithSpaces): string {
+  const rent = b.minRent ?? b.maxRent;
+  if (rent === null || rent === undefined || !Number.isFinite(rent)) {
+    return 'Withheld';
+  }
+  return `$${Math.round(rent)}`;
+}
+
+function labelText(b: BuildingWithSpaces): string {
+  return `${streetNumber(b.address_display)}  ·  ${lowestRentLabel(b)}`;
 }
 
 export function buildLayers(opts: BuildLayersOptions): Layer[] {
@@ -143,7 +202,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       },
       onClick: (info: PickingInfo<BuildingWithSpaces>) => {
         if (!info.object) return false;
-        onBuildingClick(info.object.id);
+        onBuildingClick(info.object.id, { x: info.x, y: info.y });
         return true;
       },
       onHover: (info: PickingInfo<BuildingWithSpaces>) => {
@@ -203,7 +262,10 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
           if (!info.object) return false;
           // Returning true stops deck.gl from also dispatching the click to the
           // building layer underneath.
-          onSpaceClick(info.object.spaceId);
+          onSpaceClick(info.object.spaceId, info.object.buildingId, {
+            x: info.x,
+            y: info.y,
+          });
           return true;
         },
         onHover: (info: PickingInfo<BandDatum>) => {
@@ -245,6 +307,57 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         },
       }),
     );
+  }
+
+  // --- Name-plates. Drawn last so they sit above the massing, and with depth
+  // testing off so a label is never swallowed by the tower it belongs to.
+  if (zoom >= LABEL_ZOOM_THRESHOLD && active.length > 0) {
+    const labels: LabelDatum[] = [];
+    for (const b of active) {
+      const ring = buildingRing(b);
+      if (!ring || ring.length === 0) continue;
+      const [lon, lat] = ringCenter(ring);
+      labels.push({
+        buildingId: b.id,
+        position: [lon, lat, buildingHeightFt(b) * FT_TO_M],
+        text: labelText(b),
+      });
+    }
+
+    if (labels.length > 0) {
+      layers.push(
+        new TextLayer<LabelDatum>({
+          id: 'building-labels',
+          data: labels,
+          // Labels are a reading aid, not a target: picking stays with the
+          // massing and the bands so a click never lands on a pill.
+          pickable: false,
+          billboard: true,
+          background: true,
+          getPosition: (d) => d.position,
+          getText: (d) => d.text,
+          getSize: 12,
+          sizeUnits: 'pixels',
+          characterSet: 'auto',
+          fontFamily:
+            'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
+          fontWeight: 700,
+          getColor: LABEL_TEXT_COLOR,
+          getBackgroundColor: LABEL_BG_COLOR,
+          getBorderColor: LABEL_BORDER_COLOR,
+          getBorderWidth: 1,
+          backgroundPadding: [7, 4, 7, 4],
+          getTextAnchor: 'middle',
+          getAlignmentBaseline: 'bottom',
+          getPixelOffset: [0, -8],
+          parameters: { depthCompare: 'always' },
+          updateTriggers: {
+            getText: [colorMode, active.length],
+            getPosition: [active.length],
+          },
+        }),
+      );
+    }
   }
 
   return layers;

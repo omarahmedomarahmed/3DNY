@@ -18,7 +18,8 @@ Built to be used live in a tenant meeting.
 - **Radius comps.** Draw a circle around a target building, see every available space inside it.
 - **Filter on anything** in the sheet: lease expiration, asking rent range, SF, floor, class, direct vs sublet, submarket, leasing company, date added.
 - **Edit everything.** Every imported row is editable in-app. Add photos. Correct a bad address match. Update tenants.
-- **Landlord profiles.** Insights, amenities, and portfolio numbers you write yourself, seeded by sheet or typed in.
+- **Landlord profiles.** Every imported building gets a landlord record created for it automatically, seeded from the city's owner of record and flagged for review — so you edit a landlord rather than create one. Insights, amenities and portfolio numbers are yours to write.
+- **Your own logo.** Upload the Cresa mark at `/setup` and position it against live previews of the real navigation bar and footer.
 
 Full detail: **[PLAN.md](./PLAN.md)**
 
@@ -111,6 +112,8 @@ terminal commands — every step is a click in Neon, Vercel or the app itself.
 | 5 | Deploy |
 | 6 | Open `/setup` in the app and click **Create database tables** |
 | 7 | Open `/import` and drag your CSV in |
+| 8 | Back at `/setup`, upload the Cresa logo and position it for the nav and footer |
+| 9 | Open `/landlords` and write up the landlords the import seeded for you |
 
 Only `DATABASE_URL` is genuinely required. Photos and the detailed basemap are optional —
 the app runs and demos without them.

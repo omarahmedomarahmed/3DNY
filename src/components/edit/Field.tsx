@@ -14,6 +14,9 @@ export type FieldType =
 
 export type FieldValue = string | number | boolean | string[] | null;
 
+/** Extra checks a field has to pass before the drawer will let a save through. */
+export type FieldRule = 'positive-number' | 'email' | 'date';
+
 export interface FieldSpec {
   /** Property name on the entity — used verbatim in the PATCH body. */
   name: string;
@@ -24,10 +27,58 @@ export interface FieldSpec {
   hint?: string;
   /** Rendered full width in the drawer's two-column grid. */
   wide?: boolean;
+  /** Groups the field under a heading in the drawer. */
+  section?: string;
+  rule?: FieldRule;
+}
+
+/** A loose but honest email shape — one @, a dot in the domain, no spaces. */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+/**
+ * Returns a message when the value is wrong, null when it is fine. Empty is
+ * always allowed: clearing a field is a legitimate edit, and the rules here are
+ * about nonsense values, not required ones.
+ */
+export function validateField(spec: FieldSpec, value: FieldValue): string | null {
+  const empty =
+    value === null ||
+    value === undefined ||
+    (typeof value === 'string' && value.trim() === '') ||
+    (Array.isArray(value) && value.length === 0);
+
+  if (spec.type === 'number' && !empty && typeof value !== 'number') {
+    return `${spec.label} must be a number.`;
+  }
+  if (empty) return null;
+
+  switch (spec.rule) {
+    case 'positive-number': {
+      const n = typeof value === 'number' ? value : Number(value);
+      if (!Number.isFinite(n)) return `${spec.label} must be a number.`;
+      if (n <= 0) return `${spec.label} must be greater than zero.`;
+      return null;
+    }
+    case 'email':
+      return typeof value === 'string' && EMAIL_RE.test(value.trim())
+        ? null
+        : 'That does not look like an email address.';
+    case 'date': {
+      const text = String(value).slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return 'Use a real date.';
+      const parsed = new Date(`${text}T00:00:00Z`);
+      if (Number.isNaN(parsed.getTime())) return 'Use a real date.';
+      // Rejects 2025-02-31, which Date would otherwise roll into March.
+      if (parsed.toISOString().slice(0, 10) !== text) return 'That date does not exist.';
+      return null;
+    }
+    default:
+      return null;
+  }
 }
 
 const inputClass =
-  'w-full rounded border border-hairline-strong bg-white px-2.5 py-1.5 text-sm text-ink ' +
+  'w-full rounded border border-hairline-strong bg-white px-2.5 py-1.5 text-sm font-medium text-ink ' +
   'placeholder:text-subtle transition-colors ' +
   'disabled:cursor-not-allowed disabled:bg-surface-alt disabled:opacity-60';
 
@@ -65,23 +116,29 @@ export default function Field({
   onChange,
   disabled,
   error,
+  changed,
 }: {
   spec: FieldSpec;
   value: FieldValue;
   onChange: (next: FieldValue) => void;
   disabled?: boolean;
   error?: string | null;
+  /** Draws the Goldenrod dot that marks an edited-but-unsaved field. */
+  changed?: boolean;
 }) {
   const id = useId();
   const { type, label, hint, options, placeholder } = spec;
 
   const emit = (raw: string | boolean) => onChange(parseFieldInput(type, raw));
 
+  const invalid = Boolean(error);
+  const box = clsx(inputClass, invalid && 'border-danger bg-danger-surface/40');
+
   let control: React.ReactNode;
 
   if (type === 'boolean') {
     control = (
-      <label className="flex cursor-pointer items-center gap-2 py-1 text-sm text-ink">
+      <label className="flex cursor-pointer items-center gap-2 py-1 text-sm font-medium text-ink">
         <input
           id={id}
           type="checkbox"
@@ -90,7 +147,10 @@ export default function Field({
           onChange={(e) => emit(e.target.checked)}
           className="h-4 w-4 accent-[#001E5A]"
         />
-        <span>{label}</span>
+        <span className="flex items-center gap-1.5">
+          {label}
+          {changed && <ChangedDot />}
+        </span>
       </label>
     );
   } else if (type === 'textarea') {
@@ -102,7 +162,7 @@ export default function Field({
         placeholder={placeholder}
         value={typeof value === 'string' ? value : ''}
         onChange={(e) => emit(e.target.value)}
-        className={clsx(inputClass, 'resize-y font-mono text-[13px] leading-5')}
+        className={clsx(box, 'resize-y font-mono text-[13px] leading-5')}
       />
     );
   } else if (type === 'select') {
@@ -112,7 +172,7 @@ export default function Field({
         disabled={disabled}
         value={typeof value === 'string' ? value : ''}
         onChange={(e) => emit(e.target.value)}
-        className={inputClass}
+        className={box}
       >
         <option value="">—</option>
         {(options ?? []).map((o) => (
@@ -131,7 +191,7 @@ export default function Field({
         placeholder={placeholder ?? 'Comma separated'}
         value={Array.isArray(value) ? value.join(', ') : ''}
         onChange={(e) => emit(e.target.value)}
-        className={inputClass}
+        className={box}
       />
     );
   } else {
@@ -152,7 +212,7 @@ export default function Field({
                 : String(value)
         }
         onChange={(e) => emit(e.target.value)}
-        className={clsx(inputClass, type === 'number' && 'tabular')}
+        className={clsx(box, type === 'number' && 'tabular text-right')}
       />
     );
   }
@@ -162,18 +222,30 @@ export default function Field({
       {type !== 'boolean' && (
         <label
           htmlFor={id}
-          className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted"
+          className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted"
         >
           {label}
+          {changed && <ChangedDot />}
         </label>
       )}
       {control}
-      {hint && <p className="text-[11px] leading-4 text-muted">{hint}</p>}
+      {hint && <p className="text-[11px] font-medium leading-4 text-muted">{hint}</p>}
       {error && (
-        <p className="rounded bg-danger-surface px-2 py-1 text-[11px] font-medium leading-4 text-danger">
+        <p className="rounded bg-danger-surface px-2 py-1 text-sm font-medium leading-4 text-danger">
           {error}
         </p>
       )}
     </div>
+  );
+}
+
+/** The one mark that says "you changed this and have not saved it yet". */
+function ChangedDot() {
+  return (
+    <span
+      aria-label="Changed"
+      title="Changed — not saved yet"
+      className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-goldenrod"
+    />
   );
 }

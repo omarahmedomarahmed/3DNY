@@ -1,4 +1,4 @@
-import { BRAND, RENT_RAMP, mix, rgba } from '@/lib/brand';
+import { BRAND, RENT_RAMP, SURFACE, mix, rgba } from '@/lib/brand';
 import type { BuildingWithSpaces, ColorMode } from '@/types';
 
 export type RGBA = [number, number, number, number];
@@ -90,6 +90,16 @@ export const HOVER_COLOR: RGBA = rgba(BRAND.goldenrod, 255);
 
 export const RADIUS_FILL: RGBA = rgba(BRAND.goldenrod, 28);
 export const RADIUS_LINE: RGBA = rgba(BRAND.midnight, 215);
+
+/**
+ * Building labels. A white pill with a hairline outline and Midnight type is
+ * the only combination that stays legible over both the pale basemap and a
+ * dark tower face — the pill is what makes the map readable in a meeting
+ * without anyone having to hover.
+ */
+export const LABEL_TEXT_COLOR: RGBA = rgba(BRAND.midnight, 255);
+export const LABEL_BG_COLOR: RGBA = rgba(SURFACE.white, 242);
+export const LABEL_BORDER_COLOR: RGBA = rgba(SURFACE.hairlineStrong, 255);
 
 /** Solid enough to read as a real building against near-white ground. */
 const BUILDING_ALPHA = 235;

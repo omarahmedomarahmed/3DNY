@@ -42,6 +42,23 @@ interface Row {
 
 const DASH = <span className="text-subtle">—</span>;
 
+/** Inline SVG only — no icon font, no emoji. */
+function CloseIcon({ className = 'h-4 w-4' }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="M4 4l8 8M12 4l-8 8" />
+    </svg>
+  );
+}
+
 function text(value: string | null | undefined): React.ReactNode {
   return value ? value : DASH;
 }
@@ -74,7 +91,7 @@ const SPACE_ROWS: Row[] = [
       <div>
         <p className="font-semibold text-ink">{c.building.address_display}</p>
         {c.building.building_name && (
-          <p className="text-[11px] text-muted">{c.building.building_name}</p>
+          <p className="text-[13px] font-medium text-muted">{c.building.building_name}</p>
         )}
       </div>
     ),
@@ -184,7 +201,7 @@ const SPACE_ROWS: Row[] = [
         {c.space.agent_email &&
           (c.space.agent_email_suspect ? (
             <p
-              className="break-all text-[11px] font-medium text-warmorange"
+              className="break-all text-[13px] font-medium text-warmorange"
               title="Email looks truncated in the source sheet"
             >
               {c.space.agent_email} (verify)
@@ -192,7 +209,7 @@ const SPACE_ROWS: Row[] = [
           ) : (
             <a
               href={`mailto:${c.space.agent_email}`}
-              className="block break-all text-[11px] font-medium text-info hover:underline"
+              className="block break-all text-[13px] font-medium text-info hover:underline"
             >
               {c.space.agent_email}
             </a>
@@ -369,7 +386,11 @@ export default function CompareView({ onClose }: { onClose?: () => void }) {
     window.setTimeout(() => setCopied(null), 3000);
   }
 
-  const colWidth = 'min-w-[260px] w-[260px]';
+  // With two or three spaces the table would otherwise be a thin ribbon in a
+  // wide panel, so the column track widens (to a cap) and the whole table is
+  // centred with auto margins rather than left-aligned against dead space.
+  const colWidth =
+    columns.length <= 3 ? 'min-w-[300px] w-[340px]' : 'min-w-[260px] w-[260px]';
 
   function renderSection(title: string, rows: Row[], divided?: boolean) {
     return (
@@ -378,7 +399,7 @@ export default function CompareView({ onClose }: { onClose?: () => void }) {
           <th
             colSpan={columns.length + 1}
             className={clsx(
-              'sticky left-0 z-10 bg-white px-4 pb-2 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-midnight',
+              'sticky left-0 z-10 bg-white px-4 pb-2 text-left text-[12px] font-semibold uppercase tracking-[0.14em] text-midnight',
               divided ? 'border-t-2 border-hairline-strong pt-6' : 'pt-4',
             )}
           >
@@ -392,7 +413,7 @@ export default function CompareView({ onClose }: { onClose?: () => void }) {
             <tr key={row.key} className="border-b border-hairline last:border-b-0">
               <th
                 scope="row"
-                className="sticky left-0 z-10 w-[170px] min-w-[170px] border-r border-hairline bg-surface-alt px-4 py-3 text-left align-top text-[10px] font-semibold uppercase tracking-[0.12em] text-muted"
+                className="sticky left-0 z-10 w-[180px] min-w-[180px] border-r border-hairline bg-surface-alt px-4 py-3 text-left align-top text-[11px] font-semibold uppercase tracking-[0.12em] text-muted"
               >
                 {row.label}
               </th>
@@ -401,7 +422,7 @@ export default function CompareView({ onClose }: { onClose?: () => void }) {
                   key={c.space.id}
                   className={clsx(
                     colWidth,
-                    'border-l border-hairline px-4 py-3 align-top text-sm',
+                    'border-l border-hairline px-4 py-3 align-top text-sm font-medium',
                     row.tall ? 'text-body' : 'text-ink',
                     identical && 'text-subtle',
                     best.has(i) &&
@@ -419,110 +440,128 @@ export default function CompareView({ onClose }: { onClose?: () => void }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-white">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-hairline px-6 py-4">
-        <div>
-          <h2 className="text-xl font-semibold tracking-tight text-ink">
-            Comparison{' '}
-            <span className="font-normal tabular text-muted">
-              ({columns.length} {columns.length === 1 ? 'space' : 'spaces'})
-            </span>
-          </h2>
-          <p className="mt-0.5 text-[11px] leading-4 text-muted">
-            Best value in each numeric row is highlighted; values identical across every column are
-            dimmed.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {copied && <span className="text-[11px] font-medium text-ok">{copied}</span>}
-          <button
-            type="button"
-            onClick={() => void copyLink()}
-            disabled={columns.length === 0}
-            className="rounded border border-hairline-strong bg-white px-3 py-2 text-xs font-medium text-body transition-colors hover:border-midnight hover:text-ink disabled:opacity-40"
-          >
-            Copy shareable link
-          </button>
-          <button
-            type="button"
-            onClick={clearCompare}
-            className="rounded px-3 py-2 text-xs font-medium text-muted transition-colors hover:text-ink"
-          >
-            Clear all
-          </button>
-          <button
-            type="button"
-            onClick={close}
-            className="rounded border border-midnight bg-white px-4 py-2 text-xs font-semibold text-midnight transition-colors hover:bg-midnight-50"
-          >
-            Close
-          </button>
-        </div>
-      </header>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-midnight/60 p-4 sm:p-6"
+      onMouseDown={(e) => {
+        // Scrim click only — a drag that starts inside the panel must not close it.
+        if (e.target === e.currentTarget) close();
+      }}
+      role="presentation"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Space comparison"
+        className="flex max-h-[92vh] w-full max-w-[min(96rem,95vw)] flex-col overflow-hidden rounded-card bg-white shadow-float"
+      >
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-hairline px-6 py-4">
+          <div>
+            <h2 className="text-xl font-semibold tracking-tight text-ink">
+              Comparison{' '}
+              <span className="font-medium tabular text-muted">
+                ({columns.length} {columns.length === 1 ? 'space' : 'spaces'})
+              </span>
+            </h2>
+            <p className="mt-1 text-[13px] font-medium leading-5 text-muted">
+              Best value in each numeric row is highlighted; values identical across every column are
+              dimmed.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {copied && <span className="text-sm font-medium text-ok">{copied}</span>}
+            <button
+              type="button"
+              onClick={() => void copyLink()}
+              disabled={columns.length === 0}
+              className="rounded border border-hairline-strong bg-white px-3 py-2 text-sm font-medium text-body transition-colors hover:border-midnight hover:text-ink disabled:opacity-40"
+            >
+              Copy shareable link
+            </button>
+            <button
+              type="button"
+              onClick={clearCompare}
+              className="rounded px-3 py-2 text-sm font-medium text-muted transition-colors hover:text-ink"
+            >
+              Clear all
+            </button>
+            <button
+              type="button"
+              onClick={close}
+              aria-label="Close comparison"
+              title="Close comparison"
+              className="rounded-full border border-hairline-strong bg-white p-2 text-muted transition-colors hover:border-midnight hover:text-ink"
+            >
+              <CloseIcon />
+            </button>
+          </div>
+        </header>
 
-      {columns.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center px-6 text-center">
-          <p className="text-sm text-muted">
-            Nothing to compare yet — add spaces from a building profile or the map.
-          </p>
-        </div>
-      ) : (
-        <div className="flex-1 overflow-auto">
-          <table className="w-max border-collapse text-sm">
-            <thead>
-              <tr>
-                <th className="sticky left-0 top-0 z-20 w-[170px] min-w-[170px] border-b border-r border-hairline bg-surface-alt px-4 py-3" />
-                {columns.map((c) => (
-                  <td
-                    key={c.space.id}
-                    className={clsx(
-                      colWidth,
-                      'sticky top-0 z-10 border-b border-l border-hairline bg-white px-4 py-4 align-top',
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p
-                          className="truncate text-sm font-semibold text-ink"
-                          title={c.building.address_display}
+        {columns.length === 0 ? (
+          <div className="flex flex-1 items-center justify-center px-6 py-16 text-center">
+            <p className="text-sm font-medium text-muted">
+              Nothing to compare yet — add spaces from a building profile or the map.
+            </p>
+          </div>
+        ) : (
+          <div className="min-h-0 flex-1 overflow-auto">
+            <table className="mx-auto w-max border-collapse text-sm">
+              <thead>
+                <tr>
+                  <th className="sticky left-0 top-0 z-30 w-[180px] min-w-[180px] border-b border-r border-hairline bg-surface-alt px-4 py-3" />
+                  {columns.map((c) => (
+                    <td
+                      key={c.space.id}
+                      className={clsx(
+                        colWidth,
+                        'sticky top-0 z-20 border-b border-l border-hairline bg-white px-4 py-4 align-top',
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p
+                            className="truncate text-base font-semibold text-ink"
+                            title={c.building.address_display}
+                          >
+                            {c.building.address_display}
+                          </p>
+                          <p className="truncate text-[13px] font-medium text-muted">
+                            {c.space.floor_label}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          aria-label="Remove from comparison"
+                          onClick={() => removeFromCompare(c.space.id)}
+                          className="shrink-0 rounded-full p-1 text-muted transition-colors hover:bg-surface-alt hover:text-danger"
                         >
-                          {c.building.address_display}
-                        </p>
-                        <p className="truncate text-[11px] text-muted">{c.space.floor_label}</p>
+                          <CloseIcon />
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        aria-label="Remove from comparison"
-                        onClick={() => removeFromCompare(c.space.id)}
-                        className="shrink-0 text-muted transition-colors hover:text-danger"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                    {c.photo ? (
-                      /* eslint-disable-next-line @next/next/no-img-element */
-                      <img
-                        src={c.photo}
-                        alt=""
-                        className="mt-3 h-28 w-full rounded border border-hairline bg-surface-sunken object-cover"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div className="mt-3 flex h-28 w-full items-center justify-center rounded border border-dashed border-hairline-strong bg-surface-alt text-[11px] text-muted">
-                        No photo
-                      </div>
-                    )}
-                  </td>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {renderSection('Space', SPACE_ROWS)}
-              {renderSection('Landlord', LANDLORD_ROWS, true)}
-            </tbody>
-          </table>
-        </div>
-      )}
+                      {c.photo ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img
+                          src={c.photo}
+                          alt=""
+                          className="mt-3 h-28 w-full rounded border border-hairline bg-surface-sunken object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="mt-3 flex h-28 w-full items-center justify-center rounded border border-dashed border-hairline-strong bg-surface-alt text-[13px] font-medium text-muted">
+                          No photo
+                        </div>
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {renderSection('Space', SPACE_ROWS)}
+                {renderSection('Landlord', LANDLORD_ROWS, true)}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

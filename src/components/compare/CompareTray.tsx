@@ -44,8 +44,8 @@ export default function CompareTray() {
   return (
     <>
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-hairline bg-white shadow-float">
-        <div className="mx-auto flex w-full max-w-[1400px] flex-wrap items-center gap-3 px-6 py-3">
-          <span className="whitespace-nowrap rounded bg-midnight px-2.5 py-1 text-xs font-semibold tabular text-white">
+        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-3 px-6 py-3">
+          <span className="whitespace-nowrap rounded bg-midnight px-3 py-1.5 text-sm font-semibold tabular text-white">
             {compare.length} {compare.length === 1 ? 'space' : 'spaces'}
           </span>
 
@@ -58,18 +58,28 @@ export default function CompareTray() {
               return (
                 <li
                   key={spaceId}
-                  className="flex max-w-[260px] items-center gap-1.5 rounded border border-hairline bg-midnight-50 px-2.5 py-1"
+                  className="flex max-w-[280px] items-center gap-1.5 rounded-full border border-hairline bg-midnight-50 px-3 py-1.5"
                 >
-                  <span className="truncate text-xs font-medium text-ink" title={label}>
+                  <span className="truncate text-sm font-medium text-ink" title={label}>
                     {label}
                   </span>
                   <button
                     type="button"
                     aria-label={`Remove ${label} from comparison`}
                     onClick={() => removeFromCompare(spaceId)}
-                    className="shrink-0 text-muted transition-colors hover:text-danger"
+                    className="shrink-0 rounded-full p-0.5 text-muted transition-colors hover:text-danger"
                   >
-                    ✕
+                    <svg
+                      viewBox="0 0 16 16"
+                      className="h-3.5 w-3.5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M4 4l8 8M12 4l-8 8" />
+                    </svg>
                   </button>
                 </li>
               );
@@ -80,14 +90,14 @@ export default function CompareTray() {
             <button
               type="button"
               onClick={clearCompare}
-              className="rounded px-2.5 py-2 text-xs font-medium text-muted transition-colors hover:text-ink"
+              className="rounded px-2.5 py-2 text-sm font-medium text-muted transition-colors hover:text-ink"
             >
               Clear all
             </button>
             <button
               type="button"
               onClick={() => setCompareOpen(true)}
-              className="rounded bg-goldenrod px-4 py-2 text-xs font-semibold text-midnight transition-colors hover:bg-goldenrod-400"
+              className="rounded bg-goldenrod px-4 py-2 text-sm font-semibold text-midnight transition-colors hover:bg-goldenrod-400"
             >
               Open comparison
             </button>

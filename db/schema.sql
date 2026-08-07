@@ -175,3 +175,10 @@ BEGIN
          FOR EACH ROW EXECUTE FUNCTION touch_updated_at()', t, t);
   END LOOP;
 END $$;
+
+-- ---------------------------------------------------------------------------
+-- Landlord provenance. Added after the first release, so guarded.
+-- ---------------------------------------------------------------------------
+ALTER TABLE landlords ADD COLUMN IF NOT EXISTS owner_of_record text;
+ALTER TABLE landlords ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'manual';
+ALTER TABLE landlords ADD COLUMN IF NOT EXISTS needs_review boolean NOT NULL DEFAULT false;

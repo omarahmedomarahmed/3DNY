@@ -21,6 +21,12 @@ export interface Landlord {
   contact_name: string | null;
   contact_email: string | null;
   contact_phone: string | null;
+  /** Owner name from the city's tax record, when one was found. */
+  owner_of_record: string | null;
+  /** 'city_record' when seeded automatically, 'manual' when a person made it. */
+  source: string;
+  /** True until someone confirms the auto-seeded name is the operating landlord. */
+  needs_review: boolean;
   updated_at: string;
 }
 

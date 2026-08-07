@@ -4,10 +4,11 @@ import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useApp } from '@/lib/store';
 import { activeFilterCount, filterOptions } from '@/lib/filters';
-import type { BuildingClass, LeaseType } from '@/types';
+import type { BuildingClass, Filters, LeaseType } from '@/types';
 import RangeFilter from './RangeFilter';
 import MultiSelect from './MultiSelect';
 import DateFilter from './DateFilter';
+import QuickFilters from './QuickFilters';
 
 // ---------------------------------------------------------------------------
 // Date helpers — everything the rail emits is an ISO YYYY-MM-DD string.
@@ -33,35 +34,62 @@ function addDays(d: Date, days: number): Date {
 }
 
 // ---------------------------------------------------------------------------
-// Section shell
+// Icons — inline SVG only.
 // ---------------------------------------------------------------------------
 
-interface SectionProps {
-  title: string;
-  active?: boolean;
-  defaultOpen?: boolean;
-  children: ReactNode;
+function Chevron({ direction }: { direction: 'left' | 'right' | 'down' }) {
+  const rotation =
+    direction === 'left' ? 'rotate-180' : direction === 'down' ? 'rotate-90' : '';
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      className={`h-4 w-4 transition-transform ${rotation}`}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M6 3l5 5-5 5" />
+    </svg>
+  );
 }
 
-function Section({ title, active = false, defaultOpen = true, children }: SectionProps) {
-  const [open, setOpen] = useState(defaultOpen);
+function SearchIcon() {
   return (
-    <section className="border-b border-hairline">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-surface-alt"
-      >
-        <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
-          {title}
-          {active ? (
-            <span className="h-1.5 w-1.5 rounded-full bg-goldenrod" aria-hidden />
-          ) : null}
-        </span>
-        <span className="text-[10px] text-subtle">{open ? '▾' : '▸'}</span>
-      </button>
-      {open ? <div className="space-y-3 px-4 pb-4">{children}</div> : null}
+    <svg
+      viewBox="0 0 16 16"
+      className="h-4 w-4 shrink-0 text-muted"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <circle cx="7" cy="7" r="4.25" />
+      <path d="M10.2 10.2L14 14" />
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Layout primitives. One heading weight, no boxes inside boxes.
+// ---------------------------------------------------------------------------
+
+function Label({ children }: { children: ReactNode }) {
+  return (
+    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+      {children}
+    </div>
+  );
+}
+
+function Group({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <section className="space-y-2.5">
+      <Label>{label}</Label>
+      {children}
     </section>
   );
 }
@@ -78,7 +106,7 @@ interface ToggleGroupProps<T extends string> {
 
 function ToggleGroup<T extends string>({ options, selected, onChange }: ToggleGroupProps<T>) {
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex flex-wrap gap-1.5">
       {options.map(({ value, label }) => {
         const on = selected.includes(value);
         return (
@@ -89,7 +117,7 @@ function ToggleGroup<T extends string>({ options, selected, onChange }: ToggleGr
             onClick={() =>
               onChange(on ? selected.filter((v) => v !== value) : [...selected, value])
             }
-            className={`min-w-[3rem] rounded border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+            className={`min-w-[3.25rem] rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${
               on
                 ? 'border-goldenrod bg-goldenrod text-midnight'
                 : 'border-hairline-strong bg-white text-body hover:border-midnight hover:text-ink'
@@ -103,6 +131,21 @@ function ToggleGroup<T extends string>({ options, selected, onChange }: ToggleGr
   );
 }
 
+/** Advanced filters live behind the disclosure; this is their own tally. */
+function advancedCount(f: Filters): number {
+  let n = 0;
+  if (f.floorMin !== null || f.floorMax !== null) n++;
+  if (f.expiresBefore || f.expiresAfter) n++;
+  if (f.availableBefore) n++;
+  if (f.addedAfter) n++;
+  if (f.classes.length) n++;
+  if (f.leaseTypes.length) n++;
+  if (f.spaceUses.length) n++;
+  if (f.submarketClusters.length) n++;
+  if (f.leasingCompanies.length) n++;
+  return n;
+}
+
 // ---------------------------------------------------------------------------
 // The rail
 // ---------------------------------------------------------------------------
@@ -114,9 +157,11 @@ export default function FilterRail() {
   const resetFilters = useApp((s) => s.resetFilters);
 
   const [collapsed, setCollapsed] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const options = useMemo(() => filterOptions(buildings ?? []), [buildings]);
   const count = activeFilterCount(filters);
+  const advanced = advancedCount(filters);
 
   const today = useMemo(() => new Date(), []);
   const todayIso = toIso(today);
@@ -124,25 +169,25 @@ export default function FilterRail() {
 
   if (collapsed) {
     return (
-      <div className="flex h-full w-11 shrink-0 flex-col items-center gap-2 border-r border-hairline bg-white py-3">
+      <div className="flex h-full w-12 shrink-0 flex-col items-center gap-3 border-r border-hairline bg-white py-3">
         <button
           type="button"
           onClick={() => setCollapsed(false)}
           title="Show filters"
           aria-label="Show filters"
-          className="rounded border border-hairline-strong bg-white px-1.5 py-1 text-xs text-muted transition-colors hover:border-midnight hover:text-ink"
+          className="rounded-full border border-hairline-strong bg-white p-1.5 text-muted transition-colors hover:border-midnight hover:text-ink"
         >
-          ▸
+          <Chevron direction="right" />
         </button>
         {count > 0 ? (
           <span
-            className="rounded-full bg-goldenrod px-1.5 py-0.5 text-[10px] font-semibold tabular text-midnight"
+            className="rounded-full bg-goldenrod px-2 py-0.5 text-[11px] font-semibold tabular text-midnight"
             title={`${count} active filters`}
           >
             {count}
           </span>
         ) : null}
-        <span className="mt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted [writing-mode:vertical-rl]">
+        <span className="mt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted [writing-mode:vertical-rl]">
           Filters
         </span>
       </div>
@@ -150,14 +195,12 @@ export default function FilterRail() {
   }
 
   return (
-    <aside className="flex h-full w-72 shrink-0 flex-col border-r border-hairline bg-white text-body">
-      <header className="flex items-center justify-between gap-2 border-b border-hairline px-4 py-3">
+    <aside className="flex h-full w-80 shrink-0 flex-col border-r border-hairline bg-white text-body">
+      <header className="flex items-center justify-between gap-2 px-5 pb-3 pt-4">
         <div className="flex items-center gap-2">
-          <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
-            Filters
-          </h2>
+          <h2 className="text-base font-semibold tracking-tight text-ink">Filters</h2>
           {count > 0 ? (
-            <span className="rounded-full bg-goldenrod px-1.5 py-0.5 text-[10px] font-semibold tabular text-midnight">
+            <span className="rounded-full bg-goldenrod px-2 py-0.5 text-[11px] font-semibold tabular text-midnight">
               {count}
             </span>
           ) : null}
@@ -167,7 +210,7 @@ export default function FilterRail() {
             <button
               type="button"
               onClick={resetFilters}
-              className="text-xs font-medium text-brightblue transition-colors hover:text-midnight"
+              className="text-sm font-medium text-brightblue transition-colors hover:text-midnight"
             >
               Clear all
             </button>
@@ -177,33 +220,37 @@ export default function FilterRail() {
             onClick={() => setCollapsed(true)}
             title="Hide filters"
             aria-label="Hide filters"
-            className="rounded border border-hairline-strong bg-white px-1.5 py-0.5 text-xs text-muted transition-colors hover:border-midnight hover:text-ink"
+            className="rounded-full p-1 text-muted transition-colors hover:bg-surface-alt hover:text-ink"
           >
-            ◂
+            <Chevron direction="left" />
           </button>
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {/* Search ------------------------------------------------------- */}
-        <Section title="Search" active={!!filters.search.trim()}>
+      <div className="min-h-0 flex-1 space-y-7 overflow-y-auto px-5 pb-8">
+        {/* Tier 1 — search ------------------------------------------------ */}
+        <div className="flex items-center gap-2 rounded-card border border-hairline-strong bg-white px-3 py-2 focus-within:border-midnight">
+          <SearchIcon />
           <input
             type="search"
             value={filters.search}
             onChange={(e) => setFilters({ search: e.target.value })}
-            placeholder="Address, building, landlord, agent, notes…"
+            placeholder="Address, building, landlord, agent…"
             aria-label="Search listings"
-            className="w-full rounded border border-hairline-strong bg-white px-2.5 py-1.5 text-xs text-ink placeholder:text-muted focus:border-midnight"
+            className="w-full min-w-0 bg-transparent text-sm font-medium text-ink outline-none placeholder:font-normal placeholder:text-muted"
           />
-        </Section>
+        </div>
 
-        {/* Asking rent -------------------------------------------------- */}
-        <Section
-          title="Asking rent"
-          active={filters.rentMin !== null || filters.rentMax !== null || !filters.includeWithheld}
-        >
+        {/* Tier 1 — presets ----------------------------------------------- */}
+        <Group label="Quick filters">
+          <QuickFilters filters={filters} onChange={setFilters} />
+        </Group>
+
+        {/* Tier 1 — asking rent ------------------------------------------- */}
+        <Group label="Asking rent">
           <RangeFilter
             label="Asking rent / SF"
+            showLabel={false}
             unit="$"
             unitPosition="prefix"
             hint={options.rentRange}
@@ -211,26 +258,27 @@ export default function FilterRail() {
             max={filters.rentMax}
             onChange={({ min, max }) => setFilters({ rentMin: min, rentMax: max })}
           />
-          <label className="flex cursor-pointer items-start gap-2 text-xs text-body">
+          <label className="flex cursor-pointer items-start gap-2.5 text-sm font-medium text-body">
             <input
               type="checkbox"
               checked={filters.includeWithheld}
               onChange={(e) => setFilters({ includeWithheld: e.target.checked })}
-              className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-midnight"
+              className="mt-0.5 h-4 w-4 shrink-0 accent-midnight"
             />
             <span>
               Include withheld rents
-              <span className="block text-xs leading-snug text-muted">
-                Roughly half of listings withhold rent. Unchecking hides them entirely.
+              <span className="mt-0.5 block text-sm font-normal leading-snug text-muted">
+                Roughly half of listings withhold rent.
               </span>
             </span>
           </label>
-        </Section>
+        </Group>
 
-        {/* Size --------------------------------------------------------- */}
-        <Section title="Size (SF)" active={filters.sfMin !== null || filters.sfMax !== null}>
+        {/* Tier 1 — size --------------------------------------------------- */}
+        <Group label="Size (SF)">
           <RangeFilter
             label="Square feet"
+            showLabel={false}
             unit="SF"
             unitPosition="suffix"
             hint={options.sfRange}
@@ -238,134 +286,139 @@ export default function FilterRail() {
             max={filters.sfMax}
             onChange={({ min, max }) => setFilters({ sfMin: min, sfMax: max })}
           />
-        </Section>
+        </Group>
 
-        {/* Floor -------------------------------------------------------- */}
-        <Section
-          title="Floor"
-          active={filters.floorMin !== null || filters.floorMax !== null}
-          defaultOpen={false}
-        >
-          <RangeFilter
-            label="Floor number"
-            min={filters.floorMin}
-            max={filters.floorMax}
-            onChange={({ min, max }) => setFilters({ floorMin: min, floorMax: max })}
-          />
-        </Section>
+        {/* Tier 2 — everything else --------------------------------------- */}
+        <div className="border-t border-hairline pt-5">
+          <button
+            type="button"
+            onClick={() => setMoreOpen((o) => !o)}
+            aria-expanded={moreOpen}
+            className="flex w-full items-center justify-between gap-2 text-left"
+          >
+            <span className="flex items-center gap-2 text-sm font-semibold text-ink">
+              More filters
+              {advanced > 0 ? (
+                <span className="rounded-full bg-goldenrod px-2 py-0.5 text-[11px] font-semibold tabular text-midnight">
+                  {advanced}
+                </span>
+              ) : null}
+            </span>
+            <span className="text-muted">
+              <Chevron direction={moreOpen ? 'down' : 'right'} />
+            </span>
+          </button>
 
-        {/* Lease expiration --------------------------------------------- */}
-        <Section
-          title="Lease expiration"
-          active={!!filters.expiresBefore || !!filters.expiresAfter}
-          defaultOpen={false}
-        >
-          <DateFilter
-            label="Expires before"
-            value={filters.expiresBefore}
-            onChange={(expiresBefore) => setFilters({ expiresBefore })}
-            presets={[
-              { label: 'Expiring within 12 months', value: toIso(addMonths(today, 12)) },
-              { label: 'Expiring within 24 months', value: toIso(addMonths(today, 24)) },
-            ]}
-          />
-          <DateFilter
-            label="Expires after"
-            value={filters.expiresAfter}
-            onChange={(expiresAfter) => setFilters({ expiresAfter })}
-            presets={[{ label: `${nextYear} or later`, value: `${nextYear}-01-01` }]}
-          />
-          <p className="text-xs leading-snug text-muted">
-            Spaces with a negotiable or open-ended term carry no expiration date and are
-            excluded while this filter is active.
-          </p>
-        </Section>
+          {moreOpen ? (
+            <div className="mt-6 space-y-7">
+              <Group label="Floor">
+                <RangeFilter
+                  label="Floor number"
+                  showLabel={false}
+                  min={filters.floorMin}
+                  max={filters.floorMax}
+                  onChange={({ min, max }) => setFilters({ floorMin: min, floorMax: max })}
+                />
+              </Group>
 
-        {/* Availability -------------------------------------------------- */}
-        <Section title="Availability" active={!!filters.availableBefore} defaultOpen={false}>
-          <DateFilter
-            label="Available by"
-            value={filters.availableBefore}
-            onChange={(availableBefore) => setFilters({ availableBefore })}
-            presets={[{ label: 'Vacant now', value: todayIso }]}
-          />
-        </Section>
+              <Group label="Lease expiration">
+                <DateFilter
+                  label="Expires before"
+                  value={filters.expiresBefore}
+                  onChange={(expiresBefore) => setFilters({ expiresBefore })}
+                  presets={[
+                    { label: 'Within 12 months', value: toIso(addMonths(today, 12)) },
+                    { label: 'Within 24 months', value: toIso(addMonths(today, 24)) },
+                  ]}
+                />
+                <DateFilter
+                  label="Expires after"
+                  value={filters.expiresAfter}
+                  onChange={(expiresAfter) => setFilters({ expiresAfter })}
+                  presets={[{ label: `${nextYear} or later`, value: `${nextYear}-01-01` }]}
+                />
+                <p className="text-sm leading-snug text-muted">
+                  Spaces with a negotiable or open-ended term carry no expiration date and are
+                  excluded while this filter is active.
+                </p>
+              </Group>
 
-        {/* Date added ---------------------------------------------------- */}
-        <Section title="Date added" active={!!filters.addedAfter} defaultOpen={false}>
-          <DateFilter
-            label="Added after"
-            value={filters.addedAfter}
-            onChange={(addedAfter) => setFilters({ addedAfter })}
-            presets={[
-              { label: 'This week', value: toIso(addDays(today, -7)) },
-              { label: 'Last 30 days', value: toIso(addDays(today, -30)) },
-            ]}
-          />
-        </Section>
+              <Group label="Availability">
+                <DateFilter
+                  label="Available by"
+                  value={filters.availableBefore}
+                  onChange={(availableBefore) => setFilters({ availableBefore })}
+                  presets={[{ label: 'Vacant now', value: todayIso }]}
+                />
+              </Group>
 
-        {/* Class --------------------------------------------------------- */}
-        <Section title="Class" active={filters.classes.length > 0}>
-          <ToggleGroup<'A' | 'B' | 'C'>
-            options={[
-              { value: 'A', label: 'A' },
-              { value: 'B', label: 'B' },
-              { value: 'C', label: 'C' },
-            ]}
-            selected={filters.classes.filter((c): c is 'A' | 'B' | 'C' => c !== null)}
-            onChange={(next) => setFilters({ classes: next as BuildingClass[] })}
-          />
-        </Section>
+              <Group label="Date added">
+                <DateFilter
+                  label="Added after"
+                  value={filters.addedAfter}
+                  onChange={(addedAfter) => setFilters({ addedAfter })}
+                  presets={[
+                    { label: 'This week', value: toIso(addDays(today, -7)) },
+                    { label: 'Last 30 days', value: toIso(addDays(today, -30)) },
+                  ]}
+                />
+              </Group>
 
-        {/* Type ---------------------------------------------------------- */}
-        <Section title="Type" active={filters.leaseTypes.length > 0}>
-          <ToggleGroup<LeaseType>
-            options={[
-              { value: 'direct', label: 'Direct' },
-              { value: 'sublet', label: 'Sublet' },
-            ]}
-            selected={filters.leaseTypes}
-            onChange={(leaseTypes) => setFilters({ leaseTypes })}
-          />
-        </Section>
+              <Group label="Class">
+                <ToggleGroup<'A' | 'B' | 'C'>
+                  options={[
+                    { value: 'A', label: 'A' },
+                    { value: 'B', label: 'B' },
+                    { value: 'C', label: 'C' },
+                  ]}
+                  selected={filters.classes.filter((c): c is 'A' | 'B' | 'C' => c !== null)}
+                  onChange={(next) => setFilters({ classes: next as BuildingClass[] })}
+                />
+              </Group>
 
-        {/* Space use ----------------------------------------------------- */}
-        <Section title="Space use" active={filters.spaceUses.length > 0} defaultOpen={false}>
-          <MultiSelect
-            label="Space use"
-            options={options.spaceUses}
-            selected={filters.spaceUses}
-            onChange={(spaceUses) => setFilters({ spaceUses })}
-          />
-        </Section>
+              <Group label="Type">
+                <ToggleGroup<LeaseType>
+                  options={[
+                    { value: 'direct', label: 'Direct' },
+                    { value: 'sublet', label: 'Sublet' },
+                  ]}
+                  selected={filters.leaseTypes}
+                  onChange={(leaseTypes) => setFilters({ leaseTypes })}
+                />
+              </Group>
 
-        {/* Submarket cluster --------------------------------------------- */}
-        <Section
-          title="Submarket cluster"
-          active={filters.submarketClusters.length > 0}
-          defaultOpen={false}
-        >
-          <MultiSelect
-            label="Submarket cluster"
-            options={options.submarketClusters}
-            selected={filters.submarketClusters}
-            onChange={(submarketClusters) => setFilters({ submarketClusters })}
-          />
-        </Section>
+              <Group label="Space use">
+                <MultiSelect
+                  label="Space use"
+                  showLabel={false}
+                  options={options.spaceUses}
+                  selected={filters.spaceUses}
+                  onChange={(spaceUses) => setFilters({ spaceUses })}
+                />
+              </Group>
 
-        {/* Leasing company ----------------------------------------------- */}
-        <Section
-          title="Leasing company"
-          active={filters.leasingCompanies.length > 0}
-          defaultOpen={false}
-        >
-          <MultiSelect
-            label="Leasing company"
-            options={options.leasingCompanies}
-            selected={filters.leasingCompanies}
-            onChange={(leasingCompanies) => setFilters({ leasingCompanies })}
-          />
-        </Section>
+              <Group label="Submarket cluster">
+                <MultiSelect
+                  label="Submarket cluster"
+                  showLabel={false}
+                  options={options.submarketClusters}
+                  selected={filters.submarketClusters}
+                  onChange={(submarketClusters) => setFilters({ submarketClusters })}
+                />
+              </Group>
+
+              <Group label="Leasing company">
+                <MultiSelect
+                  label="Leasing company"
+                  showLabel={false}
+                  options={options.leasingCompanies}
+                  selected={filters.leasingCompanies}
+                  onChange={(leasingCompanies) => setFilters({ leasingCompanies })}
+                />
+              </Group>
+            </div>
+          ) : null}
+        </div>
       </div>
     </aside>
   );
