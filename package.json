@@ -24,6 +24,7 @@
     "maplibre-gl": "^4.7.1",
     "next": "^15.1.6",
     "papaparse": "^5.4.1",
+    "playwright": "^1.49.1",
     "pmtiles": "^4.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

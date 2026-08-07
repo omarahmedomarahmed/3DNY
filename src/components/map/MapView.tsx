@@ -332,6 +332,38 @@ export default function MapView() {
     zoom,
   ]);
 
+  // --- Frame the loaded inventory on first paint. Opening on a fixed centre
+  // leaves the towers as specks somewhere off to one side; a broker opening
+  // this in a meeting should see their availability immediately.
+  const framed = useRef(false);
+  useEffect(() => {
+    const instance = mapRef.current;
+    if (!instance || framed.current) return;
+
+    const points = buildings
+      .filter((b) => b.lon !== null && b.lat !== null)
+      .map((b) => [b.lon as number, b.lat as number] as [number, number]);
+    if (points.length === 0) return;
+
+    framed.current = true;
+
+    if (points.length === 1) {
+      instance.easeTo({ center: points[0], zoom: 16.5, pitch: 55, duration: 800 });
+      return;
+    }
+
+    const lons = points.map((p) => p[0]);
+    const lats = points.map((p) => p[1]);
+    instance.fitBounds(
+      [
+        [Math.min(...lons), Math.min(...lats)],
+        [Math.max(...lons), Math.max(...lats)],
+      ],
+      // Room for the filter rail and results sidebar, which overlay the edges.
+      { padding: { top: 90, bottom: 140, left: 80, right: 80 }, maxZoom: 16.4, duration: 900 },
+    );
+  }, [buildings]);
+
   // --- Fly to the selection so its floor bands come into view.
   useEffect(() => {
     const instance = mapRef.current;
@@ -351,7 +383,11 @@ export default function MapView() {
 
   return (
     <div className="relative h-full w-full bg-surface-sunken">
-      <div ref={containerRef} className="absolute inset-0" />
+      {/* MapLibre's stylesheet sets `.maplibregl-map { position: relative }` and
+          loads after Tailwind's utilities, so a className of `absolute inset-0`
+          loses the specificity tie and the container collapses to zero height —
+          a blank map with no error. Inline styles outrank both. */}
+      <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
 
       {contextLost && (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/85 p-6 text-center backdrop-blur-sm">
