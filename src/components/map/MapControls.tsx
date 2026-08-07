@@ -97,6 +97,50 @@ export default function MapControls({ map, onFitAll, canFitAll }: MapControlsPro
         </Icon>
       </ControlButton>
 
+      {/* Rotate. The map has always supported right-drag and ctrl-drag to
+          swing the camera, but neither is discoverable, and a broker turning a
+          building to face the room should not have to know a shortcut. */}
+      <ControlButton
+        label="Rotate left"
+        disabled={!map}
+        onClick={() => map?.easeTo({ bearing: (map.getBearing() ?? 0) - 30, duration: 400 })}
+      >
+        <Icon>
+          <path d="M4 12a8 8 0 1 1 2.6 5.9" />
+          <polyline points="3.2,7.6 4.2,12.4 9,11.4" />
+        </Icon>
+      </ControlButton>
+
+      <ControlButton
+        label="Rotate right"
+        disabled={!map}
+        onClick={() => map?.easeTo({ bearing: (map.getBearing() ?? 0) + 30, duration: 400 })}
+      >
+        <Icon>
+          <path d="M20 12a8 8 0 1 0-2.6 5.9" />
+          <polyline points="20.8,7.6 19.8,12.4 15,11.4" />
+        </Icon>
+      </ControlButton>
+
+      {/* Tilt between flat-on and the pitched view the map opens at, so a plan
+          view of the block is one click away from a skyline view. */}
+      <ControlButton
+        label="Tilt the view"
+        disabled={!map}
+        onClick={() =>
+          map?.easeTo({
+            pitch: (map.getPitch() ?? 0) > HOME_PITCH / 2 ? 0 : HOME_PITCH,
+            duration: 500,
+          })
+        }
+      >
+        <Icon>
+          <path d="M3 16.5 12 20l9-3.5" />
+          <path d="M6.5 12.2 12 14.4l5.5-2.2" />
+          <path d="M9.5 8.2 12 9.2l2.5-1" />
+        </Icon>
+      </ControlButton>
+
       <ControlButton
         label="Reset north and tilt"
         disabled={!map}
