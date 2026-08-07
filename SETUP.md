@@ -177,6 +177,52 @@ The exact rules for every column of the weekly sheet are in [docs/CSV-SPEC.md](d
 
 ---
 
+## Step 8 — Put the real Cresa logo in place
+
+The app ships with a built-in Cresa mark so it never looks unbranded. To use the exact
+artwork from the company website instead:
+
+1. Save the logo file from the Cresa website to your computer. SVG is best because it stays
+   sharp at every size; PNG, JPG and WEBP also work, up to 4 MB.
+2. Open `/setup` and scroll to **Company logo**.
+3. Drag the file onto the drop zone, or click **choose a file**.
+4. Two live previews appear — the real navigation bar and the real footer. Use the five
+   sliders to get it sitting right:
+   - **Scale** — how large the artwork is inside the space reserved for it.
+   - **Height** — how much vertical space the logo takes in the navigation bar.
+   - **Horizontal offset** and **Vertical offset** — nudge it left/right and up/down when
+     the artwork has uneven padding baked into the file.
+   - **Footer scale** — the footer lockup is smaller; this shrinks or grows it on top of the
+     main scale.
+5. Click **Save logo**. Everyone sees the change on their next page load.
+
+**Reset to default** puts the built-in mark back at any time. Nothing is deleted.
+
+This step needs photo storage (Step 4) to be switched on, because the file has to live
+somewhere. If it is not set up yet, the page says so in plain English and points you back.
+
+---
+
+## Step 9 — Fill in the landlords
+
+Every building that arrives with a sheet gets a landlord record created for it automatically,
+seeded from the owner name on the city's tax record. You never start from a blank list.
+
+1. Open **Landlords** in the navigation.
+2. Records seeded from city records carry a yellow **Needs review** strip. The name on a deed
+   is usually a holding company rather than the name a broker would use, so:
+   - Click **Edit** to replace it with the operating landlord's name, then write the insights,
+     amenities and portfolio numbers.
+   - Or click **Confirm** if the seeded name is already correct.
+3. If a building has no landlord yet — for example after a sheet that arrived before this
+   feature existed — click **Pull owners from city records** and the app fills the gaps.
+
+What to write in each field is covered in [docs/LANDLORD-SHEET.md](docs/LANDLORD-SHEET.md).
+This is the one part of the app that no data feed can fill in for you, and it is the part
+that makes the compare view worth showing to a client.
+
+---
+
 ## Sharing the link
 
 **The app has no login.** Anyone who has the URL can open it, see every space, and edit the data. There is no password screen and no account list.

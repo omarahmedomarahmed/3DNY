@@ -1,10 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import clsx from 'clsx';
 import type { Building, Landlord } from '@/types';
 import { useApp } from '@/lib/store';
 import Badge from '@/components/ui/Badge';
 import { Num, formatCompactSf, formatRent } from '@/components/ui/Money';
+import Icon from '@/components/ui/Icon';
 import EditDrawer, { type EditTarget } from '@/components/edit/EditDrawer';
 
 export async function fetchLandlords(): Promise<Landlord[]> {
@@ -87,7 +89,7 @@ function stripEmphasis(text: string): string {
 function Stat({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="min-w-[140px] flex-1 border-l-2 border-goldenrod pl-3">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">{label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">{label}</p>
       <p className="mt-0.5 text-xl font-semibold tabular leading-tight text-goldenrod-700">
         {value}
       </p>
@@ -95,11 +97,17 @@ function Stat({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+const QUIET_BUTTON =
+  'inline-flex items-center gap-1.5 rounded border border-hairline-strong bg-white px-2.5 py-1.5 ' +
+  'text-sm font-medium text-body transition-colors hover:border-midnight hover:text-ink ' +
+  'disabled:cursor-not-allowed disabled:opacity-40';
+
 export default function LandlordPanel({ building }: { building: Building }) {
   const [landlord, setLandlord] = useState<Landlord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [drawer, setDrawer] = useState<EditTarget | null>(null);
+  const [working, setWorking] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -142,9 +150,52 @@ export default function LandlordPanel({ building }: { building: Building }) {
     }
   }
 
+  /**
+   * Pulls owners straight from the city records for every unlinked building,
+   * so the panel has something to correct instead of a blank form.
+   */
+  async function runBackfill() {
+    setWorking(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/landlords/backfill', { method: 'POST' });
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(body.error ?? `Backfill failed (${res.status})`);
+      await useApp.getState().loadBuildings();
+      await load();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  /** Confirming means: the seeded name is the one we would say out loud. */
+  async function confirmLandlord() {
+    if (!landlord) return;
+    setWorking(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/landlords/${landlord.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ needs_review: false }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((body as { error?: string }).error ?? `Could not confirm (${res.status})`);
+      }
+      setLandlord((prev) => (prev ? { ...prev, ...(body as Partial<Landlord>) } : prev));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setWorking(false);
+    }
+  }
+
   if (loading) {
     return (
-      <p className="rounded-card border border-hairline bg-surface-alt px-4 py-6 text-sm text-muted">
+      <p className="rounded-card border border-hairline bg-surface-alt px-4 py-6 text-sm font-medium text-muted">
         Loading landlord insights…
       </p>
     );
@@ -154,25 +205,50 @@ export default function LandlordPanel({ building }: { building: Building }) {
     return (
       <>
         <div className="rounded-card border border-dashed border-hairline-strong bg-surface-alt px-4 py-10 text-center">
-          <p className="text-sm font-semibold text-ink">No landlord linked to this building.</p>
-          <p className="mx-auto mt-1.5 max-w-md text-xs leading-5 text-muted">
-            Ownership insights, amenities and notable tenants are hand-written — add them once and
-            every building in the portfolio picks them up.
+          <Icon name="building" size={26} className="mx-auto text-subtle" />
+          <p className="mt-2 text-sm font-semibold text-ink">
+            No landlord linked to this building.
           </p>
-          <button
-            type="button"
-            onClick={() =>
-              setDrawer({
-                kind: 'landlord',
-                id: null,
-                initial: { name: building.landlord_name ?? '' },
-              })
-            }
-            className="mt-4 rounded bg-goldenrod px-4 py-2 text-xs font-semibold text-midnight transition-colors hover:bg-goldenrod-400"
-          >
-            Add landlord insights
-          </button>
-          {error && <p className="mt-2 text-xs font-medium text-danger">{error}</p>}
+          <p className="mx-auto mt-1.5 max-w-md text-sm font-medium leading-5 text-muted">
+            Seed one from the city&apos;s ownership records — every building with a tax lot gets the
+            owner of record, flagged for review, and you correct the name from there rather than
+            typing one from scratch.
+          </p>
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            <button
+              type="button"
+              disabled={working}
+              onClick={() => void runBackfill()}
+              className={clsx(
+                'inline-flex items-center gap-1.5 rounded bg-goldenrod px-4 py-2 text-sm font-semibold text-midnight',
+                'transition-colors hover:bg-goldenrod-400 disabled:cursor-not-allowed disabled:opacity-50',
+              )}
+            >
+              <Icon name="building" size={14} />
+              {working ? 'Pulling owners from city records…' : 'Pull owners from city records'}
+            </button>
+            <button
+              type="button"
+              disabled={working}
+              onClick={() =>
+                setDrawer({
+                  kind: 'landlord',
+                  id: null,
+                  initial: { name: building.landlord_name ?? '' },
+                })
+              }
+              className={QUIET_BUTTON}
+            >
+              <Icon name="plus" size={14} />
+              Add by hand
+            </button>
+          </div>
+          {error && (
+            <p className="mt-3 flex items-center justify-center gap-1.5 text-sm font-medium text-danger">
+              <Icon name="warning" size={14} />
+              {error}
+            </p>
+          )}
         </div>
         <EditDrawer
           target={drawer}
@@ -183,32 +259,73 @@ export default function LandlordPanel({ building }: { building: Building }) {
     );
   }
 
+  const ownerDiffers =
+    Boolean(landlord.owner_of_record) &&
+    landlord.owner_of_record!.trim().toLowerCase() !== landlord.name.trim().toLowerCase();
+
+  const openEditor = () =>
+    setDrawer({
+      kind: 'landlord',
+      id: landlord.id,
+      initial: landlord as unknown as Record<string, unknown>,
+    });
+
   return (
     <div className="space-y-6 rounded-card border border-hairline bg-white p-6 shadow-card">
       <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <h3 className="text-xl font-semibold tracking-tight text-ink">{landlord.name}</h3>
+          {ownerDiffers && (
+            <p className="mt-0.5 text-sm font-medium text-subtle">
+              Owner of record: {landlord.owner_of_record}
+            </p>
+          )}
           {landlord.aliases.length > 0 && (
-            <p className="mt-0.5 text-[11px] text-muted">a.k.a. {landlord.aliases.join(', ')}</p>
+            <p className="mt-0.5 text-sm font-medium text-muted">
+              a.k.a. {landlord.aliases.join(', ')}
+            </p>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() =>
-            setDrawer({
-              kind: 'landlord',
-              id: landlord.id,
-              initial: landlord as unknown as Record<string, unknown>,
-            })
-          }
-          className="rounded border border-hairline-strong bg-white px-2.5 py-1.5 text-xs font-medium text-body transition-colors hover:border-midnight hover:text-ink"
-        >
+        <button type="button" onClick={openEditor} className={QUIET_BUTTON}>
+          <Icon name="edit" size={14} />
           Edit insights
         </button>
       </header>
 
+      {landlord.needs_review && (
+        <div className="flex flex-wrap items-start justify-between gap-3 rounded-card border-l-4 border-goldenrod bg-goldenrod-50 px-4 py-3">
+          <p className="flex min-w-0 items-start gap-2 text-sm font-medium leading-5 text-midnight">
+            <Icon name="info" size={16} className="mt-0.5 text-goldenrod-700" />
+            <span>
+              Seeded from the city ownership record as{' '}
+              <span className="font-semibold">{landlord.owner_of_record ?? landlord.name}</span>.
+              Confirm or replace with the operating landlord name.
+            </span>
+          </p>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              disabled={working}
+              onClick={() => void confirmLandlord()}
+              className={clsx(
+                'inline-flex items-center gap-1.5 rounded bg-midnight px-3 py-1.5 text-sm font-semibold text-white',
+                'transition-colors hover:bg-midnight-700 disabled:cursor-not-allowed disabled:opacity-40',
+              )}
+            >
+              <Icon name="check" size={14} />
+              {working ? 'Confirming…' : 'Confirm'}
+            </button>
+            <button type="button" disabled={working} onClick={openEditor} className={QUIET_BUTTON}>
+              <Icon name="edit" size={14} />
+              Edit
+            </button>
+          </div>
+        </div>
+      )}
+
       {error && (
-        <p className="rounded bg-danger-surface px-3 py-2 text-xs font-medium text-danger">
+        <p className="flex items-center gap-2 rounded bg-danger-surface px-3 py-2 text-sm font-medium text-danger">
+          <Icon name="warning" size={15} />
           {error}
         </p>
       )}
@@ -222,17 +339,21 @@ export default function LandlordPanel({ building }: { building: Building }) {
       {landlord.insights_md ? (
         <Markdownish text={landlord.insights_md} />
       ) : (
-        <p className="text-sm text-muted">No written insights yet.</p>
+        <p className="text-sm font-medium text-muted">No written insights yet.</p>
       )}
 
       {landlord.amenities.length > 0 && (
         <div>
-          <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
+          <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
             Amenities
           </h4>
           <div className="flex flex-wrap gap-1.5">
             {landlord.amenities.map((a) => (
-              <Badge key={a} variant="neutral" className="rounded-full bg-midnight-50 text-midnight-700">
+              <Badge
+                key={a}
+                variant="neutral"
+                className="rounded-full bg-midnight-50 text-midnight-700"
+              >
                 {a}
               </Badge>
             ))}
@@ -242,12 +363,16 @@ export default function LandlordPanel({ building }: { building: Building }) {
 
       {landlord.notable_tenants.length > 0 && (
         <div>
-          <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
+          <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
             Notable tenants
           </h4>
           <div className="flex flex-wrap gap-1.5">
             {landlord.notable_tenants.map((t) => (
-              <Badge key={t} variant="neutral" className="rounded-full bg-midnight-50 text-midnight-700">
+              <Badge
+                key={t}
+                variant="neutral"
+                className="rounded-full bg-midnight-50 text-midnight-700"
+              >
                 {t}
               </Badge>
             ))}
@@ -257,7 +382,7 @@ export default function LandlordPanel({ building }: { building: Building }) {
 
       {(landlord.contact_name || landlord.contact_email || landlord.contact_phone) && (
         <div className="rounded-card border border-hairline bg-surface-alt p-4">
-          <h4 className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
+          <h4 className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
             Contact
           </h4>
           {landlord.contact_name && (
@@ -266,16 +391,18 @@ export default function LandlordPanel({ building }: { building: Building }) {
           {landlord.contact_email && (
             <a
               href={`mailto:${landlord.contact_email}`}
-              className="block break-all text-xs font-medium text-info hover:underline"
+              className="flex items-center gap-1.5 break-all text-sm font-medium text-info hover:underline"
             >
+              <Icon name="mail" size={14} />
               {landlord.contact_email}
             </a>
           )}
           {landlord.contact_phone && (
             <a
               href={`tel:${landlord.contact_phone}`}
-              className="text-xs font-medium tabular text-info hover:underline"
+              className="flex items-center gap-1.5 text-sm font-medium tabular text-info hover:underline"
             >
+              <Icon name="phone" size={14} />
               {landlord.contact_phone}
             </a>
           )}

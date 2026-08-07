@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import AppHeader from '@/components/shell/AppHeader';
+import LogoUploader from '@/components/brand/LogoUploader';
+import { SkylineBand, GridPattern } from '@/components/brand/Skyline';
+import Icon from '@/components/ui/Icon';
 
 interface Health {
   ok: boolean;
@@ -94,6 +97,16 @@ export default function SetupPage() {
     <div className="min-h-screen bg-surface-alt">
       <AppHeader />
 
+      {/* A thin skyline keeps the utility pages inside the same world as the
+          map, without competing with the status list underneath. */}
+      <div className="relative overflow-hidden bg-midnight">
+        <GridPattern
+          className="pointer-events-none absolute inset-0 text-white"
+          opacity={0.12}
+        />
+        <SkylineBand className="relative block h-20 w-full opacity-60" fill="#243E8C" />
+      </div>
+
       <main className="mx-auto max-w-3xl px-6 py-12">
         <h1 className="text-2xl font-semibold tracking-tight text-ink">Setup</h1>
         <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
@@ -176,7 +189,8 @@ export default function SetupPage() {
 
         {/* Create tables ---------------------------------------------------- */}
         <section className="mt-6 rounded-card border border-hairline bg-white p-6 shadow-card">
-          <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+          <h2 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+            <Icon name="check" size={14} />
             Create database tables
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-muted">
@@ -207,7 +221,8 @@ export default function SetupPage() {
 
         {/* Refresh geometry -------------------------------------------------- */}
         <section className="mt-6 rounded-card border border-hairline bg-white p-6 shadow-card">
-          <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+          <h2 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+            <Icon name="building" size={14} />
             Refresh building shapes
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-muted">
@@ -223,6 +238,19 @@ export default function SetupPage() {
             {enriching ? 'Looking up building shapes…' : 'Refresh building shapes'}
           </button>
           {enrichResult && <p className="mt-3 text-sm text-ok">{enrichResult}</p>}
+        </section>
+
+        {/* Branding ------------------------------------------------------------ */}
+        <section className="mt-6 rounded-card border border-hairline bg-white p-6 shadow-card">
+          <h2 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+            <Icon name="image" size={14} />
+            Company logo
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-muted">
+            Upload the Cresa mark from the company website and nudge it until it sits right
+            in the navigation bar and the footer. Both previews below are the real thing.
+          </p>
+          <LogoUploader className="mt-6" />
         </section>
 
         {/* Next --------------------------------------------------------------- */}

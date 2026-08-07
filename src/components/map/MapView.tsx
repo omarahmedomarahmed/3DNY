@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import { Protocol } from 'pmtiles';
 import { MapboxOverlay } from '@deck.gl/mapbox';
@@ -16,13 +16,24 @@ import { BRAND, SURFACE } from '@/lib/brand';
 import { useApp } from '@/lib/store';
 import { applyFilters } from '@/lib/filters';
 import type { BuildingWithSpaces } from '@/types';
-import { BAND_ZOOM_THRESHOLD, buildLayers } from './layers';
+import { BAND_ZOOM_THRESHOLD, buildLayers, type MapPoint } from './layers';
 import MapLegend from './MapLegend';
+import MapControls from './MapControls';
 import RadiusControl from './RadiusControl';
+import SpacePopup, { type PopupAnchor } from './SpacePopup';
 import { useVisibleBuildings } from './useVisibleBuildings';
 
 const DEFAULT_CENTER: [number, number] = [-73.98, 40.75];
 const BAND_LABEL = 'Floor bands appear at zoom ' + BAND_ZOOM_THRESHOLD;
+
+/**
+ * Default basemap. Positron is key-free, pale gray/white with quiet labels, so
+ * Midnight massing and Goldenrod bands stay the only saturated things on
+ * screen — exactly the hierarchy the rest of the map is designed around.
+ */
+const CARTO_POSITRON_STYLE =
+  'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
+const CARTO_ATTRIBUTION = '© OpenStreetMap contributors © CARTO';
 
 function parseCenter(raw: string | undefined): [number, number] {
   if (!raw) return DEFAULT_CENTER;
@@ -159,6 +170,40 @@ function pmtilesStyle(url: string): maplibregl.StyleSpecification {
 }
 
 /**
+ * Basemap resolution, in priority order:
+ *   1. NEXT_PUBLIC_BASEMAP_STYLE — a complete MapLibre style URL
+ *   2. NEXT_PUBLIC_BASEMAP_URL   — self-hosted PMTiles
+ *   3. CARTO Positron            — key-free, no configuration needed
+ * Whatever is chosen, a load failure downgrades to the blank style rather than
+ * leaving a broken map (see the `error` handler in the bootstrap effect).
+ */
+function resolveBasemap(): {
+  style: string | maplibregl.StyleSpecification;
+  attribution: string | undefined;
+  needsPmtiles: boolean;
+} {
+  const styleUrl = process.env.NEXT_PUBLIC_BASEMAP_STYLE;
+  if (styleUrl) {
+    return { style: styleUrl, attribution: undefined, needsPmtiles: false };
+  }
+
+  const pmtilesUrl = process.env.NEXT_PUBLIC_BASEMAP_URL;
+  if (pmtilesUrl) {
+    return {
+      style: pmtilesStyle(pmtilesUrl),
+      attribution: undefined,
+      needsPmtiles: true,
+    };
+  }
+
+  return {
+    style: CARTO_POSITRON_STYLE,
+    attribution: CARTO_ATTRIBUTION,
+    needsPmtiles: false,
+  };
+}
+
+/**
  * Extrusions have to read against a near-white ground. A strong ambient term
  * keeps fills close to the legend swatches, and two directional lights — a key
  * from the south-west plus a weak fill — separate adjacent faces so towers
@@ -202,6 +247,20 @@ type HoverPayload = Partial<BuildingWithSpaces> & {
   portion?: string;
 };
 
+interface PopupState {
+  buildingId: string;
+  /** Null while a multi-space building is showing its floor list. */
+  spaceId: string | null;
+  at: PopupAnchor;
+}
+
+/** Every [lon, lat] we can frame the camera on. */
+function buildingPoints(buildings: BuildingWithSpaces[]): [number, number][] {
+  return buildings
+    .filter((b) => b.lon !== null && b.lat !== null)
+    .map((b) => [b.lon as number, b.lat as number] as [number, number]);
+}
+
 export default function MapView() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -210,6 +269,7 @@ export default function MapView() {
   const [map, setMap] = useState<maplibregl.Map | null>(null);
   const [contextLost, setContextLost] = useState(false);
   const [zoom, setZoom] = useState(14);
+  const [popup, setPopup] = useState<PopupState | null>(null);
 
   const buildings = useApp((s) => s.buildings);
   const filters = useApp((s) => s.filters);
@@ -232,34 +292,50 @@ export default function MapView() {
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
-    const basemapUrl = process.env.NEXT_PUBLIC_BASEMAP_URL;
+    const basemap = resolveBasemap();
     let protocol: { remove?: () => void } | null = null;
-    let style: maplibregl.StyleSpecification;
 
-    if (basemapUrl) {
+    if (basemap.needsPmtiles) {
       const p = new Protocol();
       maplibregl.addProtocol('pmtiles', p.tile);
       protocol = { remove: () => maplibregl.removeProtocol('pmtiles') };
-      style = pmtilesStyle(basemapUrl);
-    } else {
-      style = blankLightStyle();
     }
 
     const instance = new maplibregl.Map({
       container: containerRef.current,
-      style,
+      style: basemap.style,
       center: parseCenter(process.env.NEXT_PUBLIC_MAP_CENTER),
       zoom: 14,
       pitch: 50,
       bearing: -20,
       antialias: true,
-      attributionControl: false,
+      attributionControl: {
+        compact: true,
+        ...(basemap.attribution ? { customAttribution: basemap.attribution } : {}),
+      },
     });
 
-    instance.addControl(
-      new maplibregl.NavigationControl({ visualizePitch: true }),
-      'top-right',
-    );
+    // A remote basemap is the one thing here that depends on the open
+    // internet. If it never loads — offline demo, blocked CDN, corporate
+    // proxy — the buildings still have to be on screen, so swap in the blank
+    // style exactly once. Errors *after* the style is up (a stray tile 404)
+    // are ignored: they must never blank a working map.
+    let styleLoaded = false;
+    let downgraded = false;
+    const onStyleLoad = () => {
+      styleLoaded = true;
+    };
+    const onError = () => {
+      if (styleLoaded || downgraded) return;
+      downgraded = true;
+      try {
+        instance.setStyle(blankLightStyle());
+      } catch {
+        // Nothing further to try; the deck.gl overlay renders regardless.
+      }
+    };
+    instance.on('style.load', onStyleLoad);
+    instance.on('error', onError);
 
     const overlay = new MapboxOverlay({
       interleaved: false,
@@ -290,6 +366,8 @@ export default function MapView() {
       canvas.removeEventListener('webglcontextlost', onLost);
       canvas.removeEventListener('webglcontextrestored', onRestored);
       instance.off('zoomend', onZoom);
+      instance.off('style.load', onStyleLoad);
+      instance.off('error', onError);
       overlay.finalize();
       instance.remove();
       protocol?.remove?.();
@@ -299,12 +377,27 @@ export default function MapView() {
     };
   }, []);
 
+  /** deck.gl reports canvas-relative pixels; the popup is viewport-positioned. */
+  const toViewport = useCallback((at: MapPoint): PopupAnchor => {
+    const instance = mapRef.current;
+    if (!instance) return { x: at.x, y: at.y };
+    const rect = instance.getCanvas().getBoundingClientRect();
+    return { x: rect.left + at.x, y: rect.top + at.y };
+  }, []);
+
   // --- Layer sync.
   useEffect(() => {
     const overlay = overlayRef.current;
     if (!overlay) return;
 
-    const { selectBuilding, selectSpace, setHovered } = useApp.getState();
+    const openSpace = (spaceId: string, buildingId: string, at: MapPoint) => {
+      const state = useApp.getState();
+      // selectBuilding clears the space selection, so it only fires when the
+      // building actually changes — otherwise the band click would undo itself.
+      if (state.selectedBuildingId !== buildingId) state.selectBuilding(buildingId);
+      state.selectSpace(spaceId);
+      setPopup({ buildingId, spaceId, at: toViewport(at) });
+    };
 
     overlay.setProps({
       layers: buildLayers({
@@ -316,9 +409,21 @@ export default function MapView() {
         colorMode,
         radius,
         zoom,
-        onBuildingClick: (id) => selectBuilding(id),
-        onSpaceClick: (id) => selectSpace(id),
-        onHover: (id) => setHovered(id),
+        onBuildingClick: (id, at) => {
+          const state = useApp.getState();
+          state.selectBuilding(id);
+
+          // One availability means there is no list worth showing — go
+          // straight to that space, exactly as if its band had been clicked.
+          const target = state.buildings.find((b) => b.id === id);
+          const actives = target ? target.spaces.filter((s) => s.is_active) : [];
+          const only = actives.length === 1 ? actives[0].id : null;
+          if (only) state.selectSpace(only);
+
+          setPopup({ buildingId: id, spaceId: only, at: toViewport(at) });
+        },
+        onSpaceClick: openSpace,
+        onHover: (id) => useApp.getState().setHovered(id),
       }),
     });
   }, [
@@ -330,39 +435,50 @@ export default function MapView() {
     colorMode,
     radius,
     zoom,
+    toViewport,
   ]);
 
-  // --- Frame the loaded inventory on first paint. Opening on a fixed centre
-  // leaves the towers as specks somewhere off to one side; a broker opening
-  // this in a meeting should see their availability immediately.
+  // --- Frame the loaded inventory. Opening on a fixed centre leaves the towers
+  // as specks somewhere off to one side; a broker opening this in a meeting
+  // should see their availability immediately. Also drives "Fit to all".
+  const fitAll = useCallback(
+    (duration = 900) => {
+      const instance = mapRef.current;
+      if (!instance) return;
+
+      const points = buildingPoints(buildings);
+      if (points.length === 0) return;
+
+      if (points.length === 1) {
+        instance.easeTo({ center: points[0], zoom: 16.5, pitch: 55, duration });
+        return;
+      }
+
+      const lons = points.map((p) => p[0]);
+      const lats = points.map((p) => p[1]);
+      instance.fitBounds(
+        [
+          [Math.min(...lons), Math.min(...lats)],
+          [Math.max(...lons), Math.max(...lats)],
+        ],
+        // Room for the filter rail and results sidebar, which overlay the edges.
+        {
+          padding: { top: 90, bottom: 140, left: 80, right: 80 },
+          maxZoom: 16.4,
+          duration,
+        },
+      );
+    },
+    [buildings],
+  );
+
   const framed = useRef(false);
   useEffect(() => {
-    const instance = mapRef.current;
-    if (!instance || framed.current) return;
-
-    const points = buildings
-      .filter((b) => b.lon !== null && b.lat !== null)
-      .map((b) => [b.lon as number, b.lat as number] as [number, number]);
-    if (points.length === 0) return;
-
+    if (framed.current) return;
+    if (!mapRef.current || buildingPoints(buildings).length === 0) return;
     framed.current = true;
-
-    if (points.length === 1) {
-      instance.easeTo({ center: points[0], zoom: 16.5, pitch: 55, duration: 800 });
-      return;
-    }
-
-    const lons = points.map((p) => p[0]);
-    const lats = points.map((p) => p[1]);
-    instance.fitBounds(
-      [
-        [Math.min(...lons), Math.min(...lats)],
-        [Math.max(...lons), Math.max(...lats)],
-      ],
-      // Room for the filter rail and results sidebar, which overlay the edges.
-      { padding: { top: 90, bottom: 140, left: 80, right: 80 }, maxZoom: 16.4, duration: 900 },
-    );
-  }, [buildings]);
+    fitAll();
+  }, [buildings, fitAll]);
 
   // --- Fly to the selection so its floor bands come into view.
   useEffect(() => {
@@ -380,6 +496,7 @@ export default function MapView() {
   }, [selectedBuildingId, buildings]);
 
   const showEmpty = !loading && !error && buildings.length === 0;
+  const closePopup = useCallback(() => setPopup(null), []);
 
   return (
     <div className="relative h-full w-full bg-surface-sunken">
@@ -392,17 +509,17 @@ export default function MapView() {
       {contextLost && (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/85 p-6 text-center backdrop-blur-sm">
           <div className="max-w-sm rounded-card border border-hairline bg-white p-5 shadow-float">
-            <div className="mb-1 text-sm font-semibold text-ink">
+            <div className="mb-1 text-base font-semibold text-ink">
               The 3D view lost its graphics context
             </div>
-            <p className="mb-4 text-xs leading-relaxed text-muted">
+            <p className="mb-4 text-sm font-medium leading-relaxed text-muted">
               This usually happens when the machine sleeps or another app takes
               the GPU. Reloading the map restores it.
             </p>
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="rounded bg-goldenrod px-3 py-1.5 text-xs font-semibold text-midnight transition-colors hover:bg-goldenrod-400"
+              className="rounded bg-goldenrod px-3 py-1.5 text-sm font-semibold text-midnight transition-colors hover:bg-goldenrod-400"
             >
               Reload map
             </button>
@@ -412,7 +529,7 @@ export default function MapView() {
 
       {showEmpty && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
-          <div className="rounded-card border border-hairline bg-white px-4 py-3 text-center text-xs text-muted shadow-raised">
+          <div className="rounded-card border border-hairline bg-white px-4 py-3 text-center text-sm font-medium text-body shadow-raised">
             No buildings loaded yet. Import an availability sheet to populate the
             map.
           </div>
@@ -421,7 +538,7 @@ export default function MapView() {
 
       {!showEmpty && buildings.length > 0 && filtered.length === 0 && (
         <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center">
-          <div className="rounded-full border border-hairline bg-white px-3 py-1.5 text-[11px] font-medium text-body shadow-card">
+          <div className="rounded-full border border-hairline bg-white px-3 py-1.5 text-sm font-semibold text-body shadow-card">
             No spaces match the current filters
           </div>
         </div>
@@ -429,7 +546,7 @@ export default function MapView() {
 
       {error && (
         <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center">
-          <div className="rounded-full border border-danger/30 bg-danger-surface px-3 py-1.5 text-[11px] font-medium text-danger shadow-card">
+          <div className="rounded-full border border-danger/30 bg-danger-surface px-3 py-1.5 text-sm font-semibold text-danger shadow-card">
             {error}
           </div>
         </div>
@@ -438,12 +555,31 @@ export default function MapView() {
       <div className="pointer-events-none absolute inset-0 z-10">
         <MapLegend />
         <RadiusControl />
+        <MapControls
+          map={map}
+          onFitAll={() => fitAll(700)}
+          canFitAll={buildingPoints(buildings).length > 0}
+        />
         {zoom < BAND_ZOOM_THRESHOLD && !selectedBuildingId && buildings.length > 0 && (
-          <div className="absolute left-1/2 bottom-4 -translate-x-1/2 rounded-full border border-hairline bg-white/95 px-3 py-1 text-[10px] text-muted shadow-card">
+          <div className="absolute left-1/2 bottom-4 -translate-x-1/2 rounded-full border border-hairline bg-white/95 px-3 py-1 text-[11px] font-medium text-body shadow-card">
             {BAND_LABEL}
           </div>
         )}
       </div>
+
+      {popup && (
+        <SpacePopup
+          key={popup.buildingId}
+          buildingId={popup.buildingId}
+          spaceId={popup.spaceId}
+          at={popup.at}
+          onClose={closePopup}
+          onSelectSpace={(spaceId) => {
+            useApp.getState().selectSpace(spaceId);
+            setPopup((prev) => (prev ? { ...prev, spaceId } : prev));
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -463,34 +599,41 @@ function buildTooltip(info: PickingInfo): { html: string; style: Record<string, 
 
   const lines: string[] = [];
   lines.push(
-    `<div style="font-weight:600;color:#fff">${escapeHtml(building.address_display)}</div>`,
+    `<div style="font-weight:700;font-size:14px;color:#FFFFFF">${escapeHtml(
+      building.address_display,
+    )}</div>`,
   );
   if (building.building_name) {
     lines.push(
-      `<div style="color:#8b949e">${escapeHtml(building.building_name)}</div>`,
+      `<div style="color:#DCE4EF">${escapeHtml(building.building_name)}</div>`,
     );
   }
   if (object.floorNumber !== undefined) {
     const portion = object.portion === 'partial' ? 'Partial' : 'Entire';
     lines.push(
-      `<div style="color:#4c9aff">${portion} floor ${object.floorNumber}</div>`,
+      `<div style="color:${BRAND.goldenrod};font-weight:600">${portion} floor ${object.floorNumber}</div>`,
     );
   }
   lines.push(
-    `<div style="color:#8b949e">${building.spaceCount} space${
+    `<div style="color:#DCE4EF">${building.spaceCount} space${
       building.spaceCount === 1 ? '' : 's'
     } · ${escapeHtml(rentRange(building))}</div>`,
   );
 
   return {
     html: lines.join(''),
+    // Midnight card, white type: high contrast is the whole point on a
+    // projector, where the previous near-gray body text disappeared.
     style: {
-      background: '#161b22',
-      border: '1px solid #2b3441',
-      borderRadius: '6px',
-      color: '#e6edf3',
-      fontSize: '12px',
-      padding: '8px 10px',
+      background: BRAND.midnight,
+      border: '1px solid rgba(255,255,255,0.18)',
+      borderRadius: '8px',
+      boxShadow: '0 12px 32px rgba(0, 30, 90, 0.28)',
+      color: '#FFFFFF',
+      fontSize: '13px',
+      fontWeight: '500',
+      lineHeight: '1.35',
+      padding: '9px 11px',
       pointerEvents: 'none',
     },
   };

@@ -30,14 +30,14 @@ export default function DateFilter({
   max,
 }: DateFilterProps) {
   return (
-    <div className="space-y-1">
+    <div className="space-y-2">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-xs font-medium text-body">{label}</span>
+        <span className="text-sm font-medium text-body">{label}</span>
         {value ? (
           <button
             type="button"
             onClick={() => onChange(null)}
-            className="text-[10px] font-semibold uppercase tracking-[0.14em] text-brightblue transition-colors hover:text-midnight"
+            className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brightblue transition-colors hover:text-midnight"
           >
             Clear
           </button>
@@ -51,23 +51,23 @@ export default function DateFilter({
         min={min}
         max={max}
         onChange={(e) => onChange(normalise(e.target.value))}
-        className="tabular w-full rounded border border-hairline-strong bg-white px-2.5 py-1.5 text-xs text-ink focus:border-midnight [color-scheme:light]"
+        className="tabular w-full rounded-card border border-hairline-strong bg-white px-3 py-2 text-sm font-medium text-ink outline-none focus:border-midnight [color-scheme:light]"
       />
 
       {presets && presets.length > 0 ? (
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-1.5">
           {presets.map((preset) => {
             const active = preset.value !== null && preset.value === value;
             return (
               <button
                 key={preset.label}
                 type="button"
-                onClick={() => onChange(preset.value)}
+                onClick={() => onChange(active ? null : preset.value)}
                 aria-pressed={active}
-                className={`rounded border px-2 py-1 text-xs transition-colors ${
+                className={`rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${
                   active
-                    ? 'border-goldenrod bg-goldenrod font-medium text-midnight'
-                    : 'border-hairline bg-white text-muted hover:border-midnight hover:text-ink'
+                    ? 'border-goldenrod bg-goldenrod text-midnight'
+                    : 'border-hairline-strong bg-white text-body hover:border-midnight hover:text-ink'
                 }`}
               >
                 {preset.label}

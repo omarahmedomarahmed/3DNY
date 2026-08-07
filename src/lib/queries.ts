@@ -250,7 +250,104 @@ export async function enrichBuildingGeometry(
     ],
   );
 
+  // The city's ownership record is a far better landlord signal than the
+  // leasing company on the sheet — Cushman & Wakefield markets 540 Madison,
+  // it does not own it.
+  if (data.ownerName) {
+    await ensureLandlordForBuilding(buildingId, data.ownerName);
+  }
+
   return data.note;
+}
+
+/**
+ * Gives every building a landlord record to edit rather than making the team
+ * create them from scratch. Seeded from the city's owner of record, flagged
+ * for review because an LLC on a deed is rarely the name a broker would use.
+ */
+export async function ensureLandlordForBuilding(
+  buildingId: string,
+  ownerName: string,
+  addressDisplay?: string,
+): Promise<string | null> {
+  const db = sql();
+  let name = ownerName.trim();
+
+  // PLUTO writes literal placeholders where ownership is not published. Left
+  // as-is they collapse several unrelated buildings onto one landlord record,
+  // so edits to one would silently change the others.
+  const PLACEHOLDERS = ['unavailable owner', 'unavailable', 'n/a', 'unknown', 'none'];
+  if (!name || PLACEHOLDERS.includes(name.toLowerCase())) {
+    const address =
+      addressDisplay ??
+      ((await db(`SELECT address_display FROM buildings WHERE id = $1`, [buildingId])) as any[])[0]
+        ?.address_display;
+    if (!address) return null;
+    name = `Owner of ${address}`;
+  }
+
+  // Never overwrite a landlord a human has already curated.
+  const existing = (await db(
+    `SELECT landlord_id FROM buildings WHERE id = $1`,
+    [buildingId],
+  )) as any[];
+  if (existing[0]?.landlord_id) return existing[0].landlord_id as string;
+
+  const ownerOfRecord = name === ownerName.trim() ? name : null;
+  const rows = (await db(
+    `INSERT INTO landlords (name, owner_of_record, source, needs_review)
+     VALUES ($1, $2, 'city_record', true)
+     ON CONFLICT (name) DO UPDATE SET owner_of_record = COALESCE(landlords.owner_of_record, EXCLUDED.owner_of_record)
+     RETURNING id`,
+    [name, ownerOfRecord],
+  )) as any[];
+
+  const landlordId = rows[0]?.id as string | undefined;
+  if (!landlordId) return null;
+
+  await db(`UPDATE buildings SET landlord_id = $2 WHERE id = $1 AND landlord_id IS NULL`, [
+    buildingId,
+    landlordId,
+  ]);
+
+  // Keep the portfolio count honest as buildings accumulate.
+  await db(
+    `UPDATE landlords l SET buildings_owned = (
+       SELECT count(*) FROM buildings b WHERE b.landlord_id = l.id
+     ) WHERE l.id = $1`,
+    [landlordId],
+  );
+
+  return landlordId;
+}
+
+/** Backfills landlords for buildings that already have an owner on file. */
+export async function ensureLandlordsForAllBuildings(): Promise<{
+  linked: number;
+  created: number;
+}> {
+  const db = sql();
+  const rows = (await db(
+    `SELECT id, bin, bbl, address_display FROM buildings WHERE landlord_id IS NULL AND bbl IS NOT NULL`,
+  )) as any[];
+
+  const before = (await db(`SELECT count(*)::int AS n FROM landlords`)) as any[];
+  let linked = 0;
+
+  const { fetchFootprint } = await import('@/lib/footprints');
+  for (const row of rows) {
+    try {
+      const data = await fetchFootprint(null, row.bbl);
+      if (await ensureLandlordForBuilding(row.id, data.ownerName ?? '', row.address_display)) {
+        linked++;
+      }
+    } catch {
+      // A single failed lookup must not abort the backfill.
+    }
+  }
+
+  const after = (await db(`SELECT count(*)::int AS n FROM landlords`)) as any[];
+  return { linked, created: (after[0]?.n ?? 0) - (before[0]?.n ?? 0) };
 }
 
 /** Enriches every building that still has no footprint. Safe to re-run. */
@@ -424,6 +521,7 @@ const LANDLORD_EDITABLE = new Set([
   'name', 'aliases', 'insights_md', 'amenities', 'portfolio_sf',
   'buildings_owned', 'avg_asking_rent', 'notable_tenants',
   'contact_name', 'contact_email', 'contact_phone',
+  'owner_of_record', 'needs_review',
 ]);
 
 async function patchRow(
@@ -558,6 +656,26 @@ export async function addSpaceImage(spaceId: string, blobUrl: string, caption: s
     [spaceId, blobUrl, caption],
   )) as any[];
   return rows[0];
+}
+
+/**
+ * Rewrites captions and order for a space's photos in one round trip. Scoped
+ * to the space, so a stale id from another space silently does nothing rather
+ * than reordering someone else's gallery.
+ */
+export async function updateSpaceImages(
+  spaceId: string,
+  images: { id: string; caption: string | null; sort_order: number }[],
+) {
+  const db = sql();
+  for (const img of images) {
+    await db(
+      `UPDATE space_images SET caption = $1, sort_order = $2
+        WHERE id = $3 AND space_id = $4`,
+      [img.caption, img.sort_order, img.id, spaceId],
+    );
+  }
+  return getSpaceImages(spaceId);
 }
 
 /** Creates the schema. Safe to call repeatedly. */

@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
-import { addSpaceImage, deleteRow, getSpaceImages } from '@/lib/queries';
+import {
+  addSpaceImage,
+  deleteRow,
+  getSpaceImages,
+  updateSpaceImages,
+} from '@/lib/queries';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,6 +36,29 @@ export async function POST(req: Request, { params }: Params) {
       return NextResponse.json({ error: 'blob_url is required.' }, { status: 400 });
     }
     return NextResponse.json(await addSpaceImage(id, body.blob_url, body.caption ?? null));
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Reorder and re-caption in one call — what dragging a thumbnail sends. */
+export async function PATCH(req: Request, { params }: Params) {
+  try {
+    const { id } = await params;
+    const body = (await req.json()) as {
+      images?: { id?: string; caption?: string | null; sort_order?: number }[];
+    };
+    if (!Array.isArray(body.images)) {
+      return NextResponse.json({ error: 'images array is required.' }, { status: 400 });
+    }
+    const clean = body.images
+      .filter((img): img is { id: string } & typeof img => typeof img.id === 'string')
+      .map((img, i) => ({
+        id: img.id,
+        caption: img.caption ?? null,
+        sort_order: typeof img.sort_order === 'number' ? img.sort_order : i,
+      }));
+    return NextResponse.json(await updateSpaceImages(id, clean));
   } catch (err) {
     return fail(err);
   }

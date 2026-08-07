@@ -12,6 +12,11 @@ interface RangeFilterProps {
   /** Actual spread in the data, used for placeholder hints. */
   hint?: [number, number] | null;
   step?: number;
+  /**
+   * Hide the visible caption when the surrounding section heading already says
+   * the same thing. The label still reaches assistive tech via aria-label.
+   */
+  showLabel?: boolean;
 }
 
 /** Empty means "no bound" — never 0, which would silently exclude rows. */
@@ -36,6 +41,7 @@ export default function RangeFilter({
   unitPosition = 'prefix',
   hint,
   step,
+  showLabel = true,
 }: RangeFilterProps) {
   const lowHint = hintText(hint?.[0]);
   const highHint = hintText(hint?.[1]);
@@ -45,12 +51,12 @@ export default function RangeFilter({
     value: number | null,
     placeholder: string | undefined,
   ) => (
-    <label className="flex flex-1 items-center gap-1 rounded border border-hairline-strong bg-white px-2 py-1.5 focus-within:border-midnight">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
+    <label className="flex flex-1 items-center gap-1.5 rounded-card border border-hairline-strong bg-white px-2.5 py-2 focus-within:border-midnight">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
         {which === 'min' ? 'Min' : 'Max'}
       </span>
       {unit && unitPosition === 'prefix' ? (
-        <span className="text-xs text-muted">{unit}</span>
+        <span className="text-sm font-medium text-muted">{unit}</span>
       ) : null}
       <input
         type="number"
@@ -66,20 +72,20 @@ export default function RangeFilter({
               : { min, max: parse(e.target.value) },
           )
         }
-        className="tabular w-full min-w-0 bg-transparent text-right text-xs font-medium text-ink outline-none placeholder:font-normal placeholder:text-muted [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        className="tabular w-full min-w-0 bg-transparent text-right text-sm font-medium text-ink outline-none placeholder:font-normal placeholder:text-muted [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
       />
       {unit && unitPosition === 'suffix' ? (
-        <span className="text-xs text-muted">{unit}</span>
+        <span className="text-sm font-medium text-muted">{unit}</span>
       ) : null}
     </label>
   );
 
   return (
-    <div className="space-y-1">
-      <div className="text-xs font-medium text-body">{label}</div>
+    <div className="space-y-1.5">
+      {showLabel ? <div className="text-sm font-medium text-body">{label}</div> : null}
       <div className="flex items-center gap-2">
         {field('min', min, lowHint)}
-        <span className="text-xs text-subtle">–</span>
+        <span className="text-sm text-subtle">–</span>
         {field('max', max, highHint)}
       </div>
     </div>

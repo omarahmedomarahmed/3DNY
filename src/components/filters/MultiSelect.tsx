@@ -10,6 +10,11 @@ interface MultiSelectProps {
   /** Show the search box once the list is longer than this. */
   searchThreshold?: number;
   emptyHint?: string;
+  /**
+   * Hide the visible caption when the surrounding section heading already says
+   * the same thing. The clear affordance stays put.
+   */
+  showLabel?: boolean;
 }
 
 export default function MultiSelect({
@@ -19,6 +24,7 @@ export default function MultiSelect({
   onChange,
   searchThreshold = 8,
   emptyHint = 'No values in the current data.',
+  showLabel = true,
 }: MultiSelectProps) {
   const [query, setQuery] = useState('');
 
@@ -44,19 +50,25 @@ export default function MultiSelect({
   };
 
   return (
-    <div className="space-y-1">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-xs font-medium text-body">{label}</span>
-        {selected.length > 0 ? (
-          <button
-            type="button"
-            onClick={() => onChange([])}
-            className="text-[10px] font-semibold uppercase tracking-[0.14em] text-brightblue transition-colors hover:text-midnight"
-          >
-            {selected.length} selected · clear
-          </button>
-        ) : null}
-      </div>
+    <div className="space-y-2">
+      {showLabel || selected.length > 0 ? (
+        <div className="flex items-baseline justify-between gap-2">
+          {showLabel ? (
+            <span className="text-sm font-medium text-body">{label}</span>
+          ) : (
+            <span />
+          )}
+          {selected.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => onChange([])}
+              className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brightblue transition-colors hover:text-midnight"
+            >
+              {selected.length} selected · clear
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       {showSearch ? (
         <input
@@ -65,31 +77,31 @@ export default function MultiSelect({
           onChange={(e) => setQuery(e.target.value)}
           placeholder={`Search ${label.toLowerCase()}…`}
           aria-label={`Search ${label}`}
-          className="w-full rounded border border-hairline-strong bg-white px-2.5 py-1.5 text-xs text-ink placeholder:text-muted focus:border-midnight"
+          className="w-full rounded-card border border-hairline-strong bg-white px-3 py-2 text-sm font-medium text-ink outline-none placeholder:font-normal placeholder:text-muted focus:border-midnight"
         />
       ) : null}
 
       {safeOptions.length === 0 ? (
-        <p className="text-xs text-muted">{emptyHint}</p>
+        <p className="text-sm text-muted">{emptyHint}</p>
       ) : (
-        <div className="max-h-44 space-y-0.5 overflow-y-auto rounded border border-hairline-strong bg-surface-alt p-1">
+        <div className="max-h-52 space-y-0.5 overflow-y-auto pr-1">
           {visible.length === 0 ? (
-            <p className="px-1 py-1 text-xs text-muted">No match for “{query}”.</p>
+            <p className="py-1 text-sm text-muted">No match for “{query}”.</p>
           ) : (
             visible.map((option) => {
               const checked = selected.includes(option);
               return (
                 <label
                   key={option}
-                  className={`flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs transition-colors hover:bg-white ${
-                    checked ? 'font-medium text-ink' : 'text-body'
+                  className={`flex cursor-pointer items-center gap-2.5 rounded px-1.5 py-1.5 text-sm transition-colors hover:bg-surface-alt ${
+                    checked ? 'font-semibold text-ink' : 'font-medium text-body'
                   }`}
                 >
                   <input
                     type="checkbox"
                     checked={checked}
                     onChange={() => toggle(option)}
-                    className="h-3.5 w-3.5 shrink-0 accent-midnight"
+                    className="h-4 w-4 shrink-0 accent-midnight"
                   />
                   <span className="truncate" title={option}>
                     {option}
