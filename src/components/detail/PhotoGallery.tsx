@@ -106,48 +106,29 @@ export default function PhotoGallery({ spaceId }: { spaceId: string }) {
   }
 
   return (
-    <section className="space-y-2">
+    <section className="space-y-3">
       <div className="flex items-center justify-between">
-        <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted">
-          Photos {images.length > 0 && <span className="text-muted/60">({images.length})</span>}
+        <h4 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
+          Photos {images.length > 0 && <span className="text-subtle">({images.length})</span>}
         </h4>
-        <label
-          className={clsx(
-            'cursor-pointer rounded border border-edge px-2 py-1 text-[11px] text-muted',
-            'hover:border-accent/60 hover:text-accent',
-            busy && 'pointer-events-none opacity-50',
-          )}
-        >
-          {busy ? 'Uploading…' : 'Upload photo'}
-          <input
-            ref={fileInput}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void upload(file);
-            }}
-          />
-        </label>
+        {busy && <span className="text-[11px] font-medium text-muted">Uploading…</span>}
       </div>
 
       {error && (
-        <p className="rounded border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
+        <p className="rounded border-l-2 border-warmorange bg-warn-surface px-3 py-2 text-xs font-medium text-warmorange">
           {error}
         </p>
       )}
 
       {loading ? (
         <p className="text-xs text-muted">Loading photos…</p>
-      ) : images.length === 0 ? (
-        <p className="rounded border border-dashed border-edge px-3 py-6 text-center text-xs text-muted">
-          No photos yet.
-        </p>
       ) : (
-        <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {images.map((image) => (
-            <li key={image.id} className="group relative overflow-hidden rounded border border-edge">
+            <li
+              key={image.id}
+              className="group relative overflow-hidden rounded-card border border-hairline bg-white shadow-card"
+            >
               <button
                 type="button"
                 onClick={() => setLightbox(image)}
@@ -158,12 +139,15 @@ export default function PhotoGallery({ spaceId }: { spaceId: string }) {
                 <img
                   src={image.blob_url}
                   alt={image.caption ?? 'Space photo'}
-                  className="h-28 w-full bg-ink object-cover"
+                  className="h-28 w-full bg-surface-sunken object-cover"
                   loading="lazy"
                 />
               </button>
               {image.caption && (
-                <p className="truncate bg-ink/80 px-2 py-1 text-[10px] text-muted" title={image.caption}>
+                <p
+                  className="truncate border-t border-hairline bg-white px-2 py-1 text-[10px] text-muted"
+                  title={image.caption}
+                >
                   {image.caption}
                 </p>
               )}
@@ -173,7 +157,7 @@ export default function PhotoGallery({ spaceId }: { spaceId: string }) {
                 disabled={busy}
                 aria-label="Delete photo"
                 className={clsx(
-                  'absolute right-1 top-1 rounded bg-ink/80 px-1.5 py-0.5 text-[11px] text-muted',
+                  'absolute right-1.5 top-1.5 rounded border border-hairline bg-white/95 px-1.5 py-0.5 text-[11px] font-medium text-muted shadow-card',
                   'opacity-0 transition-opacity hover:text-danger group-hover:opacity-100',
                 )}
               >
@@ -181,29 +165,58 @@ export default function PhotoGallery({ spaceId }: { spaceId: string }) {
               </button>
             </li>
           ))}
+
+          <li>
+            <label
+              className={clsx(
+                'flex h-full min-h-[7rem] cursor-pointer flex-col items-center justify-center gap-1 rounded-card',
+                'border border-dashed border-hairline-strong bg-surface-alt px-3 text-center text-[11px] font-medium text-muted',
+                'transition-colors hover:border-midnight hover:text-ink',
+                busy && 'pointer-events-none opacity-50',
+              )}
+            >
+              <span aria-hidden className="text-base leading-none text-subtle">
+                +
+              </span>
+              {busy ? 'Uploading…' : images.length === 0 ? 'Add the first photo' : 'Add photo'}
+              <input
+                ref={fileInput}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void upload(file);
+                }}
+              />
+            </label>
+          </li>
         </ul>
       )}
 
       {lightbox && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 p-6"
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-midnight/70 p-6"
           role="dialog"
           aria-modal="true"
           onClick={() => setLightbox(null)}
         >
-          <figure className="max-h-full max-w-4xl" onClick={(e) => e.stopPropagation()}>
+          <figure
+            className="max-h-full max-w-4xl rounded-card bg-white p-3 shadow-float"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={lightbox.blob_url}
               alt={lightbox.caption ?? 'Space photo'}
-              className="max-h-[80vh] w-auto rounded border border-edge object-contain"
+              className="max-h-[80vh] w-auto rounded border border-hairline object-contain"
             />
-            <figcaption className="mt-2 flex items-center justify-between text-xs text-muted">
-              <span>{lightbox.caption ?? ''}</span>
+            <figcaption className="mt-3 flex items-center justify-between gap-4 text-xs text-muted">
+              <span className="truncate">{lightbox.caption ?? ''}</span>
               <button
                 type="button"
                 onClick={() => setLightbox(null)}
-                className="rounded border border-edge px-2 py-1 hover:text-white"
+                className="shrink-0 rounded border border-hairline-strong bg-white px-2.5 py-1 font-medium text-body transition-colors hover:border-midnight hover:text-ink"
               >
                 Close
               </button>

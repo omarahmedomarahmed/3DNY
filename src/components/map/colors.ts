@@ -1,3 +1,4 @@
+import { BRAND, RENT_RAMP, mix, rgba } from '@/lib/brand';
 import type { BuildingWithSpaces, ColorMode } from '@/types';
 
 export type RGBA = [number, number, number, number];
@@ -11,56 +12,87 @@ export interface ColorStop {
 }
 
 /**
- * All ramps below are drawn from colour-blind-safe families (viridis, plasma,
- * YlGnBu, Okabe-Ito). None of them rely on a red/green contrast to carry
- * meaning, so the map stays readable for deuteranopes on a projector.
+ * Every ramp below is built from the Cresa palette in @/lib/brand — no hexes
+ * are invented here. The map runs on a LIGHT basemap, so the rule that governs
+ * all of these is: matching buildings are saturated and dark, everything else
+ * is a pale gray that recedes. None of the ramps carry meaning through a
+ * red/green contrast, so they stay readable for deuteranopes on a projector.
  */
 
-/** Asking rent, $/SF/yr. Viridis — perceptually uniform, legible on dark. */
+/** Hex → RGB triple, for stop tables. */
+function rgb(hex: string): RGB {
+  const [r, g, b] = rgba(hex);
+  return [r, g, b];
+}
+
+/** Midnight lightened toward white — the neutral tint used by several ramps. */
+function tint(t: number): string {
+  return mix(BRAND.midnight, '#FFFFFF', t);
+}
+
+/**
+ * Asking rent, $/SF/yr. RENT_RAMP runs Midnight → Stadium Blue → Bright Blue →
+ * Goldenrod → Warm Orange: cool is cheap, hot is expensive.
+ */
 export const RENT_STOPS: ColorStop[] = [
-  { value: 0, color: [59, 82, 139], label: '< $50' },
-  { value: 50, color: [44, 114, 142], label: '$50' },
-  { value: 70, color: [33, 145, 140], label: '$70' },
-  { value: 90, color: [94, 201, 98], label: '$90' },
-  { value: 120, color: [181, 222, 43], label: '$120' },
-  { value: 150, color: [253, 231, 37], label: '$150+' },
+  { value: 0, color: rgb(RENT_RAMP[0]), label: '< $50' },
+  { value: 50, color: rgb(RENT_RAMP[1]), label: '$50' },
+  { value: 80, color: rgb(RENT_RAMP[2]), label: '$80' },
+  { value: 110, color: rgb(RENT_RAMP[3]), label: '$110' },
+  { value: 150, color: rgb(RENT_RAMP[4]), label: '$150+' },
 ];
 
-/** Total available SF. Plasma, so it never reads as the rent ramp. */
+/** Total available SF. A single-hue Midnight ramp: pale = small, deep = large. */
 export const SF_STOPS: ColorStop[] = [
-  { value: 0, color: [106, 0, 168], label: '< 5k' },
-  { value: 5_000, color: [177, 42, 144], label: '5k' },
-  { value: 20_000, color: [225, 100, 98], label: '20k' },
-  { value: 50_000, color: [252, 166, 54], label: '50k' },
-  { value: 100_000, color: [240, 249, 33], label: '100k+' },
+  { value: 0, color: rgb(tint(0.78)), label: '< 5k' },
+  { value: 5_000, color: rgb(tint(0.58)), label: '5k' },
+  { value: 20_000, color: rgb(tint(0.38)), label: '20k' },
+  { value: 50_000, color: rgb(tint(0.18)), label: '50k' },
+  { value: 100_000, color: rgb(BRAND.midnight), label: '100k+' },
 ];
 
-/** Months until the earliest space is available. YlGnBu, reversed. */
+/**
+ * Months until the earliest space is available. Goldenrod means "you can have
+ * it now" — the one thing on the map that should pull the eye — and the ramp
+ * cools into Midnight as the date slips away.
+ */
 export const AVAILABILITY_STOPS: ColorStop[] = [
-  { value: 0, color: [237, 248, 177], label: 'Now' },
-  { value: 3, color: [127, 205, 187], label: '3 mo' },
-  { value: 6, color: [65, 182, 196], label: '6 mo' },
-  { value: 12, color: [44, 127, 184], label: '12 mo' },
-  { value: 24, color: [37, 52, 148], label: '24 mo+' },
+  { value: 0, color: rgb(BRAND.goldenrod), label: 'Now' },
+  { value: 3, color: rgb(mix(BRAND.goldenrod, '#FFFFFF', 0.45)), label: '3 mo' },
+  { value: 6, color: rgb(mix(BRAND.brightBlue, '#FFFFFF', 0.45)), label: '6 mo' },
+  { value: 12, color: rgb(BRAND.brightBlue), label: '12 mo' },
+  { value: 24, color: rgb(BRAND.midnight), label: '24 mo+' },
 ];
 
-/** Okabe-Ito categorical — distinguishable under every common CVD type. */
+/** Categorical. Midnight / Stadium Blue / a lighter Midnight tint / neutral. */
 export const CLASS_STOPS: ColorStop[] = [
-  { value: 0, color: [86, 180, 233], label: 'Class A' },
-  { value: 1, color: [230, 159, 0], label: 'Class B' },
-  { value: 2, color: [204, 121, 167], label: 'Class C' },
-  { value: 3, color: [122, 132, 145], label: 'Unrated' },
+  { value: 0, color: rgb(BRAND.midnight), label: 'Class A' },
+  { value: 1, color: rgb(BRAND.stadiumBlue), label: 'Class B' },
+  { value: 2, color: rgb(tint(0.5)), label: 'Class C' },
+  { value: 3, color: rgb('#8A9099'), label: 'Unrated' },
 ];
 
-export const FLOOR_BAND_COLOR: RGBA = [255, 255, 255, 205];
-export const FLOOR_BAND_PARTIAL_COLOR: RGBA = [148, 205, 255, 150];
-export const SELECTED_COLOR: RGBA = [255, 214, 92, 255];
-export const DIMMED_COLOR: RGBA = [78, 88, 102, 90];
-export const HOVER_COLOR: RGBA = [255, 255, 255, 255];
-export const RADIUS_FILL: RGBA = [76, 154, 255, 26];
-export const RADIUS_LINE: RGBA = [76, 154, 255, 190];
+/** Available floors, in Goldenrod, against Midnight-toned building massing. */
+export const FLOOR_BAND_COLOR: RGBA = rgba(BRAND.goldenrod, 240);
+export const FLOOR_BAND_PARTIAL_COLOR: RGBA = rgba(BRAND.goldenrod, 155);
 
-const BUILDING_ALPHA = 210;
+/** Warm Orange, so a selected floor separates from its Goldenrod neighbours. */
+export const SELECTED_COLOR: RGBA = rgba(BRAND.warmOrange, 255);
+
+/**
+ * Filtered-out massing. On a LIGHT basemap the dimmed state must be LIGHTER
+ * than the highlighted state — a warm gray that sits behind everything.
+ */
+export const DIMMED_COLOR: RGBA = rgba('#D8DCE4', 130);
+
+/** Hover lifts a building toward Goldenrod; on white, lifting to white hides it. */
+export const HOVER_COLOR: RGBA = rgba(BRAND.goldenrod, 255);
+
+export const RADIUS_FILL: RGBA = rgba(BRAND.goldenrod, 28);
+export const RADIUS_LINE: RGBA = rgba(BRAND.midnight, 215);
+
+/** Solid enough to read as a real building against near-white ground. */
+const BUILDING_ALPHA = 235;
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
@@ -125,8 +157,11 @@ function classIndex(building: BuildingWithSpaces): number {
   }
 }
 
-/** Used when a building has no value for the active mode. */
-const UNKNOWN: RGBA = [110, 120, 133, 170];
+/**
+ * Used when a building matches the filters but has no value for the active
+ * mode. Mid-gray: clearly still in play, clearly not carrying a reading.
+ */
+const UNKNOWN: RGBA = rgba('#8D98AE', 205);
 
 export function colorForBuilding(
   building: BuildingWithSpaces,

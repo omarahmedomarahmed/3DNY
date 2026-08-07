@@ -46,12 +46,12 @@ export default function MultiSelect({
   return (
     <div className="space-y-1">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-xs font-medium text-slate-200">{label}</span>
+        <span className="text-xs font-medium text-body">{label}</span>
         {selected.length > 0 ? (
           <button
             type="button"
             onClick={() => onChange([])}
-            className="text-[10px] uppercase tracking-wide text-accent hover:underline"
+            className="text-[10px] font-semibold uppercase tracking-[0.14em] text-brightblue transition-colors hover:text-midnight"
           >
             {selected.length} selected · clear
           </button>
@@ -65,14 +65,14 @@ export default function MultiSelect({
           onChange={(e) => setQuery(e.target.value)}
           placeholder={`Search ${label.toLowerCase()}…`}
           aria-label={`Search ${label}`}
-          className="w-full rounded border border-edge bg-ink px-2 py-1 text-xs text-slate-100 outline-none placeholder:text-muted/60 focus:border-accent"
+          className="w-full rounded border border-hairline-strong bg-white px-2.5 py-1.5 text-xs text-ink placeholder:text-muted focus:border-midnight"
         />
       ) : null}
 
       {safeOptions.length === 0 ? (
         <p className="text-xs text-muted">{emptyHint}</p>
       ) : (
-        <div className="max-h-44 space-y-0.5 overflow-y-auto rounded border border-edge bg-ink/60 p-1">
+        <div className="max-h-44 space-y-0.5 overflow-y-auto rounded border border-hairline-strong bg-surface-alt p-1">
           {visible.length === 0 ? (
             <p className="px-1 py-1 text-xs text-muted">No match for “{query}”.</p>
           ) : (
@@ -81,15 +81,15 @@ export default function MultiSelect({
               return (
                 <label
                   key={option}
-                  className={`flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-panel ${
-                    checked ? 'text-slate-100' : 'text-muted'
+                  className={`flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs transition-colors hover:bg-white ${
+                    checked ? 'font-medium text-ink' : 'text-body'
                   }`}
                 >
                   <input
                     type="checkbox"
                     checked={checked}
                     onChange={() => toggle(option)}
-                    className="h-3 w-3 shrink-0 accent-[#4c9aff]"
+                    className="h-3.5 w-3.5 shrink-0 accent-midnight"
                   />
                   <span className="truncate" title={option}>
                     {option}

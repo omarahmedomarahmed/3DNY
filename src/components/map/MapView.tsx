@@ -4,9 +4,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import { Protocol } from 'pmtiles';
 import { MapboxOverlay } from '@deck.gl/mapbox';
-import type { PickingInfo } from '@deck.gl/core';
+import {
+  AmbientLight,
+  DirectionalLight,
+  LightingEffect,
+  type PickingInfo,
+} from '@deck.gl/core';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
+import { BRAND, SURFACE } from '@/lib/brand';
 import { useApp } from '@/lib/store';
 import { applyFilters } from '@/lib/filters';
 import type { BuildingWithSpaces } from '@/types';
@@ -28,10 +34,26 @@ function parseCenter(raw: string | undefined): [number, number] {
 }
 
 /**
+ * Light basemap palette. Everything here is near-neutral on purpose: the
+ * basemap is context, and the only saturated colour on screen should be the
+ * building massing and the Goldenrod availability bands sitting on top of it.
+ */
+const BASEMAP = {
+  land: '#F2F4F8',
+  landuse: '#EAEEF4',
+  water: '#DCE4EF',
+  roadCasing: '#D2D6DD',
+  roadFill: '#FFFFFF',
+  boundary: '#C3CAD8',
+  label: BRAND.midnight,
+  labelHalo: SURFACE.white,
+} as const;
+
+/**
  * With no basemap URL configured the app still has to be demoable, so we fall
  * back to a style that requests nothing over the network at all.
  */
-function blankDarkStyle(): maplibregl.StyleSpecification {
+function blankLightStyle(): maplibregl.StyleSpecification {
   return {
     version: 8,
     sources: {},
@@ -39,61 +61,122 @@ function blankDarkStyle(): maplibregl.StyleSpecification {
       {
         id: 'background',
         type: 'background',
-        paint: { 'background-color': '#0d1117' },
+        paint: { 'background-color': BASEMAP.land },
       },
     ],
   } as maplibregl.StyleSpecification;
 }
 
 function pmtilesStyle(url: string): maplibregl.StyleSpecification {
+  // Symbol layers need a glyph endpoint, which is a network request the
+  // offline fallback must never make. Labels are drawn only when one is
+  // configured alongside the tiles.
+  const glyphs = process.env.NEXT_PUBLIC_BASEMAP_GLYPHS;
+
+  const layers: unknown[] = [
+    {
+      id: 'background',
+      type: 'background',
+      paint: { 'background-color': BASEMAP.land },
+    },
+    {
+      id: 'landuse',
+      type: 'fill',
+      source: 'basemap',
+      'source-layer': 'landuse',
+      paint: { 'fill-color': BASEMAP.landuse, 'fill-opacity': 0.8 },
+    },
+    {
+      id: 'water',
+      type: 'fill',
+      source: 'basemap',
+      'source-layer': 'water',
+      paint: { 'fill-color': BASEMAP.water },
+    },
+    {
+      id: 'boundaries',
+      type: 'line',
+      source: 'basemap',
+      'source-layer': 'boundaries',
+      paint: { 'line-color': BASEMAP.boundary, 'line-width': 0.8 },
+    },
+    // Roads are drawn casing-first so they read as white ribbons with a light
+    // gray edge rather than as flat lines lost in the land colour.
+    {
+      id: 'roads-casing',
+      type: 'line',
+      source: 'basemap',
+      'source-layer': 'roads',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': BASEMAP.roadCasing,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.0, 16, 5.0],
+      },
+    },
+    {
+      id: 'roads',
+      type: 'line',
+      source: 'basemap',
+      'source-layer': 'roads',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': BASEMAP.roadFill,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.4, 16, 3.2],
+      },
+    },
+  ];
+
+  if (glyphs) {
+    layers.push({
+      id: 'place-labels',
+      type: 'symbol',
+      source: 'basemap',
+      'source-layer': 'places',
+      layout: {
+        'text-field': ['coalesce', ['get', 'name'], ['get', 'name:en']],
+        'text-font': ['Noto Sans Regular'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 10, 11, 16, 14],
+      },
+      paint: {
+        'text-color': BASEMAP.label,
+        'text-halo-color': BASEMAP.labelHalo,
+        'text-halo-width': 1.4,
+      },
+    });
+  }
+
   return {
     version: 8,
+    ...(glyphs ? { glyphs } : {}),
     sources: {
       basemap: {
         type: 'vector',
         url: `pmtiles://${url}`,
       },
     },
-    layers: [
-      {
-        id: 'background',
-        type: 'background',
-        paint: { 'background-color': '#0d1117' },
-      },
-      {
-        id: 'water',
-        type: 'fill',
-        source: 'basemap',
-        'source-layer': 'water',
-        paint: { 'fill-color': '#111b2b' },
-      },
-      {
-        id: 'landuse',
-        type: 'fill',
-        source: 'basemap',
-        'source-layer': 'landuse',
-        paint: { 'fill-color': '#12171f', 'fill-opacity': 0.6 },
-      },
-      {
-        id: 'roads',
-        type: 'line',
-        source: 'basemap',
-        'source-layer': 'roads',
-        paint: {
-          'line-color': '#232b36',
-          'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.4, 16, 2.5],
-        },
-      },
-      {
-        id: 'boundaries',
-        type: 'line',
-        source: 'basemap',
-        'source-layer': 'boundaries',
-        paint: { 'line-color': '#2b3441', 'line-width': 0.6 },
-      },
-    ],
-  } as maplibregl.StyleSpecification;
+    layers,
+  } as unknown as maplibregl.StyleSpecification;
 }
+
+/**
+ * Extrusions have to read against a near-white ground. A strong ambient term
+ * keeps fills close to the legend swatches, and two directional lights — a key
+ * from the south-west plus a weak fill — separate adjacent faces so towers
+ * don't collapse into flat silhouettes.
+ */
+const LIGHTING = new LightingEffect({
+  ambient: new AmbientLight({ color: [255, 255, 255], intensity: 1.5 }),
+  key: new DirectionalLight({
+    color: [255, 255, 255],
+    intensity: 1.05,
+    direction: [-1, -3, -1],
+  }),
+  fill: new DirectionalLight({
+    color: [214, 224, 240],
+    intensity: 0.6,
+    direction: [2, 1, -1.2],
+  }),
+});
 
 function escapeHtml(value: string): string {
   return value
@@ -159,7 +242,7 @@ export default function MapView() {
       protocol = { remove: () => maplibregl.removeProtocol('pmtiles') };
       style = pmtilesStyle(basemapUrl);
     } else {
-      style = blankDarkStyle();
+      style = blankLightStyle();
     }
 
     const instance = new maplibregl.Map({
@@ -181,6 +264,7 @@ export default function MapView() {
     const overlay = new MapboxOverlay({
       interleaved: false,
       layers: [],
+      effects: [LIGHTING],
       getTooltip: buildTooltip,
     });
     instance.addControl(overlay as unknown as maplibregl.IControl);
@@ -266,23 +350,23 @@ export default function MapView() {
   const showEmpty = !loading && !error && buildings.length === 0;
 
   return (
-    <div className="relative h-full w-full bg-ink">
+    <div className="relative h-full w-full bg-surface-sunken">
       <div ref={containerRef} className="absolute inset-0" />
 
       {contextLost && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center bg-ink/90 p-6 text-center">
-          <div className="max-w-sm rounded-lg border border-edge bg-panel p-5">
-            <div className="mb-1 text-sm font-medium text-white">
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/85 p-6 text-center backdrop-blur-sm">
+          <div className="max-w-sm rounded-card border border-hairline bg-white p-5 shadow-float">
+            <div className="mb-1 text-sm font-semibold text-ink">
               The 3D view lost its graphics context
             </div>
-            <p className="mb-3 text-xs text-muted">
+            <p className="mb-4 text-xs leading-relaxed text-muted">
               This usually happens when the machine sleeps or another app takes
               the GPU. Reloading the map restores it.
             </p>
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-ink"
+              className="rounded bg-goldenrod px-3 py-1.5 text-xs font-semibold text-midnight transition-colors hover:bg-goldenrod-400"
             >
               Reload map
             </button>
@@ -292,7 +376,7 @@ export default function MapView() {
 
       {showEmpty && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
-          <div className="rounded-lg border border-edge bg-panel/95 px-4 py-3 text-center text-xs text-muted">
+          <div className="rounded-card border border-hairline bg-white px-4 py-3 text-center text-xs text-muted shadow-raised">
             No buildings loaded yet. Import an availability sheet to populate the
             map.
           </div>
@@ -301,7 +385,7 @@ export default function MapView() {
 
       {!showEmpty && buildings.length > 0 && filtered.length === 0 && (
         <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center">
-          <div className="rounded-full border border-edge bg-panel/95 px-3 py-1.5 text-[11px] text-muted">
+          <div className="rounded-full border border-hairline bg-white px-3 py-1.5 text-[11px] font-medium text-body shadow-card">
             No spaces match the current filters
           </div>
         </div>
@@ -309,7 +393,7 @@ export default function MapView() {
 
       {error && (
         <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center">
-          <div className="rounded-full border border-danger/50 bg-panel/95 px-3 py-1.5 text-[11px] text-danger">
+          <div className="rounded-full border border-danger/30 bg-danger-surface px-3 py-1.5 text-[11px] font-medium text-danger shadow-card">
             {error}
           </div>
         </div>
@@ -319,7 +403,7 @@ export default function MapView() {
         <MapLegend />
         <RadiusControl />
         {zoom < BAND_ZOOM_THRESHOLD && !selectedBuildingId && buildings.length > 0 && (
-          <div className="absolute left-1/2 bottom-4 -translate-x-1/2 rounded-full border border-edge bg-panel/80 px-3 py-1 text-[10px] text-muted">
+          <div className="absolute left-1/2 bottom-4 -translate-x-1/2 rounded-full border border-hairline bg-white/95 px-3 py-1 text-[10px] text-muted shadow-card">
             {BAND_LABEL}
           </div>
         )}

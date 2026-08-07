@@ -27,11 +27,11 @@ export default function RadiusControl() {
   if (!origin) return null;
 
   return (
-    <div className="pointer-events-auto absolute bottom-4 right-4 z-10 rounded-lg border border-edge bg-panel/95 p-3 text-xs text-muted shadow-xl backdrop-blur">
-      <div className="mb-2 text-[11px] font-medium text-white/80">
+    <div className="pointer-events-auto absolute bottom-4 right-4 z-10 rounded-card border border-hairline bg-white p-3 text-xs shadow-raised">
+      <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.09em] text-muted">
         Radius search
       </div>
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1.5">
         {OPTIONS.map((miles) => {
           const active = radius?.miles === miles;
           return (
@@ -48,10 +48,10 @@ export default function RadiusControl() {
                 })
               }
               className={
-                'rounded px-2 py-1 text-[11px] tabular-nums transition-colors ' +
+                'tabular rounded px-2.5 py-1.5 text-xs transition-colors ' +
                 (active
-                  ? 'bg-accent text-ink font-medium'
-                  : 'bg-ink/60 text-muted hover:text-white')
+                  ? 'bg-goldenrod font-semibold text-midnight'
+                  : 'border border-hairline-strong bg-white text-muted hover:bg-goldenrod-50 hover:text-ink')
               }
             >
               {miles} mi
@@ -62,7 +62,7 @@ export default function RadiusControl() {
           type="button"
           onClick={() => setRadius(null)}
           disabled={!radius}
-          className="ml-1 rounded px-2 py-1 text-[11px] text-muted transition-colors hover:text-white disabled:opacity-40 disabled:hover:text-muted"
+          className="ml-1 rounded px-2 py-1.5 text-xs text-muted transition-colors hover:text-ink disabled:opacity-40 disabled:hover:text-muted"
         >
           Clear
         </button>

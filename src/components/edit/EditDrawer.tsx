@@ -289,34 +289,34 @@ export default function EditDrawer({ target, onClose, onSaved }: EditDrawerProps
         type="button"
         aria-label="Close editor"
         onClick={requestClose}
-        className="absolute inset-0 h-full w-full cursor-default bg-black/60"
+        className="absolute inset-0 h-full w-full cursor-default bg-midnight/70"
       />
       <div
         ref={panelRef}
         tabIndex={-1}
         className={clsx(
-          'relative flex h-full w-full max-w-xl flex-col border-l border-edge bg-panel',
-          'shadow-2xl outline-none',
+          'relative flex h-full w-full max-w-xl flex-col bg-white',
+          'shadow-float outline-none animate-slide-in',
         )}
       >
-        <header className="flex items-center justify-between border-b border-edge px-5 py-3">
+        <header className="flex items-center justify-between gap-3 border-b border-hairline px-6 py-4">
           <div>
-            <h2 className="text-sm font-semibold text-white">{heading}</h2>
-            <p className="text-[11px] text-muted">
+            <h2 className="text-base font-semibold tracking-tight text-ink">{heading}</h2>
+            <p className="mt-0.5 text-[11px] text-muted">
               {dirty ? 'Unsaved changes' : 'No changes yet'}
             </p>
           </div>
           <button
             type="button"
             onClick={requestClose}
-            className="rounded border border-edge px-2 py-1 text-xs text-muted hover:text-white"
+            className="rounded px-2 py-1 text-xs font-medium text-muted transition-colors hover:text-ink"
           >
             Close
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
             {fields.map((f) => (
               <Field
                 key={f.name}
@@ -329,18 +329,18 @@ export default function EditDrawer({ target, onClose, onSaved }: EditDrawerProps
           </div>
         </div>
 
-        <footer className="border-t border-edge px-5 py-3">
+        <footer className="border-t border-hairline bg-surface-alt px-6 py-4">
           {error && (
-            <p className="mb-2 rounded border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
+            <p className="mb-3 rounded bg-danger-surface px-3 py-2 text-xs font-medium text-danger">
               {error}
             </p>
           )}
-          <div className="flex items-center justify-end gap-2">
+          <div className="flex items-center justify-end gap-3">
             <button
               type="button"
               onClick={requestClose}
               disabled={saving}
-              className="rounded border border-edge px-3 py-1.5 text-xs text-muted hover:text-white disabled:opacity-50"
+              className="rounded px-3 py-2 text-xs font-medium text-muted transition-colors hover:text-ink disabled:opacity-50"
             >
               Cancel
             </button>
@@ -349,8 +349,9 @@ export default function EditDrawer({ target, onClose, onSaved }: EditDrawerProps
               onClick={save}
               disabled={saving || (!dirty && !creating)}
               className={clsx(
-                'rounded px-3 py-1.5 text-xs font-medium text-ink',
-                'bg-accent hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40',
+                'rounded px-4 py-2 text-xs font-semibold text-white',
+                'bg-midnight transition-colors hover:bg-midnight-700',
+                'disabled:cursor-not-allowed disabled:opacity-40',
               )}
             >
               {saving ? 'Saving…' : creating ? 'Create' : 'Save changes'}

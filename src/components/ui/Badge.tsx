@@ -4,12 +4,16 @@ import type { BuildingClass, LeaseType, MatchConfidence } from '@/types';
 
 export type BadgeVariant = 'ok' | 'warn' | 'danger' | 'info' | 'neutral';
 
+/**
+ * Cresa light theme: tinted surface, saturated text, no border noise. The
+ * neutral variant is the workhorse — it must never compete with Goldenrod.
+ */
 const VARIANTS: Record<BadgeVariant, string> = {
-  ok: 'border-ok/40 bg-ok/10 text-ok',
-  warn: 'border-warn/40 bg-warn/10 text-warn',
-  danger: 'border-danger/40 bg-danger/10 text-danger',
-  info: 'border-accent/40 bg-accent/10 text-accent',
-  neutral: 'border-edge bg-edge/40 text-muted',
+  ok: 'bg-ok-surface text-ok',
+  warn: 'bg-warn-surface text-warn',
+  danger: 'bg-danger-surface text-danger',
+  info: 'bg-info-surface text-info',
+  neutral: 'bg-midnight-50 text-midnight-700',
 };
 
 export default function Badge({
@@ -27,8 +31,8 @@ export default function Badge({
     <span
       title={title}
       className={clsx(
-        'inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5',
-        'text-[11px] font-medium leading-4 tracking-wide',
+        'inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5',
+        'text-[11px] font-semibold leading-4 tracking-wide',
         VARIANTS[variant],
         className,
       )}
@@ -46,9 +50,15 @@ export function ClassBadge({ value }: { value: BuildingClass }) {
 
 export function LeaseTypeBadge({ value }: { value: LeaseType | null }) {
   if (!value) return <Badge variant="neutral">Unknown</Badge>;
-  return (
-    <Badge variant={value === 'direct' ? 'ok' : 'info'}>
-      {value === 'direct' ? 'Direct' : 'Sublet'}
+  // Direct reads as Midnight (the default, structural case); sublet as Stadium
+  // Blue so the two are separable at a glance across a compare table.
+  return value === 'direct' ? (
+    <Badge variant="neutral" className="bg-midnight-50 text-midnight">
+      Direct
+    </Badge>
+  ) : (
+    <Badge variant="neutral" className="bg-midnight-100 text-stadium">
+      Sublet
     </Badge>
   );
 }
@@ -67,5 +77,9 @@ export function MatchBadge({ value }: { value: MatchConfidence }) {
 }
 
 export function VacantBadge() {
-  return <Badge variant="ok">Vacant</Badge>;
+  return (
+    <Badge variant="neutral" className="bg-goldenrod-100 text-goldenrod-700">
+      Vacant
+    </Badge>
+  );
 }

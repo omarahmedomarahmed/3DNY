@@ -3,28 +3,64 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
+
+  /* Cresa primary */
+  --midnight: #001e5a;
+  --goldenrod: #ffb600;
+  --light-gray: #e6e6e6;
+  --dark-gray: #595959;
+
+  /* Cresa secondary */
+  --bright-blue: #0056da;
+  --warm-orange: #ff8200;
+  --stadium-blue: #243e8c;
 }
 
 html,
 body {
   height: 100%;
-  background: #0d1117;
-  color: #e6edf3;
+  background: #ffffff;
+  color: #2c3444;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
-  font-family:
-    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial,
-    sans-serif;
   overscroll-behavior: none;
 }
 
-/* Numbers in tables line up only with tabular figures. Brokers scan columns
-   of rents and square footages, so this is load-bearing, not decoration. */
+::selection {
+  background: var(--goldenrod);
+  color: var(--midnight);
+}
+
+/* Brokers scan columns of rents and square footages. Tabular figures are
+   load-bearing here, not decoration. */
 .tabular {
   font-variant-numeric: tabular-nums;
+}
+
+/* The Goldenrod underline used on the landing page and section headings. */
+.rule-gold {
+  position: relative;
+}
+.rule-gold::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -10px;
+  width: 56px;
+  height: 4px;
+  background: var(--goldenrod);
+}
+
+/* Keyboard focus is Goldenrod everywhere, so it reads as brand rather than
+   as a browser default. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--goldenrod);
+  outline-offset: 2px;
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar {
@@ -32,21 +68,30 @@ body {
   height: 10px;
 }
 ::-webkit-scrollbar-track {
-  background: #0d1117;
+  background: #f2f4f8;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2b3441;
+  background: #c3cad8;
   border-radius: 5px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3d4756;
+  background: #8d98ae;
 }
 
 .maplibregl-ctrl-attrib {
-  background: rgba(13, 17, 23, 0.8) !important;
-  color: #8b949e !important;
+  background: rgba(255, 255, 255, 0.86) !important;
+  color: #595959 !important;
   font-size: 10px;
 }
 .maplibregl-ctrl-attrib a {
-  color: #8b949e !important;
+  color: #595959 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

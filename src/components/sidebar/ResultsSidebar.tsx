@@ -71,9 +71,9 @@ function compare(a: Row, b: Row, key: SortKey): number {
 
 function Empty({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-2 px-4 py-10 text-center">
-      <p className="text-xs font-semibold text-slate-100">{title}</p>
-      <div className="space-y-2 text-[11px] leading-snug text-muted">{children}</div>
+    <div className="space-y-3 px-6 py-14 text-center">
+      <p className="text-base font-semibold text-ink">{title}</p>
+      <div className="space-y-3 text-sm leading-relaxed text-muted">{children}</div>
     </div>
   );
 }
@@ -116,31 +116,33 @@ export default function ResultsSidebar() {
   const hasData = (buildings?.length ?? 0) > 0;
 
   return (
-    <div className="flex h-full flex-col bg-ink">
-      <header className="space-y-2 border-b border-edge bg-panel px-3 py-2">
+    <div className="flex h-full flex-col border-l border-hairline bg-white">
+      <header className="sticky top-0 z-10 space-y-2.5 border-b border-hairline bg-white px-4 py-3">
         <div className="flex items-baseline justify-between gap-2">
-          <h2 className="text-xs font-semibold text-slate-100">
-            <span className="tabular-nums">{rows.length}</span> space
+          <h2 className="text-sm font-semibold text-ink">
+            <span className="tabular">{rows.length}</span> space
             {rows.length === 1 ? '' : 's'} in view
-            <span className="text-muted"> · </span>
-            <span className="tabular-nums">{inView.length}</span> building
+            <span className="text-subtle"> · </span>
+            <span className="tabular">{inView.length}</span> building
             {inView.length === 1 ? '' : 's'}
           </h2>
-          <span className="shrink-0 text-[11px] tabular-nums text-muted">
+          <span className="tabular shrink-0 text-xs font-medium text-muted">
             {formatSf(totalSf)}
           </span>
         </div>
 
         <label className="flex items-center gap-2">
-          <span className="text-[10px] uppercase tracking-wide text-muted">Sort</span>
+          <span className="text-[10px] font-semibold uppercase tracking-[0.09em] text-muted">
+            Sort
+          </span>
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as SortKey)}
             aria-label="Sort results"
-            className="min-w-0 flex-1 rounded border border-edge bg-ink px-2 py-1 text-xs text-slate-100 outline-none focus:border-accent"
+            className="min-w-0 flex-1 rounded border border-hairline-strong bg-white px-2 py-1.5 text-xs text-ink outline-none focus:border-goldenrod"
           >
             {SORTS.map((s) => (
-              <option key={s.value} value={s.value} className="bg-ink">
+              <option key={s.value} value={s.value}>
                 {s.label}
               </option>
             ))}
@@ -154,13 +156,13 @@ export default function ResultsSidebar() {
             <p>{error}</p>
           </Empty>
         ) : loading && !hasData ? (
-          <p className="px-4 py-10 text-center text-xs text-muted">Loading listings…</p>
+          <p className="px-6 py-14 text-center text-sm text-muted">Loading listings…</p>
         ) : !hasData ? (
           <Empty title="No data imported yet">
             <p>Upload an availability sheet to put listings on the map.</p>
             <Link
               href="/import"
-              className="inline-block rounded border border-accent px-2 py-1 text-[11px] text-accent hover:bg-accent/15"
+              className="inline-block rounded bg-goldenrod px-4 py-2 text-sm font-semibold text-midnight transition-colors hover:bg-goldenrod-400"
             >
               Go to import
             </Link>
@@ -174,7 +176,7 @@ export default function ResultsSidebar() {
             <button
               type="button"
               onClick={resetFilters}
-              className="rounded border border-accent px-2 py-1 text-[11px] text-accent hover:bg-accent/15"
+              className="rounded bg-goldenrod px-4 py-2 text-sm font-semibold text-midnight transition-colors hover:bg-goldenrod-400"
             >
               Clear all filters
             </button>

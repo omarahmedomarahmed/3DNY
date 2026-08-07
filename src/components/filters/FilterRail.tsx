@@ -46,20 +46,22 @@ interface SectionProps {
 function Section({ title, active = false, defaultOpen = true, children }: SectionProps) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <section className="border-b border-edge">
+    <section className="border-b border-hairline">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-ink/50"
+        className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-surface-alt"
       >
-        <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-200">
+        <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
           {title}
-          {active ? <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden /> : null}
+          {active ? (
+            <span className="h-1.5 w-1.5 rounded-full bg-goldenrod" aria-hidden />
+          ) : null}
         </span>
-        <span className="text-[10px] text-muted">{open ? '▾' : '▸'}</span>
+        <span className="text-[10px] text-subtle">{open ? '▾' : '▸'}</span>
       </button>
-      {open ? <div className="space-y-3 px-3 pb-3">{children}</div> : null}
+      {open ? <div className="space-y-3 px-4 pb-4">{children}</div> : null}
     </section>
   );
 }
@@ -87,10 +89,10 @@ function ToggleGroup<T extends string>({ options, selected, onChange }: ToggleGr
             onClick={() =>
               onChange(on ? selected.filter((v) => v !== value) : [...selected, value])
             }
-            className={`min-w-[3rem] rounded border px-2 py-1 text-xs transition-colors ${
+            className={`min-w-[3rem] rounded border px-2.5 py-1.5 text-xs font-medium transition-colors ${
               on
-                ? 'border-accent bg-accent/15 text-accent'
-                : 'border-edge text-muted hover:border-accent/60 hover:text-slate-100'
+                ? 'border-goldenrod bg-goldenrod text-midnight'
+                : 'border-hairline-strong bg-white text-body hover:border-midnight hover:text-ink'
             }`}
           >
             {label}
@@ -122,25 +124,25 @@ export default function FilterRail() {
 
   if (collapsed) {
     return (
-      <div className="flex h-full w-10 flex-col items-center gap-2 border-r border-edge bg-panel py-2">
+      <div className="flex h-full w-11 shrink-0 flex-col items-center gap-2 border-r border-hairline bg-white py-3">
         <button
           type="button"
           onClick={() => setCollapsed(false)}
           title="Show filters"
           aria-label="Show filters"
-          className="rounded border border-edge px-1.5 py-1 text-xs text-muted hover:border-accent hover:text-accent"
+          className="rounded border border-hairline-strong bg-white px-1.5 py-1 text-xs text-muted transition-colors hover:border-midnight hover:text-ink"
         >
           ▸
         </button>
         {count > 0 ? (
           <span
-            className="rounded-full bg-accent px-1.5 text-[10px] font-semibold text-ink"
+            className="rounded-full bg-goldenrod px-1.5 py-0.5 text-[10px] font-semibold tabular text-midnight"
             title={`${count} active filters`}
           >
             {count}
           </span>
         ) : null}
-        <span className="mt-2 text-[10px] uppercase tracking-widest text-muted [writing-mode:vertical-rl]">
+        <span className="mt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted [writing-mode:vertical-rl]">
           Filters
         </span>
       </div>
@@ -148,22 +150,24 @@ export default function FilterRail() {
   }
 
   return (
-    <aside className="flex h-full w-72 shrink-0 flex-col border-r border-edge bg-panel text-slate-100">
-      <header className="flex items-center justify-between gap-2 border-b border-edge px-3 py-2">
+    <aside className="flex h-full w-72 shrink-0 flex-col border-r border-hairline bg-white text-body">
+      <header className="flex items-center justify-between gap-2 border-b border-hairline px-4 py-3">
         <div className="flex items-center gap-2">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-200">Filters</h2>
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+            Filters
+          </h2>
           {count > 0 ? (
-            <span className="rounded-full bg-accent px-1.5 text-[10px] font-semibold tabular-nums text-ink">
+            <span className="rounded-full bg-goldenrod px-1.5 py-0.5 text-[10px] font-semibold tabular text-midnight">
               {count}
             </span>
           ) : null}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           {count > 0 ? (
             <button
               type="button"
               onClick={resetFilters}
-              className="text-[11px] text-accent hover:underline"
+              className="text-xs font-medium text-brightblue transition-colors hover:text-midnight"
             >
               Clear all
             </button>
@@ -173,7 +177,7 @@ export default function FilterRail() {
             onClick={() => setCollapsed(true)}
             title="Hide filters"
             aria-label="Hide filters"
-            className="rounded border border-edge px-1.5 text-xs text-muted hover:border-accent hover:text-accent"
+            className="rounded border border-hairline-strong bg-white px-1.5 py-0.5 text-xs text-muted transition-colors hover:border-midnight hover:text-ink"
           >
             ◂
           </button>
@@ -189,7 +193,7 @@ export default function FilterRail() {
             onChange={(e) => setFilters({ search: e.target.value })}
             placeholder="Address, building, landlord, agent, notes…"
             aria-label="Search listings"
-            className="w-full rounded border border-edge bg-ink px-2 py-1.5 text-xs text-slate-100 outline-none placeholder:text-muted/60 focus:border-accent"
+            className="w-full rounded border border-hairline-strong bg-white px-2.5 py-1.5 text-xs text-ink placeholder:text-muted focus:border-midnight"
           />
         </Section>
 
@@ -207,16 +211,16 @@ export default function FilterRail() {
             max={filters.rentMax}
             onChange={({ min, max }) => setFilters({ rentMin: min, rentMax: max })}
           />
-          <label className="flex cursor-pointer items-start gap-2 text-xs text-slate-200">
+          <label className="flex cursor-pointer items-start gap-2 text-xs text-body">
             <input
               type="checkbox"
               checked={filters.includeWithheld}
               onChange={(e) => setFilters({ includeWithheld: e.target.checked })}
-              className="mt-0.5 h-3 w-3 shrink-0 accent-[#4c9aff]"
+              className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-midnight"
             />
             <span>
               Include withheld rents
-              <span className="block text-[11px] text-muted">
+              <span className="block text-xs leading-snug text-muted">
                 Roughly half of listings withhold rent. Unchecking hides them entirely.
               </span>
             </span>
@@ -271,7 +275,7 @@ export default function FilterRail() {
             onChange={(expiresAfter) => setFilters({ expiresAfter })}
             presets={[{ label: `${nextYear} or later`, value: `${nextYear}-01-01` }]}
           />
-          <p className="text-[11px] leading-snug text-muted">
+          <p className="text-xs leading-snug text-muted">
             Spaces with a negotiable or open-ended term carry no expiration date and are
             excluded while this filter is active.
           </p>

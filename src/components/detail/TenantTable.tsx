@@ -7,11 +7,12 @@ import Badge from '@/components/ui/Badge';
 import { DateText, Sf, monthsUntil } from '@/components/ui/Money';
 import EditDrawer, { type EditTarget } from '@/components/edit/EditDrawer';
 
-const TH = 'px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted';
-const TD = 'px-3 py-2 align-middle';
+const TH =
+  'px-3 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted whitespace-nowrap';
+const TD = 'px-3 py-2.5 align-middle text-ink';
 const CELL_INPUT =
-  'w-full rounded border border-edge bg-ink px-2 py-1 text-sm text-white outline-none ' +
-  'focus:border-accent focus:ring-1 focus:ring-accent/40';
+  'w-full rounded border border-hairline-strong bg-white px-2 py-1 text-sm text-ink ' +
+  'placeholder:text-subtle disabled:cursor-not-allowed disabled:opacity-60';
 
 interface Draft {
   company_name: string;
@@ -191,7 +192,7 @@ export default function TenantTable({
       </td>
       <td className={TD}>
         <input
-          className={clsx(CELL_INPUT, 'text-right tabular-nums')}
+          className={clsx(CELL_INPUT, 'text-right tabular')}
           placeholder="SF"
           inputMode="numeric"
           value={d.sf}
@@ -223,14 +224,14 @@ export default function TenantTable({
   return (
     <div className="space-y-2">
       {error && (
-        <p className="rounded border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
+        <p className="rounded bg-danger-surface px-3 py-2 text-xs font-medium text-danger">
           {error}
         </p>
       )}
 
-      <div className="overflow-x-auto rounded border border-edge bg-panel">
+      <div className="overflow-x-auto rounded-card border border-hairline bg-white">
         <table className="w-full min-w-[760px] border-collapse text-sm">
-          <thead className="border-b border-edge bg-ink/40">
+          <thead className="border-b border-hairline bg-surface-alt">
             <tr className="text-left">
               <th className={TH}>Company</th>
               <th className={TH}>Floors</th>
@@ -240,7 +241,7 @@ export default function TenantTable({
               <th className={clsx(TH, 'text-right')}>Actions</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-hairline">
             {loading && tenants.length === 0 && (
               <tr>
                 <td className={clsx(TD, 'text-muted')} colSpan={6}>
@@ -263,7 +264,7 @@ export default function TenantTable({
               const variant = expiryVariant(t.lease_expiration);
               if (isEditing) {
                 return (
-                  <tr key={t.id} className="border-b border-edge/60 bg-accent/5 last:border-b-0">
+                  <tr key={t.id} className="bg-goldenrod-50">
                     {editableCells(draft, setDraft, busy)}
                     <td className={clsx(TD, 'text-right')}>
                       <div className="flex justify-end gap-1.5">
@@ -271,7 +272,7 @@ export default function TenantTable({
                           type="button"
                           disabled={busy}
                           onClick={() => void saveRow(t.id)}
-                          className="rounded bg-accent px-2 py-1 text-[11px] font-medium text-ink disabled:opacity-50"
+                          className="rounded bg-midnight px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
                         >
                           {busy ? 'Saving…' : 'Save'}
                         </button>
@@ -279,7 +280,7 @@ export default function TenantTable({
                           type="button"
                           disabled={busy}
                           onClick={() => setEditingId(null)}
-                          className="rounded border border-edge px-2 py-1 text-[11px] text-muted hover:text-white"
+                          className="rounded px-2.5 py-1 text-[11px] font-medium text-muted transition-colors hover:text-ink"
                         >
                           Cancel
                         </button>
@@ -289,20 +290,22 @@ export default function TenantTable({
                 );
               }
               return (
-                <tr key={t.id} className="border-b border-edge/60 last:border-b-0 hover:bg-white/5">
-                  <td className={clsx(TD, 'font-medium text-white')}>{t.company_name}</td>
-                  <td className={clsx(TD, 'text-muted')}>{t.floors ?? '—'}</td>
-                  <td className={clsx(TD, 'text-right')}>
+                <tr key={t.id} className="transition-colors hover:bg-goldenrod-50">
+                  <td className={clsx(TD, 'font-semibold text-ink')}>{t.company_name}</td>
+                  <td className={clsx(TD, 'text-body')}>{t.floors ?? '—'}</td>
+                  <td className={clsx(TD, 'text-right tabular font-medium')}>
                     <Sf value={t.sf} />
                   </td>
                   <td className={TD}>
-                    <div className="flex items-center gap-2">
-                      <DateText value={t.lease_expiration} />
+                    <div className="flex items-center gap-2 whitespace-nowrap">
+                      <span className="tabular text-body">
+                        <DateText value={t.lease_expiration} />
+                      </span>
                       {variant === 'warn' && <Badge variant="warn">Rolls within 12 mo</Badge>}
                       {variant === 'danger' && <Badge variant="danger">Expired</Badge>}
                     </div>
                   </td>
-                  <td className={clsx(TD, 'text-muted')}>{t.industry ?? '—'}</td>
+                  <td className={clsx(TD, 'text-body')}>{t.industry ?? '—'}</td>
                   <td className={clsx(TD, 'text-right')}>
                     <div className="flex justify-end gap-1.5">
                       <button
@@ -311,7 +314,7 @@ export default function TenantTable({
                           setDraft(toDraft(t));
                           setEditingId(t.id);
                         }}
-                        className="rounded border border-edge px-2 py-1 text-[11px] text-muted hover:text-white"
+                        className="rounded border border-hairline-strong bg-white px-2 py-1 text-[11px] font-medium text-body transition-colors hover:border-midnight hover:text-ink"
                       >
                         Edit
                       </button>
@@ -324,7 +327,7 @@ export default function TenantTable({
                             initial: t as unknown as Record<string, unknown>,
                           })
                         }
-                        className="rounded border border-edge px-2 py-1 text-[11px] text-muted hover:text-white"
+                        className="rounded border border-hairline-strong bg-white px-2 py-1 text-[11px] font-medium text-body transition-colors hover:border-midnight hover:text-ink"
                       >
                         Details
                       </button>
@@ -332,7 +335,7 @@ export default function TenantTable({
                         type="button"
                         disabled={busyId === t.id}
                         onClick={() => void deleteRow(t)}
-                        className="rounded border border-edge px-2 py-1 text-[11px] text-muted hover:border-danger/60 hover:text-danger disabled:opacity-50"
+                        className="rounded border border-hairline-strong bg-white px-2 py-1 text-[11px] font-medium text-body transition-colors hover:border-danger hover:text-danger disabled:opacity-50"
                       >
                         Delete
                       </button>
@@ -343,7 +346,7 @@ export default function TenantTable({
             })}
 
             {adding ? (
-              <tr className="border-t border-edge bg-accent/5">
+              <tr className="bg-goldenrod-50">
                 {editableCells(newDraft, setNewDraft, busyId === 'new')}
                 <td className={clsx(TD, 'text-right')}>
                   <div className="flex justify-end gap-1.5">
@@ -351,7 +354,7 @@ export default function TenantTable({
                       type="button"
                       disabled={busyId === 'new'}
                       onClick={() => void createRow()}
-                      className="rounded bg-accent px-2 py-1 text-[11px] font-medium text-ink disabled:opacity-50"
+                      className="rounded bg-midnight px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
                     >
                       {busyId === 'new' ? 'Adding…' : 'Add'}
                     </button>
@@ -361,7 +364,7 @@ export default function TenantTable({
                         setAdding(false);
                         setNewDraft(EMPTY_DRAFT);
                       }}
-                      className="rounded border border-edge px-2 py-1 text-[11px] text-muted hover:text-white"
+                      className="rounded px-2.5 py-1 text-[11px] font-medium text-muted transition-colors hover:text-ink"
                     >
                       Cancel
                     </button>
@@ -369,12 +372,12 @@ export default function TenantTable({
                 </td>
               </tr>
             ) : (
-              <tr className="border-t border-edge">
+              <tr className="bg-surface-alt">
                 <td className={TD} colSpan={6}>
                   <button
                     type="button"
                     onClick={() => setAdding(true)}
-                    className="rounded border border-dashed border-edge px-2.5 py-1 text-[11px] text-muted hover:border-accent/60 hover:text-accent"
+                    className="rounded border border-dashed border-hairline-strong px-2.5 py-1 text-[11px] font-medium text-muted transition-colors hover:border-midnight hover:text-ink"
                   >
                     + Add tenant
                   </button>

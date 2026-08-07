@@ -43,9 +43,9 @@ export default function CompareTray() {
 
   return (
     <>
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center p-3">
-        <div className="pointer-events-auto flex w-full max-w-6xl flex-wrap items-center gap-2 rounded-lg border border-edge bg-panel/95 px-3 py-2 shadow-2xl backdrop-blur">
-          <span className="whitespace-nowrap rounded bg-accent/15 px-2 py-1 text-xs font-medium text-accent">
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-hairline bg-white shadow-float">
+        <div className="mx-auto flex w-full max-w-[1400px] flex-wrap items-center gap-3 px-6 py-3">
+          <span className="whitespace-nowrap rounded bg-midnight px-2.5 py-1 text-xs font-semibold tabular text-white">
             {compare.length} {compare.length === 1 ? 'space' : 'spaces'}
           </span>
 
@@ -58,16 +58,16 @@ export default function CompareTray() {
               return (
                 <li
                   key={spaceId}
-                  className="flex max-w-[260px] items-center gap-1.5 rounded border border-edge bg-ink px-2 py-1"
+                  className="flex max-w-[260px] items-center gap-1.5 rounded border border-hairline bg-midnight-50 px-2.5 py-1"
                 >
-                  <span className="truncate text-xs text-white" title={label}>
+                  <span className="truncate text-xs font-medium text-ink" title={label}>
                     {label}
                   </span>
                   <button
                     type="button"
                     aria-label={`Remove ${label} from comparison`}
                     onClick={() => removeFromCompare(spaceId)}
-                    className="shrink-0 text-muted hover:text-danger"
+                    className="shrink-0 text-muted transition-colors hover:text-danger"
                   >
                     ✕
                   </button>
@@ -80,14 +80,14 @@ export default function CompareTray() {
             <button
               type="button"
               onClick={clearCompare}
-              className="rounded border border-edge px-2.5 py-1.5 text-xs text-muted hover:text-white"
+              className="rounded px-2.5 py-2 text-xs font-medium text-muted transition-colors hover:text-ink"
             >
               Clear all
             </button>
             <button
               type="button"
               onClick={() => setCompareOpen(true)}
-              className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-ink hover:brightness-110"
+              className="rounded bg-goldenrod px-4 py-2 text-xs font-semibold text-midnight transition-colors hover:bg-goldenrod-400"
             >
               Open comparison
             </button>

@@ -1,0 +1,22 @@
+<!--
+  Cresa mark — approximation for the prototype.
+  Replace this file with the official cresa-logo.svg and nothing in the code
+  needs to change. Colours: Midnight #001E5A, Goldenrod #FFB600.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 44" role="img" aria-label="Cresa">
+  <text x="0" y="34"
+        font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="42" font-weight="500" letter-spacing="-1.5"
+        fill="#001E5A">cresa</text>
+  <g fill="#FFB600">
+    <rect x="150" y="4"  width="8" height="8"/>
+    <rect x="178" y="4"  width="8" height="8"/>
+    <rect x="192" y="4"  width="8" height="8"/>
+    <rect x="150" y="18" width="8" height="8"/>
+    <rect x="178" y="18" width="8" height="8"/>
+    <rect x="164" y="18" width="8" height="8"/>
+    <rect x="164" y="32" width="8" height="8"/>
+    <rect x="192" y="32" width="8" height="8"/>
+    <rect x="150" y="32" width="8" height="8"/>
+  </g>
+</svg>

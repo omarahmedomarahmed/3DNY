@@ -40,7 +40,7 @@ interface Row {
   tall?: boolean;
 }
 
-const DASH = <span className="text-muted">—</span>;
+const DASH = <span className="text-subtle">—</span>;
 
 function text(value: string | null | undefined): React.ReactNode {
   return value ? value : DASH;
@@ -51,7 +51,7 @@ function chips(values: string[]): React.ReactNode {
   return (
     <div className="flex flex-wrap gap-1">
       {values.map((v) => (
-        <Badge key={v} variant="neutral">
+        <Badge key={v} variant="neutral" className="rounded-full bg-midnight-50 text-midnight-700">
           {v}
         </Badge>
       ))}
@@ -72,7 +72,7 @@ const SPACE_ROWS: Row[] = [
     compareKey: (c) => c.building.id,
     render: (c) => (
       <div>
-        <p className="font-medium text-white">{c.building.address_display}</p>
+        <p className="font-semibold text-ink">{c.building.address_display}</p>
         {c.building.building_name && (
           <p className="text-[11px] text-muted">{c.building.building_name}</p>
         )}
@@ -85,7 +85,7 @@ const SPACE_ROWS: Row[] = [
     compareKey: (c) => c.space.floor_label,
     render: (c) => (
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-white">{c.space.floor_label || '—'}</span>
+        <span className="font-medium text-ink">{c.space.floor_label || '—'}</span>
         <Badge variant={c.space.floor_portion === 'partial' ? 'neutral' : 'info'}>
           {c.space.floor_portion === 'partial' ? 'Partial' : 'Entire'}
         </Badge>
@@ -98,7 +98,7 @@ const SPACE_ROWS: Row[] = [
     best: 'max',
     numeric: (c) => c.space.sf,
     compareKey: (c) => String(c.space.sf ?? ''),
-    render: (c) => <span className="tabular-nums">{formatSf(c.space.sf) ?? DASH}</span>,
+    render: (c) => <span className="tabular">{formatSf(c.space.sf) ?? DASH}</span>,
   },
   {
     key: 'rent',
@@ -111,7 +111,7 @@ const SPACE_ROWS: Row[] = [
       c.space.asking_rent_withheld ? (
         <span className="italic text-muted">Withheld</span>
       ) : (
-        <span className="tabular-nums">{formatRent(c.space.asking_rent_psf) ?? DASH}</span>
+        <span className="tabular">{formatRent(c.space.asking_rent_psf) ?? DASH}</span>
       ),
   },
   {
@@ -123,7 +123,7 @@ const SPACE_ROWS: Row[] = [
       String(annualRent(c.space.asking_rent_psf, c.space.sf, c.space.asking_rent_withheld) ?? ''),
     render: (c) => {
       const value = annualRent(c.space.asking_rent_psf, c.space.sf, c.space.asking_rent_withheld);
-      return value === null ? DASH : <span className="tabular-nums">{formatAnnualRent(value)}</span>;
+      return value === null ? DASH : <span className="tabular">{formatAnnualRent(value)}</span>;
     },
   },
   {
@@ -183,13 +183,16 @@ const SPACE_ROWS: Row[] = [
         <p>{c.space.agent_name ?? DASH}</p>
         {c.space.agent_email &&
           (c.space.agent_email_suspect ? (
-            <p className="break-all text-[11px] text-warn" title="Email looks truncated in the source sheet">
+            <p
+              className="break-all text-[11px] font-medium text-warmorange"
+              title="Email looks truncated in the source sheet"
+            >
               {c.space.agent_email} (verify)
             </p>
           ) : (
             <a
               href={`mailto:${c.space.agent_email}`}
-              className="block break-all text-[11px] text-accent hover:underline"
+              className="block break-all text-[11px] font-medium text-info hover:underline"
             >
               {c.space.agent_email}
             </a>
@@ -213,7 +216,7 @@ const LANDLORD_ROWS: Row[] = [
     numeric: (c) => c.landlord?.portfolio_sf ?? null,
     compareKey: (c) => String(c.landlord?.portfolio_sf ?? ''),
     render: (c) => (
-      <span className="tabular-nums">{formatCompactSf(c.landlord?.portfolio_sf) ?? DASH}</span>
+      <span className="tabular">{formatCompactSf(c.landlord?.portfolio_sf) ?? DASH}</span>
     ),
   },
   {
@@ -223,7 +226,7 @@ const LANDLORD_ROWS: Row[] = [
     numeric: (c) => c.landlord?.buildings_owned ?? null,
     compareKey: (c) => String(c.landlord?.buildings_owned ?? ''),
     render: (c) => (
-      <span className="tabular-nums">{formatNumber(c.landlord?.buildings_owned) ?? DASH}</span>
+      <span className="tabular">{formatNumber(c.landlord?.buildings_owned) ?? DASH}</span>
     ),
   },
   {
@@ -249,7 +252,7 @@ const LANDLORD_ROWS: Row[] = [
       c.landlord?.insights_md ? (
         <Markdownish
           text={c.landlord.insights_md}
-          className="space-y-1.5 text-[13px] leading-5 text-white/85"
+          className="max-w-[46ch] space-y-2 text-[13px] leading-6 text-body"
         />
       ) : (
         DASH
@@ -368,25 +371,28 @@ export default function CompareView({ onClose }: { onClose?: () => void }) {
 
   const colWidth = 'min-w-[260px] w-[260px]';
 
-  function renderSection(title: string, rows: Row[]) {
+  function renderSection(title: string, rows: Row[], divided?: boolean) {
     return (
       <>
         <tr>
           <th
             colSpan={columns.length + 1}
-            className="sticky left-0 z-10 bg-ink px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-muted"
+            className={clsx(
+              'sticky left-0 z-10 bg-white px-4 pb-2 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-midnight',
+              divided ? 'border-t-2 border-hairline-strong pt-6' : 'pt-4',
+            )}
           >
-            {title}
+            <span className="inline-block border-b-2 border-goldenrod pb-1">{title}</span>
           </th>
         </tr>
         {rows.map((row) => {
           const best = bestIndices(columns, row);
           const identical = allIdentical(columns, row);
           return (
-            <tr key={row.key} className="border-b border-edge/60 last:border-b-0">
+            <tr key={row.key} className="border-b border-hairline last:border-b-0">
               <th
                 scope="row"
-                className="sticky left-0 z-10 w-[170px] min-w-[170px] border-r border-edge bg-panel px-3 py-2 text-left align-top text-[11px] font-medium uppercase tracking-wide text-muted"
+                className="sticky left-0 z-10 w-[170px] min-w-[170px] border-r border-hairline bg-surface-alt px-4 py-3 text-left align-top text-[10px] font-semibold uppercase tracking-[0.12em] text-muted"
               >
                 {row.label}
               </th>
@@ -395,10 +401,11 @@ export default function CompareView({ onClose }: { onClose?: () => void }) {
                   key={c.space.id}
                   className={clsx(
                     colWidth,
-                    'px-3 py-2 align-top text-sm',
-                    row.tall ? 'text-white/90' : 'text-white',
-                    identical && 'text-muted',
-                    best.has(i) && 'bg-accent/10 text-accent',
+                    'border-l border-hairline px-4 py-3 align-top text-sm',
+                    row.tall ? 'text-body' : 'text-ink',
+                    identical && 'text-subtle',
+                    best.has(i) &&
+                      'border-l-[3px] border-l-goldenrod bg-goldenrod-50 font-semibold text-ink',
                   )}
                 >
                   {row.render(c)}
@@ -412,41 +419,41 @@ export default function CompareView({ onClose }: { onClose?: () => void }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-ink">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-edge px-4 py-3">
+    <div className="fixed inset-0 z-50 flex flex-col bg-white">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-hairline px-6 py-4">
         <div>
-          <h2 className="text-sm font-semibold text-white">
+          <h2 className="text-xl font-semibold tracking-tight text-ink">
             Comparison{' '}
-            <span className="text-muted">
+            <span className="font-normal tabular text-muted">
               ({columns.length} {columns.length === 1 ? 'space' : 'spaces'})
             </span>
           </h2>
-          <p className="text-[11px] text-muted">
+          <p className="mt-0.5 text-[11px] leading-4 text-muted">
             Best value in each numeric row is highlighted; values identical across every column are
             dimmed.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {copied && <span className="text-[11px] text-ok">{copied}</span>}
+          {copied && <span className="text-[11px] font-medium text-ok">{copied}</span>}
           <button
             type="button"
             onClick={() => void copyLink()}
             disabled={columns.length === 0}
-            className="rounded border border-edge px-2.5 py-1.5 text-xs text-muted hover:text-white disabled:opacity-40"
+            className="rounded border border-hairline-strong bg-white px-3 py-2 text-xs font-medium text-body transition-colors hover:border-midnight hover:text-ink disabled:opacity-40"
           >
             Copy shareable link
           </button>
           <button
             type="button"
             onClick={clearCompare}
-            className="rounded border border-edge px-2.5 py-1.5 text-xs text-muted hover:text-white"
+            className="rounded px-3 py-2 text-xs font-medium text-muted transition-colors hover:text-ink"
           >
             Clear all
           </button>
           <button
             type="button"
             onClick={close}
-            className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-ink hover:brightness-110"
+            className="rounded border border-midnight bg-white px-4 py-2 text-xs font-semibold text-midnight transition-colors hover:bg-midnight-50"
           >
             Close
           </button>
@@ -463,16 +470,22 @@ export default function CompareView({ onClose }: { onClose?: () => void }) {
         <div className="flex-1 overflow-auto">
           <table className="w-max border-collapse text-sm">
             <thead>
-              <tr className="border-b border-edge">
-                <th className="sticky left-0 top-0 z-20 w-[170px] min-w-[170px] border-r border-edge bg-panel px-3 py-2" />
+              <tr>
+                <th className="sticky left-0 top-0 z-20 w-[170px] min-w-[170px] border-b border-r border-hairline bg-surface-alt px-4 py-3" />
                 {columns.map((c) => (
                   <td
                     key={c.space.id}
-                    className={clsx(colWidth, 'sticky top-0 z-10 border-l border-edge bg-panel px-3 py-3 align-top')}
+                    className={clsx(
+                      colWidth,
+                      'sticky top-0 z-10 border-b border-l border-hairline bg-white px-4 py-4 align-top',
+                    )}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-white" title={c.building.address_display}>
+                        <p
+                          className="truncate text-sm font-semibold text-ink"
+                          title={c.building.address_display}
+                        >
                           {c.building.address_display}
                         </p>
                         <p className="truncate text-[11px] text-muted">{c.space.floor_label}</p>
@@ -481,7 +494,7 @@ export default function CompareView({ onClose }: { onClose?: () => void }) {
                         type="button"
                         aria-label="Remove from comparison"
                         onClick={() => removeFromCompare(c.space.id)}
-                        className="shrink-0 text-muted hover:text-danger"
+                        className="shrink-0 text-muted transition-colors hover:text-danger"
                       >
                         ✕
                       </button>
@@ -491,11 +504,11 @@ export default function CompareView({ onClose }: { onClose?: () => void }) {
                       <img
                         src={c.photo}
                         alt=""
-                        className="mt-2 h-28 w-full rounded border border-edge bg-ink object-cover"
+                        className="mt-3 h-28 w-full rounded border border-hairline bg-surface-sunken object-cover"
                         loading="lazy"
                       />
                     ) : (
-                      <div className="mt-2 flex h-28 w-full items-center justify-center rounded border border-dashed border-edge text-[11px] text-muted">
+                      <div className="mt-3 flex h-28 w-full items-center justify-center rounded border border-dashed border-hairline-strong bg-surface-alt text-[11px] text-muted">
                         No photo
                       </div>
                     )}
@@ -505,7 +518,7 @@ export default function CompareView({ onClose }: { onClose?: () => void }) {
             </thead>
             <tbody>
               {renderSection('Space', SPACE_ROWS)}
-              {renderSection('Landlord', LANDLORD_ROWS)}
+              {renderSection('Landlord', LANDLORD_ROWS, true)}
             </tbody>
           </table>
         </div>

@@ -27,10 +27,9 @@ export interface FieldSpec {
 }
 
 const inputClass =
-  'w-full rounded border border-edge bg-ink px-2 py-1.5 text-sm text-white ' +
-  'placeholder:text-muted/60 outline-none transition-colors ' +
-  'focus:border-accent focus:ring-1 focus:ring-accent/40 ' +
-  'disabled:cursor-not-allowed disabled:opacity-60';
+  'w-full rounded border border-hairline-strong bg-white px-2.5 py-1.5 text-sm text-ink ' +
+  'placeholder:text-subtle transition-colors ' +
+  'disabled:cursor-not-allowed disabled:bg-surface-alt disabled:opacity-60';
 
 /** ISO timestamps arrive with a time component; <input type="date"> wants none. */
 function toDateInput(value: FieldValue): string {
@@ -82,14 +81,14 @@ export default function Field({
 
   if (type === 'boolean') {
     control = (
-      <label className="flex cursor-pointer items-center gap-2 py-1 text-sm text-white">
+      <label className="flex cursor-pointer items-center gap-2 py-1 text-sm text-ink">
         <input
           id={id}
           type="checkbox"
           disabled={disabled}
           checked={value === true}
           onChange={(e) => emit(e.target.checked)}
-          className="h-4 w-4 accent-[#4c9aff]"
+          className="h-4 w-4 accent-[#001E5A]"
         />
         <span>{label}</span>
       </label>
@@ -153,7 +152,7 @@ export default function Field({
                 : String(value)
         }
         onChange={(e) => emit(e.target.value)}
-        className={clsx(inputClass, type === 'number' && 'tabular-nums')}
+        className={clsx(inputClass, type === 'number' && 'tabular')}
       />
     );
   }
@@ -161,13 +160,20 @@ export default function Field({
   return (
     <div className={clsx('flex flex-col gap-1', spec.wide && 'sm:col-span-2')}>
       {type !== 'boolean' && (
-        <label htmlFor={id} className="text-[11px] font-medium uppercase tracking-wide text-muted">
+        <label
+          htmlFor={id}
+          className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted"
+        >
           {label}
         </label>
       )}
       {control}
       {hint && <p className="text-[11px] leading-4 text-muted">{hint}</p>}
-      {error && <p className="text-[11px] leading-4 text-danger">{error}</p>}
+      {error && (
+        <p className="rounded bg-danger-surface px-2 py-1 text-[11px] font-medium leading-4 text-danger">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

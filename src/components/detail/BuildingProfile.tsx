@@ -13,11 +13,17 @@ import SpaceDetail from './SpaceDetail';
 import TenantTable from './TenantTable';
 import LandlordPanel from './LandlordPanel';
 
-function Stat({ label, children }: { label: string; children: React.ReactNode }) {
+/**
+ * A metadata chip in the header row. Label above, value below — the value is
+ * the thing a broker reads aloud, so it carries the weight.
+ */
+function Chip({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="rounded border border-edge bg-ink/40 px-3 py-2">
-      <p className="text-[11px] uppercase tracking-wide text-muted">{label}</p>
-      <p className="text-sm font-medium text-white">{children}</p>
+    <div className="flex flex-col gap-0.5 rounded border border-hairline bg-white px-3 py-2">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
+        {label}
+      </span>
+      <span className="text-sm font-semibold tabular text-ink">{children}</span>
     </div>
   );
 }
@@ -34,12 +40,17 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className="scroll-mt-4 space-y-2">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-white">{title}</h2>
+    <section
+      id={id}
+      className="scroll-mt-20 overflow-hidden rounded-card border border-hairline bg-white shadow-card"
+    >
+      <div className="flex items-center justify-between gap-3 border-b border-hairline px-5 py-3">
+        <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">
+          {title}
+        </h2>
         {action}
       </div>
-      {children}
+      <div className="p-5">{children}</div>
     </section>
   );
 }
@@ -94,13 +105,16 @@ export default function BuildingProfile({ buildingId }: { buildingId: string }) 
 
   if (!building) {
     return (
-      <div className="px-4 py-10 text-center">
+      <div className="px-6 py-16 text-center">
         {loading ? (
           <p className="text-sm text-muted">Loading building…</p>
         ) : (
-          <div className="space-y-2">
-            <p className="text-sm text-danger">{error ?? 'Building not found.'}</p>
-            <Link href="/" className="text-xs text-accent hover:underline">
+          <div className="space-y-3">
+            <p className="text-sm font-medium text-danger">{error ?? 'Building not found.'}</p>
+            <Link
+              href="/map"
+              className="inline-block text-xs font-medium text-brightblue hover:underline"
+            >
               ← Back to the map
             </Link>
           </div>
@@ -128,17 +142,17 @@ export default function BuildingProfile({ buildingId }: { buildingId: string }) 
   const { derived } = floorHeightFt(building);
 
   return (
-    <div className="space-y-6 px-4 py-4 pb-28">
+    <div className="mx-auto max-w-[1400px] space-y-5 px-6 py-6 pb-32">
       {needsConfirmation && (
-        <div className="flex items-start gap-3 rounded border border-warn/50 bg-warn/10 px-4 py-3">
-          <span aria-hidden className="text-lg leading-5 text-warn">
+        <div className="flex items-start gap-3 rounded-card border-l-4 border-warmorange bg-warn-surface px-4 py-3">
+          <span aria-hidden className="text-lg leading-5 text-warmorange">
             ⚠
           </span>
           <div>
-            <p className="text-sm font-semibold text-warn">
+            <p className="text-sm font-semibold text-ink">
               This building was matched approximately — confirm before showing a client.
             </p>
-            <p className="mt-0.5 text-xs text-warn/80">
+            <p className="mt-0.5 text-xs leading-5 text-midnight-500">
               Match confidence is “{building.match_confidence}”. Verify the address, then set the
               match to Manual in Edit building.
             </p>
@@ -146,29 +160,25 @@ export default function BuildingProfile({ buildingId }: { buildingId: string }) 
         </div>
       )}
 
-      <header className="space-y-3 rounded border border-edge bg-panel p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+      {/* Header block ------------------------------------------------------ */}
+      <header className="rounded-card border border-hairline bg-white p-6 shadow-card">
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-semibold text-white">{building.address_display}</h1>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-3xl font-semibold leading-tight tracking-tight text-ink">
+                {building.address_display}
+              </h1>
               <ClassBadge value={building.class} />
               {activeSpaces.length === 0 && <Badge variant="neutral">No availabilities</Badge>}
             </div>
-            <p className="mt-1 text-sm text-muted">
+            <p className="mt-1.5 text-base text-body">
               {building.building_name ?? 'Unnamed building'}
-              {building.submarket_cluster ? ` · ${building.submarket_cluster}` : ''}
             </p>
-            <p className="mt-1 text-xs text-muted">
+            <p className="mt-2 text-xs text-muted">
               Landlord:{' '}
-              {building.landlord_name ? (
-                <a href="#landlord" className="text-accent hover:underline">
-                  {building.landlord_name}
-                </a>
-              ) : (
-                <a href="#landlord" className="text-accent hover:underline">
-                  Not recorded — add insights
-                </a>
-              )}
+              <a href="#landlord" className="font-medium text-brightblue hover:underline">
+                {building.landlord_name ?? 'Not recorded — add insights'}
+              </a>
             </p>
           </div>
           <button
@@ -180,33 +190,35 @@ export default function BuildingProfile({ buildingId }: { buildingId: string }) 
                 initial: building as unknown as Record<string, unknown>,
               })
             }
-            className="rounded border border-edge px-3 py-1.5 text-xs text-muted hover:text-white"
+            className="rounded border border-hairline-strong bg-white px-3 py-1.5 text-xs font-medium text-body transition-colors hover:border-midnight hover:text-ink"
           >
             Edit building
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-          <Stat label="Year built">
+        <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+          <Chip label="Class">{building.class ? `Class ${building.class}` : '—'}</Chip>
+          <Chip label="Submarket">{building.submarket_cluster ?? building.submarket ?? '—'}</Chip>
+          <Chip label="Year built">
             <Num value={building.year_built} />
-          </Stat>
-          <Stat label="Floors">
+          </Chip>
+          <Chip label="Floors">
             <Num value={building.num_floors} />
             {derived && building.num_floors ? (
-              <span className="ml-1 text-[11px] text-muted" title="Floor heights are derived from roof height ÷ floor count">
-                (est. heights)
+              <span
+                className="ml-1 text-[10px] font-normal text-subtle"
+                title="Floor heights are derived from roof height ÷ floor count"
+              >
+                est.
               </span>
             ) : null}
-          </Stat>
-          <Stat label="Available spaces">
-            <Num value={activeSpaces.length} />
-          </Stat>
-          <Stat label="Total available SF">
+          </Chip>
+          <Chip label="Total available">
             <Sf value={totalSf || null} />
-          </Stat>
-          <Stat label="Asking rent range">
+          </Chip>
+          <Chip label="Asking rent">
             <RentRange min={minRent} max={maxRent} />
-          </Stat>
+          </Chip>
         </div>
       </header>
 
