@@ -23,7 +23,7 @@ import {
 } from '@/lib/transit';
 import { MULLIONS_DARK, MULLIONS_LIGHT } from './mullions';
 import { ATMOSPHERE, DEFAULT_TIME, hazeFor, type AtmospherePreset } from './atmosphere';
-import { buildGroundLayers, GROUND_TOP_Z } from './ground';
+import { buildGroundLayers, GROUND_TOP_Z, type ViewportBounds } from './ground';
 import { buildRoofLayers, CONTEXT_ROOF_LIMIT, CONTEXT_ROOF_ZOOM } from './roofs';
 import type { StreetscapeResult } from '@/lib/streetscape';
 import { seededUnit } from '@/lib/roofscape';
@@ -101,6 +101,8 @@ export interface BuildLayersOptions {
   theme?: MapTheme;
   /** The hour the city is lit at, which drives sun, sky and distance haze. */
   atmosphere?: AtmospherePreset;
+  /** What the camera can see, so ground geometry off screen is not drawn. */
+  view?: ViewportBounds | null;
   /**
    * Our own ground plane: streets, kerbs, sidewalks, water. When present it
    * covers the basemap entirely — the default map draws every pixel itself.
@@ -213,6 +215,15 @@ function labelText(b: BuildingWithSpaces): string {
  * spending the frame budget on, and a two-storey garage's parapet is invisible
  * from anywhere this map is read.
  */
+/**
+ * Cached per fetched city-context payload.
+ *
+ * These are synthesised Building objects, so building them fresh on every
+ * layer rebuild would also defeat the roofscape cache downstream — which is
+ * keyed on object identity. Both caches have to hold for either to help.
+ */
+const contextRoofCache = new WeakMap<ContextBuilding[], Building[]>();
+
 function contextRoofSources(
   cityContext: ContextBuilding[] | undefined,
   buildings: BuildingWithSpaces[],
@@ -220,11 +231,14 @@ function contextRoofSources(
 ): Building[] {
   if (!cityContext || cityContext.length === 0 || zoom < CONTEXT_ROOF_ZOOM) return [];
 
+  const cached = contextRoofCache.get(cityContext);
+  if (cached) return cached;
+
   const ownBins = new Set(
     buildings.map((b) => b.bin).filter((bin): bin is string => Boolean(bin)),
   );
 
-  return cityContext
+  const sources = cityContext
     .filter((c) => (!c.b || !ownBins.has(c.b)) && c.h >= 80 && c.r.length >= 4)
     .sort((a, b) => b.h - a.h)
     .slice(0, CONTEXT_ROOF_LIMIT)
@@ -246,6 +260,9 @@ function contextRoofSources(
         floor_height_override: null,
       } as unknown as Building;
     });
+
+  contextRoofCache.set(cityContext, sources);
+  return sources;
 }
 
 export function buildLayers(opts: BuildLayersOptions): Layer[] {
@@ -265,6 +282,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
     theme = 'dark',
     atmosphere = ATMOSPHERE[DEFAULT_TIME[theme]],
     streetscape = null,
+    view = null,
     transitStops,
     transitOrigin = null,
     onTransitClick,
@@ -306,7 +324,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
   // other layer so the whole city stands on it. Photoreal imagery carries its
   // own ground, so the two never draw together.
   if (!photoreal && streetscape) {
-    layers.push(...buildGroundLayers({ streetscape, theme, zoom, haze: sceneryHaze }));
+    layers.push(...buildGroundLayers({ streetscape, theme, zoom, view, haze: sceneryHaze }));
   }
 
   // --- The city itself. Drawn first so everything with data sits on top of it,

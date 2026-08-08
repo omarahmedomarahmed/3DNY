@@ -105,20 +105,32 @@ function previousMax(bucket: (typeof TREE_BUCKETS)[number]): number {
  * again by its own span, which puts the edge comfortably past the horizon at
  * every zoom the ground is drawn at.
  */
-function groundQuad(bbox: [number, number, number, number]): [number, number][] {
+function groundQuad(
+  bbox: [number, number, number, number],
+  view: ViewportBounds | null,
+): [number, number][] {
   const [w, s, e, n] = bbox;
-  const padX = Math.max(e - w, 0.01);
-  const padY = Math.max(n - s, 0.01);
-  const west = w - padX;
-  const east = e + padX;
-  const south = s - padY;
-  const north = n + padY;
+  // The plane must cover the FRAME, not just the data.
+  //
+  // The streetscape API refuses a bbox wider than 0.2°, so at wide zooms the
+  // request fails and the last successful (smaller) payload stays in place. A
+  // quad sized only to that payload then ends inside the viewport, and its
+  // straight edge is plainly visible cutting across the map — which reads as
+  // the city floating on a slab. Taking the union with what the camera can
+  // actually see keeps the ground continuous to the horizon, while staying
+  // viewport-sized and therefore precise.
+  const west = Math.min(w, view?.west ?? w);
+  const east = Math.max(e, view?.east ?? e);
+  const south = Math.min(s, view?.south ?? s);
+  const north = Math.max(n, view?.north ?? n);
+  const padX = Math.max(east - west, 0.01);
+  const padY = Math.max(north - south, 0.01);
   return [
-    [west, south],
-    [east, south],
-    [east, north],
-    [west, north],
-    [west, south],
+    [west - padX, south - padY],
+    [east + padX, south - padY],
+    [east + padX, north + padY],
+    [west - padX, north + padY],
+    [west - padX, south - padY],
   ];
 }
 
@@ -164,6 +176,50 @@ const WATER_BANDS: { z: number; inset: number; tone: 'edge' | 'shallow' | 'deep'
   { z: GROUND_Z.waterShallow, inset: 0.9965, tone: 'shallow' },
   { z: GROUND_Z.waterDeep, inset: 0.992, tone: 'deep' },
 ];
+
+/**
+ * Derived ground geometry, cached per fetched payload.
+ *
+ * The layer set is rebuilt on every hover, filter change and camera settle,
+ * and both of these are expensive enough to dominate that rebuild: laying out
+ * street names sorts and collision-tests a few thousand segments, and the road
+ * index walks every vertex of every segment. Neither depends on anything that
+ * changes between rebuilds — only on the roads themselves — so both are keyed
+ * on the roads array, which is stable until the next fetch.
+ *
+ * This is the difference between rotating a close-in view at single-digit
+ * frames and rotating it smoothly.
+ */
+const roadIndexCache = new WeakMap<RoadSegment[], ReturnType<typeof buildRoadIndex>>();
+const nameLayoutCache = new WeakMap<RoadSegment[], Map<string, StreetNameLabel[]>>();
+
+function cachedRoadIndex(roads: RoadSegment[]) {
+  let index = roadIndexCache.get(roads);
+  if (!index) {
+    index = buildRoadIndex(roads);
+    roadIndexCache.set(roads, index);
+  }
+  return index;
+}
+
+/** `tier` distinguishes the two level-of-detail cuts of the same road set. */
+function cachedStreetNames(
+  allRoads: RoadSegment[],
+  nameRoads: RoadSegment[],
+  tier: string,
+): StreetNameLabel[] {
+  let byTier = nameLayoutCache.get(allRoads);
+  if (!byTier) {
+    byTier = new Map();
+    nameLayoutCache.set(allRoads, byTier);
+  }
+  let labels = byTier.get(tier);
+  if (!labels) {
+    labels = layoutStreetNames(nameRoads);
+    byTier.set(tier, labels);
+  }
+  return labels;
+}
 
 /** Lifts a 2D polyline onto one of the ground strata. */
 function atZ(line: [number, number][], z: number): [number, number, number][] {
@@ -249,10 +305,57 @@ export function orientedRect(
   return [a, corner(1, -1), corner(1, 1), corner(-1, 1), a];
 }
 
+/**
+ * Trims ground data to what can actually be seen.
+ *
+ * The streetscape payload covers a bbox snapped to a ~1.1km grid and padded a
+ * third beyond the viewport — sized so that panning reuses a cached response.
+ * At zoom 17 that is several times more street, tree and entrance geometry
+ * than is on screen, and every bit of it is submitted, transformed and
+ * rasterised each frame.
+ *
+ * deck.gl does not cull per feature, so this does. The margin is generous
+ * because the map is pitched and rotated: the visible ground runs well past
+ * the axis-aligned bounds MapLibre reports, and a hard edge sweeping across
+ * the corners of the frame would be far worse than the overdraw.
+ */
+export interface ViewportBounds {
+  west: number;
+  south: number;
+  east: number;
+  north: number;
+}
+
+function pad(view: ViewportBounds, factor: number): ViewportBounds {
+  const dx = (view.east - view.west) * factor;
+  const dy = (view.north - view.south) * factor;
+  return {
+    west: view.west - dx,
+    south: view.south - dy,
+    east: view.east + dx,
+    north: view.north + dy,
+  };
+}
+
+function contains(view: ViewportBounds, [lon, lat]: [number, number]): boolean {
+  return lon >= view.west && lon <= view.east && lat >= view.south && lat <= view.north;
+}
+
+/** True when any vertex of a line is inside the box. */
+function touches(view: ViewportBounds, line: [number, number][]): boolean {
+  for (const p of line) if (contains(view, p)) return true;
+  return false;
+}
+
 export interface GroundLayerOptions {
   streetscape: StreetscapeResult;
   theme: MapTheme;
   zoom: number;
+  /**
+   * What the camera can see. Omitted means "draw everything", which is right
+   * at low zoom where the whole payload is on screen anyway.
+   */
+  view?: ViewportBounds | null;
   /**
    * Distance haze. The ground takes it at full strength: a street grid running
    * to a hard edge at the horizon is the single thing that most gives away
@@ -262,7 +365,7 @@ export interface GroundLayerOptions {
 }
 
 export function buildGroundLayers(opts: GroundLayerOptions): Layer[] {
-  const { streetscape, theme, zoom, haze } = opts;
+  const { streetscape, theme, zoom, view = null, haze } = opts;
   const fade = haze ? { extensions: [haze] } : {};
   const palette = themeColors(theme);
   const layers: Layer[] = [];
@@ -271,18 +374,23 @@ export function buildGroundLayers(opts: GroundLayerOptions): Layer[] {
   // covering it with a blank plane.
   if (streetscape.roads.length === 0) return layers;
 
-  const roads =
+  // Culling only pays once the viewport is meaningfully smaller than the
+  // fetched cell. Below that it is work done to save no work.
+  const cull = view && zoom >= GROUND_LOD.lanes ? pad(view, 0.5) : null;
+
+  const byZoom =
     zoom >= GROUND_LOD.lanes
       ? streetscape.roads
       : zoom >= GROUND_LOD.streets
         ? streetscape.roads.filter((r) => r.t <= 2)
         : streetscape.roads.filter((r) => r.t <= 1);
+  const roads = cull ? byZoom.filter((r) => touches(cull, r.p)) : byZoom;
 
   layers.push(
     new PolygonLayer<{ ring: [number, number][] }>({
       id: 'ground-plane',
           ...fade,
-      data: [{ ring: groundQuad(streetscape.bbox) }],
+      data: [{ ring: groundQuad(streetscape.bbox, view) }],
       extruded: false,
       filled: true,
       stroked: false,
@@ -292,7 +400,7 @@ export function buildGroundLayers(opts: GroundLayerOptions): Layer[] {
       getFillColor: palette.ground,
       updateTriggers: {
         getFillColor: [theme],
-        getPolygon: [streetscape.bbox.join(',')],
+        getPolygon: [streetscape.bbox.join(','), view ? `${view.west},${view.south},${view.east},${view.north}` : ''],
       },
     }),
   );
@@ -404,10 +512,11 @@ export function buildGroundLayers(opts: GroundLayerOptions): Layer[] {
   // brightly: greenery is what stops a city model looking like a circuit
   // board, and the moment it competes with a Goldenrod band it has failed.
   if (zoom >= GROUND_LOD.trees && streetscape.trees.length > 0) {
+    const trees = cull
+      ? streetscape.trees.filter((t) => contains(cull, t.p))
+      : streetscape.trees;
     for (const bucket of TREE_BUCKETS) {
-      const data = streetscape.trees.filter(
-        (t) => t.d <= bucket.maxDbh && t.d > previousMax(bucket),
-      );
+      const data = trees.filter((t) => t.d <= bucket.maxDbh && t.d > previousMax(bucket));
       if (data.length === 0) continue;
 
       layers.push(
@@ -456,11 +565,14 @@ export function buildGroundLayers(opts: GroundLayerOptions): Layer[] {
   // green globe lamp beside it that has meant "open" in New York since the
   // eighties. Elevators get a taller headhouse and no globe.
   if (zoom >= GROUND_LOD.entrances && streetscape.entrances.length > 0) {
-    const index = buildRoadIndex(streetscape.roads);
+    const index = cachedRoadIndex(streetscape.roads);
     const enclosures: EntranceBox[] = [];
     const globes: SubwayEntrance[] = [];
+    const entrances = cull
+      ? streetscape.entrances.filter((e) => contains(cull, e.p))
+      : streetscape.entrances;
 
-    for (const entrance of streetscape.entrances) {
+    for (const entrance of entrances) {
       // No nearby street means no plausible orientation; the grid's own
       // prevailing angle is a better guess than an arbitrary one.
       const angle = nearestRoadAngle(entrance.p, index) ?? MANHATTAN_GRID_ANGLE;
@@ -537,9 +649,9 @@ export function buildGroundLayers(opts: GroundLayerOptions): Layer[] {
   // like thermoplastic road lettering. They scale with the ground and vanish
   // into it at distance, so they can never cover a tower or a band.
   if (zoom >= GROUND_LOD.names) {
-    const nameRoads =
-      zoom >= GROUND_LOD.allNames ? streetscape.roads : streetscape.roads.filter((r) => r.t <= 2);
-    const labels = layoutStreetNames(nameRoads);
+    const wide = zoom < GROUND_LOD.allNames;
+    const nameRoads = wide ? streetscape.roads.filter((r) => r.t <= 2) : streetscape.roads;
+    const labels = cachedStreetNames(streetscape.roads, nameRoads, wide ? 'major' : 'all');
 
     if (labels.length > 0) {
       layers.push(

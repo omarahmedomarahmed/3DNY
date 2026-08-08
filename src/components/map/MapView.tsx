@@ -26,6 +26,7 @@ import {
   type AtmospherePreset,
 } from './atmosphere';
 import { useStreetscape } from './useStreetscape';
+import type { ViewportBounds } from './ground';
 import { useTransit } from './useTransit';
 import { buildingHeightFt, buildingRing } from '@/lib/floor-bands';
 import { composeSnapshot, downloadSnapshot } from '@/lib/stack-snapshot';
@@ -448,6 +449,50 @@ interface PopupState {
   at: PopupAnchor;
 }
 
+/**
+ * How to point the camera at one building.
+ *
+ * `fitBounds` frames a FOOTPRINT, which is a ground extent — but a building
+ * rises out of it, and at this pitch a tall tower runs most of the way up the
+ * screen. So the top padding scales with the building's own height, or the
+ * roof lands outside the frame. The side padding keeps the tower clear of the
+ * filter rail and the results sidebar, which overlay the map's edges.
+ *
+ * Shared by the selection fly-to and by Stack Snapshot, which had this
+ * worked out first: a broker who has just clicked a building and a broker who
+ * is capturing it want exactly the same shot.
+ */
+function frameBuilding(
+  ring: [number, number][],
+  heightFt: number,
+): {
+  bounds: [[number, number], [number, number]];
+  padding: { top: number; bottom: number; left: number; right: number };
+} {
+  let west = 180;
+  let south = 90;
+  let east = -180;
+  let north = -90;
+  for (const [lon, lat] of ring) {
+    west = Math.min(west, lon);
+    east = Math.max(east, lon);
+    south = Math.min(south, lat);
+    north = Math.max(north, lat);
+  }
+  return {
+    bounds: [
+      [west, south],
+      [east, north],
+    ],
+    padding: {
+      top: Math.min(640, Math.max(220, 150 + heightFt * 0.62)),
+      bottom: 150,
+      left: 260,
+      right: 260,
+    },
+  };
+}
+
 /** Every [lon, lat] we can frame the camera on. */
 function buildingPoints(buildings: BuildingWithSpaces[]): [number, number][] {
   return buildings
@@ -463,6 +508,11 @@ export default function MapView() {
   const [map, setMap] = useState<maplibregl.Map | null>(null);
   const [contextLost, setContextLost] = useState(false);
   const [zoom, setZoom] = useState(14);
+  // Tracked so the ground layers can drop geometry that is off screen. Updated
+  // on settle rather than on every frame of a pan: the cull margin is wide
+  // enough to cover the movement, and refiltering mid-gesture would cost more
+  // than it saves.
+  const [view, setView] = useState<ViewportBounds | null>(null);
   const [popup, setPopup] = useState<PopupState | null>(null);
   const [photorealCredits, setPhotorealCredits] = useState<string[]>([]);
   const [photorealError, setPhotorealError] = useState<string | null>(null);
@@ -632,9 +682,19 @@ export default function MapView() {
     });
     instance.addControl(overlay as unknown as maplibregl.IControl);
 
-    const onZoom = () => setZoom(instance.getZoom());
-    instance.on('zoomend', onZoom);
-    instance.on('load', onZoom);
+    const onSettle = () => {
+      setZoom(instance.getZoom());
+      const b = instance.getBounds();
+      setView({
+        west: b.getWest(),
+        south: b.getSouth(),
+        east: b.getEast(),
+        north: b.getNorth(),
+      });
+    };
+    instance.on('zoomend', onSettle);
+    instance.on('moveend', onSettle);
+    instance.on('load', onSettle);
 
     const canvas = instance.getCanvas();
     const onLost = (e: Event) => {
@@ -652,7 +712,8 @@ export default function MapView() {
     return () => {
       canvas.removeEventListener('webglcontextlost', onLost);
       canvas.removeEventListener('webglcontextrestored', onRestored);
-      instance.off('zoomend', onZoom);
+      instance.off('zoomend', onSettle);
+      instance.off('moveend', onSettle);
       instance.off('style.load', onStyleLoad);
       instance.off('error', onError);
       overlay.finalize();
@@ -852,34 +913,13 @@ export default function MapView() {
       try {
         // Frame it: tight on the footprint, pitched enough that the stack of
         // floors is visible rather than seen from directly above.
-        let west = 180;
-        let south = 90;
-        let east = -180;
-        let north = -90;
-        for (const [lon, lat] of ring) {
-          west = Math.min(west, lon);
-          east = Math.max(east, lon);
-          south = Math.min(south, lat);
-          north = Math.max(north, lat);
-        }
-        // fitBounds frames the FOOTPRINT, which is a ground extent — but the
-        // building rises out of it, and at this pitch a tall tower runs most of
-        // the way up the screen. So the top padding scales with the building's
-        // own height, or the roof lands outside the frame.
-        const heightFt = buildingHeightFt(building);
-        const topPad = Math.min(640, Math.max(220, 150 + heightFt * 0.62));
-        instance.fitBounds(
-          [
-            [west, south],
-            [east, north],
-          ],
-          {
-            padding: { top: topPad, bottom: 150, left: 260, right: 260 },
-            pitch: 58,
-            duration: 900,
-            maxZoom: 17.4,
-          },
-        );
+        const shot = frameBuilding(ring, buildingHeightFt(building));
+        instance.fitBounds(shot.bounds, {
+          padding: shot.padding,
+          pitch: 58,
+          duration: 900,
+          maxZoom: 17.4,
+        });
         await settle(instance, 1400);
 
         if (wantPhotoreal && photorealAvailable()) {
@@ -1002,6 +1042,7 @@ export default function MapView() {
         theme: mapTheme,
         atmosphere,
         streetscape,
+        view,
         transitStops,
         transitOrigin,
         onTransitClick: (stop, at) => setTransitPopup({ stop, at: toViewport(at) }),
@@ -1034,6 +1075,7 @@ export default function MapView() {
     zoom,
     cityContext,
     streetscape,
+    view,
     photoreal,
     activePhotorealLayer,
     photorealDrawn,
@@ -1088,17 +1130,40 @@ export default function MapView() {
   }, [buildings, fitAll]);
 
   // --- Fly to the selection so its floor bands come into view.
+  //
+  // Framed on the footprint with height-aware padding rather than centred on
+  // a point: centring puts the middle of the LOT in the middle of the screen,
+  // which at this pitch runs a tall tower's roof — and any availability near
+  // the top of it — straight off the top of the frame.
+  //
+  // The move itself is a flyTo rather than an easeTo. Crossing several blocks
+  // at zoom 17 with a linear ease reads as the world being dragged past;
+  // flyTo's arc pulls back, travels, and settles, which is legible as going
+  // somewhere. `speed` and `curve` are tuned low and shallow because this
+  // happens mid-sentence in a meeting — it has to be quick enough not to
+  // interrupt and calm enough not to make anyone seasick on a projector.
   useEffect(() => {
     const instance = mapRef.current;
     if (!instance || !selectedBuildingId) return;
     const target = buildings.find((b) => b.id === selectedBuildingId);
-    if (!target || target.lon === null || target.lat === null) return;
+    if (!target) return;
+    const ring = buildingRing(target);
+    if (!ring) return;
 
-    instance.easeTo({
-      center: [target.lon, target.lat],
-      zoom: Math.max(instance.getZoom(), 17),
+    const shot = frameBuilding(ring, buildingHeightFt(target));
+    const { center, zoom: targetZoom } = instance.cameraForBounds(shot.bounds, {
+      padding: shot.padding,
+      maxZoom: 17.6,
+    }) ?? { center: undefined, zoom: undefined };
+    if (!center) return;
+
+    instance.flyTo({
+      center,
+      zoom: Math.max(targetZoom ?? 17, 16.6),
       pitch: 55,
-      duration: 900,
+      speed: 1.1,
+      curve: 1.3,
+      essential: true,
     });
   }, [selectedBuildingId, buildings]);
 

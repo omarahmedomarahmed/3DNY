@@ -200,7 +200,29 @@ const TOWER_FT = 220;
 /** Pre-war towers above this get the stepped 1916-zoning crown. */
 const SETBACK_FT = 330;
 
+/**
+ * Roofscapes, cached per building object.
+ *
+ * The layer set is rebuilt whenever anything changes — a hover, a filter, the
+ * hour of the day — and deriving a roofscape means trigonometry per piece for
+ * every building plus the couple of hundred context towers. Doing that on a
+ * mouse move is what turned rotating a close-in view into single-digit frames.
+ *
+ * A WeakMap keyed on the building object is exactly right here: the result is
+ * a pure function of that object, the objects are stable for as long as the
+ * data is loaded, and the entries disappear with them.
+ */
+const roofscapeCache = new WeakMap<Building, Roofscape>();
+
 export function computeRoofscape(building: Building): Roofscape {
+  const cached = roofscapeCache.get(building);
+  if (cached) return cached;
+  const result = deriveRoofscape(building);
+  roofscapeCache.set(building, result);
+  return result;
+}
+
+function deriveRoofscape(building: Building): Roofscape {
   const ring = buildingRing(building);
   const era = roofEra(building.year_built);
   const empty: Roofscape = { era, parapet: null, setbacks: [], bulkheads: [], tanks: [], posts: [] };
