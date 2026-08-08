@@ -23,7 +23,10 @@ import {
 } from '@/lib/transit';
 import { MULLIONS_DARK, MULLIONS_LIGHT } from './mullions';
 import { buildGroundLayers, GROUND_TOP_Z } from './ground';
+import { buildRoofLayers, CONTEXT_ROOF_LIMIT, CONTEXT_ROOF_ZOOM } from './roofs';
 import type { StreetscapeResult } from '@/lib/streetscape';
+import { seededUnit } from '@/lib/roofscape';
+import type { Building } from '@/types';
 import {
   DIMMED_COLOR,
   FLOOR_BAND_COLOR,
@@ -193,6 +196,55 @@ function labelText(b: BuildingWithSpaces): string {
   return `${firstAddressLine(b.address_display)}\n${lowestRentLabel(b)}  ·  ${spaces}`;
 }
 
+/**
+ * Turns the surrounding grey city into something the roofscape can read.
+ *
+ * Context footprints carry an outline and a roof height and nothing else — no
+ * year built, so every one of them would be classed midcentury and the whole
+ * skyline would end in identical mechanical slabs. The BIN is a stable
+ * per-building number, so it is used to deal each one an era: the mix is
+ * roughly Manhattan's, and because it is derived from the BIN rather than
+ * drawn at random it is the same building every time.
+ *
+ * Tallest first, capped: the towers that define a skyline are the ones worth
+ * spending the frame budget on, and a two-storey garage's parapet is invisible
+ * from anywhere this map is read.
+ */
+function contextRoofSources(
+  cityContext: ContextBuilding[] | undefined,
+  buildings: BuildingWithSpaces[],
+  zoom: number,
+): Building[] {
+  if (!cityContext || cityContext.length === 0 || zoom < CONTEXT_ROOF_ZOOM) return [];
+
+  const ownBins = new Set(
+    buildings.map((b) => b.bin).filter((bin): bin is string => Boolean(bin)),
+  );
+
+  return cityContext
+    .filter((c) => (!c.b || !ownBins.has(c.b)) && c.h >= 80 && c.r.length >= 4)
+    .sort((a, b) => b.h - a.h)
+    .slice(0, CONTEXT_ROOF_LIMIT)
+    .map((c, i) => {
+      const key = c.b ?? `ctx-${i}`;
+      // Manhattan's pre-war stock dominates by count, so the deal is weighted
+      // toward it rather than being an even three-way split.
+      const draw = seededUnit(key, 97);
+      const year = draw < 0.58 ? 1925 : draw < 0.86 ? 1965 : 1995;
+      return {
+        id: key,
+        bin: c.b,
+        year_built: year,
+        height_roof_ft: c.h,
+        num_floors: Math.max(1, Math.round(c.h / 12.5)),
+        footprint: c.r,
+        lon: null,
+        lat: null,
+        floor_height_override: null,
+      } as unknown as Building;
+    });
+}
+
 export function buildLayers(opts: BuildLayersOptions): Layer[] {
   const {
     buildings,
@@ -337,6 +389,29 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
     );
   }
 
+  /**
+   * The fill for one building, in the active mode and selection state.
+   *
+   * Shared with the roof furniture, so a tower's parapet and plant follow it
+   * into its selected colour instead of a grey cap floating over an orange
+   * building.
+   */
+  const buildingFill = (b: BuildingWithSpaces): RGBA => {
+    if (b.id === selectedBuildingId) return SELECTED_COLOR;
+    if (b.id === hoveredBuildingId) {
+      const [r, g, bl] = colorForBuilding(b, colorMode);
+      // Pull the hovered building toward Goldenrod. On the old dark theme
+      // this lifted toward white; on a white basemap that would erase it.
+      return [
+        Math.round((r + HOVER_COLOR[0]) / 2),
+        Math.round((g + HOVER_COLOR[1]) / 2),
+        Math.round((bl + HOVER_COLOR[2]) / 2),
+        255,
+      ];
+    }
+    return colorForBuilding(b, colorMode);
+  };
+
   layers.push(
     new PolygonLayer<BuildingWithSpaces>({
       id: 'buildings',
@@ -365,21 +440,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       material: { ambient: 0.62, diffuse: 0.6, shininess: 12, specularColor: [38, 44, 58] },
       getPolygon: (b) => buildingRing(b) ?? [],
       getElevation: (b) => buildingHeightFt(b) * FT_TO_M,
-      getFillColor: (b): RGBA => {
-        if (b.id === selectedBuildingId) return SELECTED_COLOR;
-        if (b.id === hoveredBuildingId) {
-          const [r, g, bl] = colorForBuilding(b, colorMode);
-          // Pull the hovered building toward Goldenrod. On the old dark theme
-          // this lifted toward white; on a white basemap that would erase it.
-          return [
-            Math.round((r + HOVER_COLOR[0]) / 2),
-            Math.round((g + HOVER_COLOR[1]) / 2),
-            Math.round((bl + HOVER_COLOR[2]) / 2),
-            255,
-          ];
-        }
-        return colorForBuilding(b, colorMode);
-      },
+      getFillColor: buildingFill,
       onClick: (info: PickingInfo<BuildingWithSpaces>) => {
         if (!info.object) return false;
         onBuildingClick(info.object.id, { x: info.x, y: info.y });
@@ -395,6 +456,25 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       },
     }),
   );
+
+  // --- Roof furniture. Parapets, mechanical plant, setback crowns and water
+  // tanks, all derived from footprint, height and year built — so a 1913 loft
+  // ends in a timber tank on a frame and a 1963 tower ends in a blank slab,
+  // instead of both ending in the same flat lid.
+  //
+  // Drawn after the massing so it stands on it, and never pickable: a click
+  // near the top of a tower has to select the tower.
+  if (!photoreal) {
+    layers.push(
+      ...buildRoofLayers({
+        buildings: active,
+        colorFor: (b) => buildingFill(b as BuildingWithSpaces),
+        context: showContext ? contextRoofSources(cityContext, buildings, zoom) : [],
+        theme,
+        zoom,
+      }),
+    );
+  }
 
   // --- The facade skin: every floor plate of every building on screen, drawn
   // as a thin ring one shade off the wall. This is what makes an extrusion

@@ -271,6 +271,13 @@ export interface ThemeColors {
   canopy: RGBA;
   /** Tree trunk. */
   trunk: RGBA;
+  /**
+   * Timber, which roof water tanks are blended toward. Parapets, bulkheads
+   * and setbacks have no colour of their own: they take the fill of the
+   * building they stand on, so roof furniture reads as the same building
+   * rather than as grey objects placed on top of it.
+   */
+  waterTank: RGBA;
   /** The pavement band flanking every roadbed. */
   sidewalk: RGBA;
   /** The kerb line between sidewalk and asphalt. */
@@ -315,6 +322,7 @@ const LIGHT_THEME: ThemeColors = {
   parkCourt: rgba('#CFDCCB', 255),
   canopy: rgba('#A6C39C', 255),
   trunk: rgba('#9AA0A2', 255),
+  waterTank: rgba('#8C7B6B', 255),
   sidewalk: rgba('#EDF1F7', 255),
   roadCasing: rgba('#BFC7D6', 255),
   roadFill: rgba('#FFFFFF', 255),
@@ -355,6 +363,7 @@ const DARK_THEME: ThemeColors = {
   parkCourt: rgba('#131D18', 255),
   canopy: rgba('#1E3325', 255),
   trunk: rgba('#20262E', 255),
+  waterTank: rgba('#4C4238', 255),
   sidewalk: rgba('#151C2B', 255),
   roadCasing: rgba('#2C3750', 255),
   roadFill: rgba('#1D2637', 255),
