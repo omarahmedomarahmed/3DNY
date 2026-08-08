@@ -255,8 +255,22 @@ export interface ThemeColors {
   cityContext: RGBA;
   /** The ground plane itself — the block interiors between streets. */
   ground: RGBA;
-  /** Rivers and ponds, as a flat fill under the water shader treatment. */
+  /** Rivers and ponds — the deep centre of the channel. */
   water: RGBA;
+  /** The shallow band along the shore, which is what gives water its depth. */
+  waterShallow: RGBA;
+  /** The bright line where water meets land. */
+  waterEdge: RGBA;
+  /** Lawn and greensward. */
+  park: RGBA;
+  /** Paved plazas and triangles — Herald Square, not Central Park. */
+  parkPlaza: RGBA;
+  /** Playgrounds and ball courts. */
+  parkCourt: RGBA;
+  /** Tree canopy. */
+  canopy: RGBA;
+  /** Tree trunk. */
+  trunk: RGBA;
   /** The pavement band flanking every roadbed. */
   sidewalk: RGBA;
   /** The kerb line between sidewalk and asphalt. */
@@ -290,7 +304,17 @@ const LIGHT_THEME: ThemeColors = {
   // The blocks have to be a clear step darker than the pavement, or a white
   // roadbed on a near-white block field leaves no street grid at all.
   ground: rgba('#D9E0EB', 255),
-  water: rgba('#BACEE6', 255),
+  water: rgba('#A9C2DF', 255),
+  waterShallow: rgba('#C6D9EC', 255),
+  waterEdge: rgba('#DCE9F5', 255),
+  // Greens are desaturated toward the map's blue cast on purpose. A saturated
+  // park green would be the second-loudest thing on screen after Goldenrod,
+  // and parks are orientation, not data.
+  park: rgba('#C8DBC2', 255),
+  parkPlaza: rgba('#DFE2DC', 255),
+  parkCourt: rgba('#CFDCCB', 255),
+  canopy: rgba('#A6C39C', 255),
+  trunk: rgba('#9AA0A2', 255),
   sidewalk: rgba('#EDF1F7', 255),
   roadCasing: rgba('#BFC7D6', 255),
   roadFill: rgba('#FFFFFF', 255),
@@ -321,7 +345,16 @@ const DARK_THEME: ThemeColors = {
   // Night ground: near-black blocks, streets a shade lighter — the street
   // grid reads as the lit network it is at night, kerbs as lit stone edges.
   ground: rgba('#0A0E17', 255),
-  water: rgba('#0C1524', 255),
+  water: rgba('#070C16', 255),
+  waterShallow: rgba('#101B2E', 255),
+  waterEdge: rgba('#1B2B45', 255),
+  // At night a park is a hole in the lit grid, not a green field — dark, but
+  // warm enough against the blue-black blocks to read as planting.
+  park: rgba('#101A15', 255),
+  parkPlaza: rgba('#161B22', 255),
+  parkCourt: rgba('#131D18', 255),
+  canopy: rgba('#1E3325', 255),
+  trunk: rgba('#20262E', 255),
   sidewalk: rgba('#151C2B', 255),
   roadCasing: rgba('#2C3750', 255),
   roadFill: rgba('#1D2637', 255),

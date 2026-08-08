@@ -23,6 +23,11 @@ import { metersBetween } from './transit';
 
 const CENTERLINE = 'https://data.cityofnewyork.us/resource/inkn-q76z.json';
 const HYDROGRAPHY = 'https://data.cityofnewyork.us/resource/pjs3-c3z5.json';
+const PARKS = 'https://data.cityofnewyork.us/resource/enfh-gkve.json';
+const STREET_TREES = 'https://data.cityofnewyork.us/resource/uvpi-gqnh.json';
+
+/** Trees are the long tail of the payload; past this they stop being worth it. */
+export const TREE_LIMIT = 4000;
 
 /** Above this many road segments the request is truncated, widest first. */
 export const ROAD_LIMIT = 6000;
@@ -48,9 +53,36 @@ export interface WaterPolygon {
   rings: [number, number][][];
 }
 
+/**
+ * What a park is made of, which decides how it is drawn:
+ * 0 = greensward (Central Park, a neighbourhood park — lawn and trees),
+ * 1 = hardscape (Herald Square and the other triangles and plazas),
+ * 2 = active recreation (playgrounds, ball courts).
+ */
+export type ParkTier = 0 | 1 | 2;
+
+export interface ParkPolygon {
+  /** First ring is the boundary; the rest are holes. */
+  rings: [number, number][][];
+  t: ParkTier;
+  /** Park name, for the few big enough to label. */
+  n: string | null;
+  /** Acres, so the tiny triangles can be told from Central Park. */
+  a: number;
+}
+
+export interface StreetTree {
+  /** [lon, lat], rounded to ~11cm. */
+  p: [number, number];
+  /** Trunk diameter in inches, which stands in for canopy size. */
+  d: number;
+}
+
 export interface StreetscapeResult {
   roads: RoadSegment[];
   water: WaterPolygon[];
+  parks: ParkPolygon[];
+  trees: StreetTree[];
   truncated: boolean;
   bbox: [number, number, number, number];
 }
@@ -201,42 +233,147 @@ async function fetchWater(
   ];
 
   for (const rec of records) {
-    const geom = rec.the_geom;
-    if (!geom || (geom.type !== 'Polygon' && geom.type !== 'MultiPolygon')) continue;
-    let clipped: Feature<Polygon | MultiPolygon>;
-    try {
-      // bboxClip's signature admits line output for line input; polygon input
-      // always yields polygon output, so the narrowing is safe.
-      clipped = bboxClip(
-        { type: 'Feature', properties: {}, geometry: geom } as Feature<
-          Polygon | MultiPolygon
-        >,
-        clipBox,
-      ) as Feature<Polygon | MultiPolygon>;
-    } catch {
-      continue;
-    }
-
-    const polys =
-      clipped.geometry.type === 'MultiPolygon'
-        ? clipped.geometry.coordinates
-        : [clipped.geometry.coordinates];
-
-    for (const poly of polys) {
-      const rings = poly
-        .filter((ring) => Array.isArray(ring) && ring.length >= 4)
-        .map((ring) =>
-          simplifyLine(
-            ring.map((p) => [p[0], p[1]] as [number, number]),
-            0.00004,
-          ).map(([lon, lat]) => [round6(lon), round6(lat)] as [number, number]),
-        )
-        .filter((ring) => ring.length >= 4);
-      if (rings.length > 0) water.push({ rings });
+    for (const rings of clipRings(rec.the_geom, clipBox, 0.00004)) {
+      water.push({ rings });
     }
   }
 
   return water;
+}
+
+/**
+ * NYC's `typecategory` vocabulary, reduced to how a park should look.
+ *
+ * Anything not listed is treated as greensward, which is the safe default:
+ * a strip of lawn drawn where there is concrete reads far better than
+ * concrete drawn over Central Park.
+ */
+export function parkTier(typeCategory: string): ParkTier {
+  const t = typeCategory.trim().toLowerCase();
+  if (
+    t.includes('triangle') ||
+    t.includes('plaza') ||
+    t.includes('mall') ||
+    t.includes('strip') ||
+    t.includes('buildings') ||
+    t.includes('institution')
+  ) {
+    return 1;
+  }
+  if (t.includes('playground') || t.includes('recreational') || t.includes('court')) {
+    return 2;
+  }
+  return 0;
+}
+
+/** Clips a polygon geometry to a bbox and simplifies its rings. */
+function clipRings(
+  geom: any,
+  clipBox: [number, number, number, number],
+  tol: number,
+): [number, number][][][] {
+  if (!geom || (geom.type !== 'Polygon' && geom.type !== 'MultiPolygon')) return [];
+  let clipped: Feature<Polygon | MultiPolygon>;
+  try {
+    clipped = bboxClip(
+      { type: 'Feature', properties: {}, geometry: geom } as Feature<Polygon | MultiPolygon>,
+      clipBox,
+    ) as Feature<Polygon | MultiPolygon>;
+  } catch {
+    return [];
+  }
+
+  const polys =
+    clipped.geometry.type === 'MultiPolygon'
+      ? clipped.geometry.coordinates
+      : [clipped.geometry.coordinates];
+
+  const out: [number, number][][][] = [];
+  for (const poly of polys) {
+    const rings = poly
+      .filter((ring) => Array.isArray(ring) && ring.length >= 4)
+      .map((ring) =>
+        simplifyLine(
+          ring.map((p) => [p[0], p[1]] as [number, number]),
+          tol,
+        ).map(([lon, lat]) => [round6(lon), round6(lat)] as [number, number]),
+      )
+      .filter((ring) => ring.length >= 4);
+    if (rings.length > 0) out.push(rings);
+  }
+  return out;
+}
+
+async function fetchParks(
+  polygon: string,
+  bbox: [number, number, number, number],
+): Promise<ParkPolygon[]> {
+  const url =
+    `${PARKS}?$select=multipolygon,signname,typecategory,acres` +
+    `&$where=intersects(multipolygon,'${polygon}')` +
+    `&$limit=400`;
+
+  const res = await fetch(url, { headers: headers(), next: { revalidate: 604800 } });
+  if (!res.ok) throw new Error(`NYC parks returned ${res.status}.`);
+
+  const records = (await res.json()) as any[];
+  const parks: ParkPolygon[] = [];
+
+  // Central Park is one polygon far larger than any viewport, so parks are
+  // clipped exactly as the rivers are.
+  const pad = 0.02;
+  const clipBox: [number, number, number, number] = [
+    bbox[0] - pad,
+    bbox[1] - pad,
+    bbox[2] + pad,
+    bbox[3] + pad,
+  ];
+
+  for (const rec of records) {
+    const tier = parkTier(String(rec.typecategory ?? ''));
+    const name =
+      typeof rec.signname === 'string' && rec.signname.trim() ? rec.signname.trim() : null;
+    const acres = num(rec.acres) ?? 0;
+    for (const rings of clipRings(rec.multipolygon, clipBox, 0.000025)) {
+      parks.push({ rings, t: tier, n: name, a: acres });
+    }
+  }
+
+  return parks;
+}
+
+async function fetchTrees(
+  bbox: [number, number, number, number],
+): Promise<StreetTree[]> {
+  const [w, s, e, n] = bbox;
+  // The tree census carries no queryable geometry column, only latitude and
+  // longitude, so this is a plain bounds filter rather than an intersects().
+  const url =
+    `${STREET_TREES}?$select=latitude,longitude,tree_dbh` +
+    `&$where=latitude between ${s} and ${n}` +
+    ` AND longitude between ${w} and ${e}` +
+    ` AND status='Alive'` +
+    `&$limit=${TREE_LIMIT}`;
+
+  const res = await fetch(encodeURI(url), {
+    headers: headers(),
+    next: { revalidate: 604800 },
+  });
+  if (!res.ok) throw new Error(`NYC street trees returned ${res.status}.`);
+
+  const records = (await res.json()) as any[];
+  const trees: StreetTree[] = [];
+  for (const rec of records) {
+    const lat = num(rec.latitude);
+    const lon = num(rec.longitude);
+    if (lat === null || lon === null) continue;
+    trees.push({
+      p: [round6(lon), round6(lat)],
+      // Clamped: the census has both saplings and typos.
+      d: Math.min(60, Math.max(2, num(rec.tree_dbh) ?? 6)),
+    });
+  }
+  return trees;
 }
 
 export async function fetchStreetscape(
@@ -246,21 +383,26 @@ export async function fetchStreetscape(
   const [w, s, e, n] = bbox;
   const polygon = `POLYGON((${w} ${s},${e} ${s},${e} ${n},${w} ${n},${w} ${s}))`;
 
-  // Water failing must not take the streets down with it, or vice versa: the
-  // ground plane with one of the two is still far better than neither.
-  const [roadsResult, waterResult] = await Promise.allSettled([
+  // One source failing must not take the others down with it: a ground plane
+  // with streets but no trees is still far better than no ground plane. Only
+  // the streets are load-bearing, because without them there is no city.
+  const [roadsResult, waterResult, parksResult, treesResult] = await Promise.allSettled([
     fetchRoads(polygon),
     fetchWater(polygon, bbox),
+    fetchParks(polygon, bbox),
+    fetchTrees(bbox),
   ]);
 
-  if (roadsResult.status === 'rejected' && waterResult.status === 'rejected') {
+  if (roadsResult.status === 'rejected') {
     throw new Error(String((roadsResult.reason as Error).message));
   }
 
   return {
-    roads: roadsResult.status === 'fulfilled' ? roadsResult.value.roads : [],
+    roads: roadsResult.value.roads,
     water: waterResult.status === 'fulfilled' ? waterResult.value : [],
-    truncated: roadsResult.status === 'fulfilled' ? roadsResult.value.truncated : false,
+    parks: parksResult.status === 'fulfilled' ? parksResult.value : [],
+    trees: treesResult.status === 'fulfilled' ? treesResult.value : [],
+    truncated: roadsResult.value.truncated,
     bbox,
   };
 }

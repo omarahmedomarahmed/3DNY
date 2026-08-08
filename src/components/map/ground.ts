@@ -1,11 +1,13 @@
-import { PathLayer, PolygonLayer, TextLayer } from '@deck.gl/layers';
+import { ColumnLayer, PathLayer, PolygonLayer, TextLayer } from '@deck.gl/layers';
 import type { Layer } from '@deck.gl/core';
-import { FT_TO_M } from '@/lib/floor-bands';
+import { FT_TO_M, insetRing } from '@/lib/floor-bands';
 import {
   layoutStreetNames,
+  type ParkPolygon,
   type RoadSegment,
   type StreetscapeResult,
   type StreetNameLabel,
+  type StreetTree,
   type WaterPolygon,
 } from '@/lib/streetscape';
 import { themeColors, type MapTheme } from './colors';
@@ -31,11 +33,51 @@ export const GROUND_LOD = {
   streets: 13.2,
   /** Alleys, and the sidewalk band that gives blocks their kerb line. */
   lanes: 14.2,
+  /** Individual street trees. Below this a canopy is smaller than a pixel. */
+  trees: 15.2,
   /** Painted street names on avenues and streets. */
   names: 15.0,
   /** Painted names on the narrowest streets. */
   allNames: 15.8,
 } as const;
+
+/**
+ * Trees, bucketed by canopy radius.
+ *
+ * ColumnLayer takes ONE radius for the whole layer rather than an accessor,
+ * so varying canopy size means one layer per size — three buckets is enough
+ * for a street to stop looking like a row of identical stamps, and few enough
+ * to stay cheap. Trunk diameter in inches stands in for canopy spread.
+ */
+const TREE_BUCKETS: { key: string; maxDbh: number; canopyM: number; heightM: number }[] = [
+  { key: 'small', maxDbh: 8, canopyM: 2.2, heightM: 5 },
+  { key: 'medium', maxDbh: 18, canopyM: 3.4, heightM: 7 },
+  { key: 'large', maxDbh: Infinity, canopyM: 4.8, heightM: 9.5 },
+];
+
+/**
+ * Foliage shading, and a warning about `specularColor`.
+ *
+ * A white specular colour at shininess 1 is an extremely broad lobe: it lays
+ * a near-white wash across the entire surface and drives any dark fill pale.
+ * Trees given the city-context material came out as bright blobs lining every
+ * street on the dark map — the second-loudest thing on screen after the
+ * availability bands, which is precisely the regression this project is not
+ * allowed to ship. A near-black specular keeps the modelling that makes a
+ * canopy read as round, without the wash.
+ */
+const FOLIAGE_MATERIAL = {
+  ambient: 0.55,
+  diffuse: 0.5,
+  shininess: 16,
+  specularColor: [14, 20, 16] as [number, number, number],
+};
+
+/** The lower bound of a bucket — the previous bucket's ceiling. */
+function previousMax(bucket: (typeof TREE_BUCKETS)[number]): number {
+  const i = TREE_BUCKETS.indexOf(bucket);
+  return i <= 0 ? -Infinity : TREE_BUCKETS[i - 1].maxDbh;
+}
 
 /**
  * The ground plane, sized to the geometry that was actually fetched rather
@@ -84,8 +126,12 @@ function groundQuad(bbox: [number, number, number, number]): [number, number][] 
  */
 export const GROUND_Z = {
   plane: 0,
-  water: 0.03,
-  sidewalk: 0.06,
+  /** The three water bands, shore outward to channel centre. */
+  waterEdge: 0.02,
+  waterShallow: 0.03,
+  waterDeep: 0.04,
+  park: 0.05,
+  sidewalk: 0.07,
   casing: 0.09,
   road: 0.12,
   name: 0.16,
@@ -93,6 +139,21 @@ export const GROUND_Z = {
 
 /** Where flat decoration drawn elsewhere must sit to clear the ground stack. */
 export const GROUND_TOP_Z = 0.2;
+
+/**
+ * Water, as three nested bands running bright at the bank to dark at the
+ * channel centre.
+ *
+ * A river drawn as one flat fill reads as coloured paper. Nesting the shore
+ * shelf inside it reads as depth for the cost of two extra polygons and no
+ * shader at all — the same trick the contact shadows use to stand in for a
+ * shadow pass. Drawn largest first, so each darker band sits inside the last.
+ */
+const WATER_BANDS: { z: number; inset: number; tone: 'edge' | 'shallow' | 'deep' }[] = [
+  { z: GROUND_Z.waterEdge, inset: 1, tone: 'edge' },
+  { z: GROUND_Z.waterShallow, inset: 0.9965, tone: 'shallow' },
+  { z: GROUND_Z.waterDeep, inset: 0.992, tone: 'deep' },
+];
 
 /** Lifts a 2D polyline onto one of the ground strata. */
 function atZ(line: [number, number][], z: number): [number, number, number][] {
@@ -149,17 +210,47 @@ export function buildGroundLayers(opts: GroundLayerOptions): Layer[] {
   );
 
   if (streetscape.water.length > 0) {
+    const waterTone = {
+      edge: palette.waterEdge,
+      shallow: palette.waterShallow,
+      deep: palette.water,
+    };
+    for (const band of WATER_BANDS) {
+      layers.push(
+        new PolygonLayer<WaterPolygon>({
+          id: `ground-water-${band.tone}`,
+          data: streetscape.water,
+          extruded: false,
+          filled: true,
+          stroked: false,
+          pickable: false,
+          material: false,
+          getPolygon: (d) =>
+            d.rings.map((ring) =>
+              atZ(band.inset === 1 ? ring : insetRing(ring, band.inset), band.z),
+            ),
+          getFillColor: waterTone[band.tone],
+          updateTriggers: { getFillColor: [theme] },
+        }),
+      );
+    }
+  }
+
+  // --- Parks. Under the streets, because a path through Central Park is still
+  // a street and should draw over the lawn.
+  if (streetscape.parks.length > 0) {
+    const parkTone = [palette.park, palette.parkPlaza, palette.parkCourt];
     layers.push(
-      new PolygonLayer<WaterPolygon>({
-        id: 'ground-water',
-        data: streetscape.water,
+      new PolygonLayer<ParkPolygon>({
+        id: 'ground-parks',
+        data: streetscape.parks,
         extruded: false,
         filled: true,
         stroked: false,
         pickable: false,
         material: false,
-        getPolygon: (d) => d.rings.map((ring) => atZ(ring, GROUND_Z.water)),
-        getFillColor: palette.water,
+        getPolygon: (d) => d.rings.map((ring) => atZ(ring, GROUND_Z.park)),
+        getFillColor: (d) => parkTone[d.t] ?? palette.park,
         updateTriggers: { getFillColor: [theme] },
       }),
     );
@@ -213,6 +304,53 @@ export function buildGroundLayers(opts: GroundLayerOptions): Layer[] {
       updateTriggers: { getColor: [theme] },
     }),
   );
+
+  // --- Street trees. Real planting positions, with canopy size from the
+  // census' trunk diameter, so a block of mature London planes reads
+  // differently from a row of new saplings. Never pickable and never lit
+  // brightly: greenery is what stops a city model looking like a circuit
+  // board, and the moment it competes with a Goldenrod band it has failed.
+  if (zoom >= GROUND_LOD.trees && streetscape.trees.length > 0) {
+    for (const bucket of TREE_BUCKETS) {
+      const data = streetscape.trees.filter(
+        (t) => t.d <= bucket.maxDbh && t.d > previousMax(bucket),
+      );
+      if (data.length === 0) continue;
+
+      layers.push(
+        new ColumnLayer<StreetTree>({
+          id: `ground-tree-trunks-${bucket.key}`,
+          data,
+          pickable: false,
+          diskResolution: 5,
+          extruded: true,
+          radiusUnits: 'meters',
+          radius: Math.max(0.2, bucket.canopyM * 0.12),
+          getPosition: (d) => d.p,
+          getElevation: bucket.heightM * 0.55,
+          getFillColor: palette.trunk,
+          material: FOLIAGE_MATERIAL,
+          updateTriggers: { getFillColor: [theme] },
+        }),
+        new ColumnLayer<StreetTree>({
+          id: `ground-tree-canopies-${bucket.key}`,
+          data,
+          pickable: false,
+          // Few enough sides to read as foliage rather than as a machined
+          // cylinder, and cheap enough for a few thousand of them.
+          diskResolution: 7,
+          extruded: true,
+          radiusUnits: 'meters',
+          radius: bucket.canopyM,
+          getPosition: (d) => [d.p[0], d.p[1], bucket.heightM * 0.55],
+          getElevation: bucket.heightM * 0.45,
+          getFillColor: palette.canopy,
+          material: FOLIAGE_MATERIAL,
+          updateTriggers: { getFillColor: [theme] },
+        }),
+      );
+    }
+  }
 
   // Street names painted onto the asphalt — flat in the world, not billboards,
   // like thermoplastic road lettering. They scale with the ground and vanish

@@ -16,7 +16,14 @@ const SETTLE_MS = 400;
 const PAD = 0.35;
 const MAX_SPAN = 0.2;
 
-const EMPTY: StreetscapeResult = { roads: [], water: [], truncated: false, bbox: [0, 0, 0, 0] };
+const EMPTY: StreetscapeResult = {
+  roads: [],
+  water: [],
+  parks: [],
+  trees: [],
+  truncated: false,
+  bbox: [0, 0, 0, 0],
+};
 
 /**
  * Loads streets and water for the viewport, exactly as useCityContext loads

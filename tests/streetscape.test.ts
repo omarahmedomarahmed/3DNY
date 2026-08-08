@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   clampRoadWidth,
   layoutStreetNames,
+  parkTier,
   polylineMeters,
   polylineMidpoint,
   roadTier,
@@ -44,6 +45,32 @@ describe('clampRoadWidth', () => {
     expect(clampRoadWidth(4000)).toBe(120);
     expect(clampRoadWidth(3)).toBe(16);
     expect(clampRoadWidth(60)).toBe(60);
+  });
+});
+
+describe('parkTier', () => {
+  it('treats real parkland as greensward', () => {
+    expect(parkTier('Flagship Park')).toBe(0); // Central Park
+    expect(parkTier('Neighborhood Park')).toBe(0);
+    expect(parkTier('Community Park')).toBe(0);
+    expect(parkTier('Nature Area')).toBe(0);
+  });
+
+  it('treats triangles, plazas and institutions as hardscape', () => {
+    expect(parkTier('Triangle/Plaza')).toBe(1); // Herald Square
+    expect(parkTier('Buildings/Institutions')).toBe(1);
+  });
+
+  it('separates active recreation', () => {
+    expect(parkTier('Playground')).toBe(2);
+    expect(parkTier('Recreational Field/Courts')).toBe(2);
+  });
+
+  it('defaults an unknown category to greensward, never to concrete', () => {
+    // Drawing lawn where there is concrete is a far smaller error than
+    // drawing concrete over Central Park.
+    expect(parkTier('Something NYC Added Last Week')).toBe(0);
+    expect(parkTier('')).toBe(0);
   });
 });
 
