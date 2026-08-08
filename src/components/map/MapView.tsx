@@ -29,7 +29,7 @@ import { useStreetscape } from './useStreetscape';
 import type { ViewportBounds } from './ground';
 import { useTransit } from './useTransit';
 import { buildingHeightFt, buildingRing } from '@/lib/floor-bands';
-import { composeSnapshot, downloadSnapshot } from '@/lib/stack-snapshot';
+import { composeSnapshot, downloadSnapshot, SNAPSHOT_SIDE } from '@/lib/stack-snapshot';
 import type { Landlord } from '@/types';
 import { MODE_LABEL, metersBetween, walkMinutes, type TransitStop } from '@/lib/transit';
 import {
@@ -863,11 +863,22 @@ export default function MapView() {
     // A centred square. The map viewport is wide because the app is, but a
     // single framed building in a 16:9 frame is mostly empty ground.
     const side = Math.min(flat.width, flat.height);
+
+    // Delivered at the sheet's own square size, upscaled when the window is
+    // small rather than handing the composer fewer pixels than it draws into.
+    //
+    // The capture is only ever as detailed as the GPU rendered it — on a
+    // non-Retina laptop in a small window that is around 900px, which is
+    // where "very low quality" came from. Resampling here at least stops the
+    // composer scaling it a second time, and on a Retina display the source
+    // is already larger than the target so nothing is invented.
     const out = document.createElement('canvas');
-    out.width = side;
-    out.height = side;
+    out.width = SNAPSHOT_SIDE;
+    out.height = SNAPSHOT_SIDE;
     const ctx = out.getContext('2d');
     if (!ctx) return null;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(
       flat,
       Math.round((flat.width - side) / 2),
@@ -876,8 +887,8 @@ export default function MapView() {
       side,
       0,
       0,
-      side,
-      side,
+      SNAPSHOT_SIDE,
+      SNAPSHOT_SIDE,
     );
     return out;
   }, []);
