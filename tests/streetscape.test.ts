@@ -15,6 +15,9 @@ const LAT = 40.75;
 const M_PER_DEG_LAT = 111_320;
 const M_PER_DEG_LON = 111_320 * Math.cos((LAT * Math.PI) / 180);
 
+const north = (m: number) => m / M_PER_DEG_LAT;
+const east = (m: number) => m / M_PER_DEG_LON;
+
 function eastWest(meters: number, lat = LAT): [number, number][] {
   return [
     [-73.99, lat],
@@ -202,5 +205,62 @@ describe('layoutStreetNames', () => {
       seg('W 40 ST', 2, eastWest(300, LAT + 900 / M_PER_DEG_LAT)),
     ]);
     expect(labels).toHaveLength(2);
+  });
+});
+
+describe('street names follow the camera', () => {
+  /**
+   * The failure this fixes: zoomed in at a corner, the midpoint of the street
+   * you are standing on is two blocks away and off screen, so the street has
+   * no name until you pan along it to find one.
+   */
+  const long: RoadSegment[] = [
+    seg('W 42 ST', 2, [
+      [-73.99, LAT],
+      [-73.99 + east(2000), LAT],
+    ]),
+  ];
+
+  it('puts the name next to where the camera is looking', () => {
+    const nearWestEnd = layoutStreetNames(long, { focus: [-73.99 + east(120), LAT] });
+    expect(nearWestEnd).toHaveLength(1);
+    const from = polylineMeters([[-73.99, LAT], nearWestEnd[0].position]);
+    expect(from).toBeCloseTo(120, -1);
+  });
+
+  it('moves the name when the camera moves', () => {
+    const west = layoutStreetNames(long, { focus: [-73.99 + east(120), LAT] })[0];
+    const east2 = layoutStreetNames(long, { focus: [-73.99 + east(1800), LAT] })[0];
+    const apart = polylineMeters([west.position, east2.position]);
+    expect(apart).toBeGreaterThan(1500);
+  });
+
+  it('still lies along the street, not across it', () => {
+    const label = layoutStreetNames(long, { focus: [-73.99 + east(600), LAT + north(40)] })[0];
+    expect(label.angle).toBeCloseTo(0, 5);
+  });
+
+  it('falls back to the midpoint when there is no camera', () => {
+    const label = layoutStreetNames(long)[0];
+    const from = polylineMeters([[-73.99, LAT], label.position]);
+    expect(from).toBeCloseTo(1000, -2);
+  });
+
+  it('prefers the nearer street when two compete for the same spot', () => {
+    // Both avenues, so tier cannot decide it; the one under the camera wins.
+    const near = seg('NEAR AVE', 1, [
+      [-73.99, LAT],
+      [-73.99 + east(300), LAT],
+    ]);
+    const far = seg('FAR AVE', 1, [
+      [-73.99, LAT + north(30)],
+      [-73.99 + east(300), LAT + north(30)],
+    ]);
+    const labels = layoutStreetNames([far, near], {
+      focus: [-73.99 + east(150), LAT],
+      clearMeters: 200,
+    });
+    expect(labels).toHaveLength(1);
+    expect(labels[0].text).toBe('NEAR AVE');
   });
 });
