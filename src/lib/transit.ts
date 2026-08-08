@@ -301,3 +301,146 @@ export const MODE_RANK: Record<TransitMode, number> = {
   tram: 4,
   bus: 5,
 };
+
+// ---------------------------------------------------------------------------
+// Walk-label layout
+// ---------------------------------------------------------------------------
+
+/** A placed walk-time label: where to draw it, and which stop it belongs to. */
+export interface WalkLabel {
+  stop: NearbyStop;
+  position: [number, number];
+  /** How far along its own walk line the label sits, 0-1. */
+  t: number;
+}
+
+const T_MIN = 0.34;
+const T_MAX = 0.97;
+
+/**
+ * How far apart two walk-time pills must sit, as a fraction of the furthest
+ * stop's distance.
+ *
+ * Wider than tall because the pill is: "6 min · 4 5 6" is several times its own
+ * height, so a circular test passes pairs that still visibly collide side by
+ * side. Expressed as a fraction rather than in pixels because the layout runs
+ * where there is no viewport — and since the whole fan is framed together, the
+ * fraction tracks apparent size closely enough at any zoom.
+ */
+export const WALK_LABEL_SEP = { x: 0.55, y: 0.16 } as const;
+
+/**
+ * Whether two placed pills collide. Exported so the layout and its tests share
+ * one definition — a test with its own copy of this would keep passing after
+ * the real one changed.
+ */
+export function walkLabelsCollide(
+  a: [number, number],
+  b: [number, number],
+  maxMeters: number,
+): number {
+  const midLat = ((a[1] + b[1]) / 2) * (Math.PI / 180);
+  const dx = (b[0] - a[0]) * 111_320 * Math.cos(midLat);
+  const dy = (b[1] - a[1]) * 111_320;
+  const d = Math.hypot(dx / (maxMeters * WALK_LABEL_SEP.x), dy / (maxMeters * WALK_LABEL_SEP.y));
+  return d >= 1 ? 0 : 1 - d;
+}
+
+/**
+ * Places the walk-time pills so they do not overlap.
+ *
+ * Every walk line starts at the same building, so a fixed fraction puts every
+ * label on one small circle around it and they pile up — which is exactly what
+ * happened. Two properties make this solvable without measuring pixels:
+ *
+ *   - A label may slide along its own line but must never leave it, or it stops
+ *     being obviously attached to the stop it describes.
+ *   - Labels that collide are the ones at similar bearings. Separating them
+ *     radially is therefore always available, and always sufficient.
+ *
+ * So: seed each label at a radius chosen by bearing order, then relax. The
+ * relaxation only ever adjusts `t`, which keeps every label on its line.
+ *
+ * Separation is expressed as a fraction of the furthest stop's distance rather
+ * than in pixels, because this runs where there is no viewport — and since the
+ * whole fan is framed together, that fraction tracks apparent size closely
+ * enough at any zoom.
+ */
+export function layoutWalkLabels(
+  origin: [number, number],
+  stops: NearbyStop[],
+): WalkLabel[] {
+  if (stops.length === 0) return [];
+
+  const bearing = (s: NearbyStop) => Math.atan2(s.lat - origin[1], s.lon - origin[0]);
+
+  // Seed by bearing: neighbours around the fan start at alternating radii, so
+  // the relaxation below usually has little left to do.
+  const order = stops
+    .map((stop, index) => ({ stop, index, angle: bearing(stop) }))
+    .sort((a, b) => a.angle - b.angle);
+
+  const SEED_TIERS = [0.46, 0.68, 0.57, 0.79];
+  const t = new Array<number>(stops.length);
+  order.forEach((entry, i) => {
+    t[entry.index] = SEED_TIERS[i % SEED_TIERS.length];
+  });
+
+  const at = (i: number): [number, number] => [
+    origin[0] + (stops[i].lon - origin[0]) * t[i],
+    origin[1] + (stops[i].lat - origin[1]) * t[i],
+  ];
+
+  const maxMeters = Math.max(...stops.map((s) => s.meters), 1);
+
+  const overlap = (a: [number, number], b: [number, number]) =>
+    walkLabelsCollide(a, b, maxMeters);
+
+  // Deterministic and bounded: this runs on every frame the selection changes,
+  // and a label that jitters between layouts is worse than one that touches.
+  for (let pass = 0; pass < 40; pass++) {
+    // Tracks whether any pair is still overlapping, NOT whether anything
+    // moved. Two labels can both be pinned at opposite ends of their rays and
+    // still overlap; exiting on "nothing moved" declared that solved.
+    let colliding = false;
+    for (let i = 0; i < stops.length; i++) {
+      for (let j = i + 1; j < stops.length; j++) {
+        const collision = overlap(at(i), at(j));
+        if (collision <= 0) continue;
+        colliding = true;
+
+        // Push the outer one out and the inner one in, along their own rays.
+        const push = 0.06 * collision + 0.02;
+        const iOuter = t[i] * stops[i].meters >= t[j] * stops[j].meters;
+        const [outer, inner] = iOuter ? [i, j] : [j, i];
+
+        t[outer] = Math.min(T_MAX, t[outer] + push);
+        t[inner] = Math.max(T_MIN, t[inner] - push);
+      }
+    }
+    if (!colliding) break;
+  }
+
+  // Relaxation cannot always win: five pills in a narrow arc are wider than
+  // the arc, and no arrangement along the rays clears them all. Rather than
+  // ship overlapping text, the ones that still collide are dropped — the stop
+  // itself stays on the map, and clicking it gives the full detail.
+  //
+  // Priority decides who survives: mode first, then distance. A subway station
+  // keeps its label over three bus stops, because that is the one a tenant
+  // asks about.
+  const priority = stops
+    .map((stop, i) => ({ stop, i }))
+    .sort(
+      (a, b) =>
+        MODE_RANK[a.stop.mode] - MODE_RANK[b.stop.mode] || a.stop.meters - b.stop.meters,
+    );
+
+  const kept: WalkLabel[] = [];
+  for (const { stop, i } of priority) {
+    const position = at(i);
+    if (kept.some((k) => walkLabelsCollide(k.position, position, maxMeters) > 0)) continue;
+    kept.push({ stop, position, t: t[i] });
+  }
+  return kept;
+}
