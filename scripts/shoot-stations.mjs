@@ -31,9 +31,16 @@ await page.waitForSelector('.maplibregl-map canvas', { timeout: 30000 });
 await page.waitForSelector('text=100 Park Avenue', { timeout: 30000 });
 await sleep(6000);
 
+// Transit on: modelled stations, their name plates, and the walk lines from
+// the selected building routed along the real streets.
+await page.getByRole('button', { name: 'Show transit stops and walk times' }).click();
+await sleep(3000);
+
 // One Grand Central Place sits on top of the station complex.
 await page.getByRole('button', { name: /60 E 42nd Street/ }).first().click();
-await sleep(5000);
+await sleep(6000);
+await page.screenshot({ path: join(outdir, 'stations-transit.png') });
+console.log('shot stations-transit.png');
 
 // Straight down: entrance enclosures and their orientation to the pavement.
 await press('Lower the view angle', 9);
@@ -58,6 +65,14 @@ await press('Zoom in', 2);
 await sleep(4000);
 await page.screenshot({ path: join(outdir, 'stations-close.png') });
 console.log('shot stations-close.png');
+
+// Top-down with transit on: the clearest read on whether the walk routes lie
+// along real streets or cut across blocks.
+await press('Lower the view angle', 9);
+await press('Zoom out', 1);
+await sleep(4000);
+await page.screenshot({ path: join(outdir, 'stations-routes-topdown.png') });
+console.log('shot stations-routes-topdown.png');
 
 await browser.close();
 console.log('done');

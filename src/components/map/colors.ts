@@ -284,6 +284,10 @@ export interface ThemeColors {
   entranceElevator: RGBA;
   /** The globe lamp that has meant "this entrance is open" since the eighties. */
   entranceGlobe: RGBA;
+  /** The walls of a modelled station headhouse. */
+  stationWall: RGBA;
+  /** Its canopy slab, a shade lighter so the shelter reads as separate. */
+  stationRoof: RGBA;
   /** The pavement band flanking every roadbed. */
   sidewalk: RGBA;
   /** The kerb line between sidewalk and asphalt. */
@@ -335,6 +339,8 @@ const LIGHT_THEME: ThemeColors = {
   // Kept that way on purpose: a saturated green dot at every corner would be
   // a second thing competing for the eye with the availability bands.
   entranceGlobe: rgba('#4E7A55', 255),
+  stationWall: rgba('#7C879B', 255),
+  stationRoof: rgba('#9CA7BA', 255),
   sidewalk: rgba('#EDF1F7', 255),
   roadCasing: rgba('#BFC7D6', 255),
   roadFill: rgba('#FFFFFF', 255),
@@ -381,6 +387,8 @@ const DARK_THEME: ThemeColors = {
   // At night the globe is genuinely lit, so it is the one thing down here
   // allowed to glow — but green, and small, so it never reads as Goldenrod.
   entranceGlobe: rgba('#57A268', 255),
+  stationWall: rgba('#3E495F', 255),
+  stationRoof: rgba('#4C5972', 255),
   sidewalk: rgba('#151C2B', 255),
   roadCasing: rgba('#2C3750', 255),
   roadFill: rgba('#1D2637', 255),

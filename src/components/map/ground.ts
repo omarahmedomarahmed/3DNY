@@ -193,7 +193,7 @@ const WATER_BANDS: { z: number; inset: number; tone: 'edge' | 'shallow' | 'deep'
 const roadIndexCache = new WeakMap<RoadSegment[], ReturnType<typeof buildRoadIndex>>();
 const nameLayoutCache = new WeakMap<RoadSegment[], Map<string, StreetNameLabel[]>>();
 
-function cachedRoadIndex(roads: RoadSegment[]) {
+export function cachedRoadIndex(roads: RoadSegment[]) {
   let index = roadIndexCache.get(roads);
   if (!index) {
     index = buildRoadIndex(roads);
