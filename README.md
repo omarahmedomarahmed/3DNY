@@ -35,7 +35,7 @@ Full detail: **[PLAN.md](./PLAN.md)**
 | Plan | Complete — [PLAN.md](./PLAN.md) |
 | Build | Complete and deployable |
 | Production build | Passing |
-| Parser tests | 26 passing against both real sample sheets |
+| Tests | 39 passing — parser against both real sheets, plus transit and photoreal gating |
 | Coverage | Midtown + Midtown South |
 
 Setup instructions: **[SETUP.md](./SETUP.md)** — about 20 minutes, all browser clicks,
@@ -129,7 +129,7 @@ the app runs and demos without them.
 
 ## Not in this version
 
-Authentication · Salesforce integration (tenants are CSV or manual for now) · Placer.ai · landlord breakeven and operating-expense figures · transit walk times · submarkets beyond Midtown and Midtown South.
+Authentication · Salesforce integration (tenants are CSV or manual for now) · Placer.ai · landlord breakeven and operating-expense figures · submarkets beyond Midtown and Midtown South.
 
 ---
 
