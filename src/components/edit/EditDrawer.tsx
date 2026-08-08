@@ -75,16 +75,10 @@ const SPACE_FIELDS: FieldSpec[] = [
   { section: 'Lease', name: 'term_raw', label: 'Term (as written)', type: 'text', placeholder: '5 - 10 Years' },
   { section: 'Lease', name: 'occupancy_raw', label: 'Occupancy (as written)', type: 'text' },
 
-  { section: 'Leasing contact', name: 'leasing_company', label: 'Leasing company', type: 'text' },
-  { section: 'Leasing contact', name: 'agent_name', label: 'Agent', type: 'text' },
-  { section: 'Leasing contact', name: 'agent_email', label: 'Agent email', type: 'text', rule: 'email' },
-  {
-    section: 'Leasing contact',
-    name: 'agent_email_suspect',
-    label: 'Email looks truncated',
-    type: 'boolean',
-    hint: 'Clear this once the address has been verified against the source.',
-  },
+  { section: 'Listing broker', name: 'leasing_company', label: 'Listing broker', type: 'text' },
+  // Agent name, agent email and the truncated-email flag are intentionally
+  // absent: they are never displayed, so there is nothing to correct here.
+  // See the note in types/index.ts.
 
   { section: 'Status', name: 'is_active', label: 'Still available', type: 'boolean' },
   { section: 'Status', name: 'notes', label: 'Notes', type: 'textarea', wide: true },

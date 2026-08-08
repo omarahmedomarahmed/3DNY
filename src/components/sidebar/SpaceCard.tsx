@@ -1,7 +1,19 @@
 'use client';
 
 import { useApp } from '@/lib/store';
+import SourceInfo from '@/components/ui/SourceInfo';
+import { spaceOriginNote, spaceSource, type SpaceField } from '@/lib/provenance';
 import type { BuildingWithSpaces, Space } from '@/types';
+
+/** Space fields this card actually shows, so a stamp on one is worth flagging. */
+const CARD_FIELDS: SpaceField[] = [
+  'floor_label',
+  'sf',
+  'asking_rent_psf',
+  'available_from',
+  'term_expires',
+  'leasing_company',
+];
 
 // ---------------------------------------------------------------------------
 // Formatting — shared with the sidebar headers and radius results.
@@ -106,6 +118,7 @@ export default function SpaceCard({ building, space, distanceMiles }: SpaceCardP
   const inCompare = useApp((s) => s.compare.some((c) => c.spaceId === space.id));
 
   const selected = selectedSpaceId === space.id;
+  const corrected = CARD_FIELDS.filter((f) => space.field_sources?.[f]);
   const rent = formatRent(space);
   const available = formatDate(space.available_from);
   const expires = formatDate(space.term_expires);
@@ -208,14 +221,31 @@ export default function SpaceCard({ building, space, distanceMiles }: SpaceCardP
         </div>
       </button>
 
-      <footer className="flex justify-end px-4 pb-3">
+      {/* One marker per card, not one per value.
+          The whole card is a single row off a single sheet — address, rent,
+          size and dates all have the same answer — so six icons would be six
+          copies of one sentence in the densest list in the product. The one
+          exception is a field somebody has corrected since, which genuinely
+          differs from the rest of the card and so gets its own marker. */}
+      <footer className="flex items-center gap-2 px-4 pb-3">
+        <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-[0.12em] text-subtle">
+          Source
+          <SourceInfo label="this listing" note={spaceOriginNote(space)} />
+        </span>
+        {corrected.map((field) => (
+          <SourceInfo
+            key={field}
+            label={`this ${field.replace(/_/g, ' ')}`}
+            note={spaceSource(space, field)}
+          />
+        ))}
         <button
           type="button"
           onClick={() =>
             inCompare ? removeFromCompare(space.id) : addToCompare(space.id, building.id)
           }
           aria-pressed={inCompare}
-          className={`rounded border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+          className={`ml-auto rounded border px-2.5 py-1 text-[11px] font-medium transition-colors ${
             inCompare
               ? 'border-goldenrod bg-goldenrod text-midnight'
               : 'border-hairline-strong text-muted hover:border-midnight hover:text-ink'

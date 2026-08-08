@@ -1,7 +1,9 @@
 import { sql, normalizeAddress } from '@/lib/db';
+import { fieldSourceAssignment } from '@/lib/field-stamp';
 import type {
   Building,
   BuildingWithSpaces,
+  FieldSources,
   Landlord,
   MatchedRow,
   Space,
@@ -34,8 +36,42 @@ function toBuilding(r: any): Building {
     floor_height_override:
       r.floor_height_override === null ? null : Number(r.floor_height_override),
     notes: r.notes,
+    field_sources: toFieldSources(r.field_sources),
     updated_at: r.updated_at,
   };
+}
+
+/**
+ * jsonb comes back as an object from the driver but as a string from some
+ * pooled paths, and a row read before the column existed has neither. All
+ * three have to end up as a plain object, because the caller of this is a
+ * tooltip and a tooltip must not be able to throw.
+ */
+function toFieldSources(value: unknown): FieldSources {
+  if (!value) return {};
+  const raw =
+    typeof value === 'string'
+      ? (() => {
+          try {
+            return JSON.parse(value) as unknown;
+          } catch {
+            return null;
+          }
+        })()
+      : value;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out: FieldSources = {};
+  for (const [field, stamp] of Object.entries(raw as Record<string, unknown>)) {
+    if (!stamp || typeof stamp !== 'object') continue;
+    const { kind, at, ref } = stamp as Record<string, unknown>;
+    if (typeof kind !== 'string' || !kind) continue;
+    out[field] = {
+      kind,
+      at: typeof at === 'string' ? at : undefined,
+      ref: typeof ref === 'string' ? ref : undefined,
+    };
+  }
+  return out;
 }
 
 function toSpace(r: any): Space {
@@ -61,6 +97,9 @@ function toSpace(r: any): Space {
     agent_email_suspect: r.agent_email_suspect,
     date_added: r.date_added,
     source_import_id: r.source_import_id,
+    import_filename: r.import_filename ?? null,
+    import_uploaded_at: r.import_uploaded_at ?? null,
+    field_sources: toFieldSources(r.field_sources),
     notes: r.notes,
     is_active: r.is_active,
     updated_at: r.updated_at,
@@ -76,7 +115,7 @@ const BUILDING_COLUMNS = `
   CASE WHEN b.footprint IS NULL THEN NULL
        ELSE (ST_AsGeoJSON(b.footprint::geometry)::json -> 'coordinates' -> 0)
   END AS footprint,
-  b.match_confidence, b.floor_height_override, b.notes, b.updated_at
+  b.match_confidence, b.floor_height_override, b.notes, b.field_sources, b.updated_at
 `;
 
 /** Every building with at least one space, joined with its spaces. */
@@ -87,7 +126,13 @@ export async function getBuildingsWithSpaces(): Promise<BuildingWithSpaces[]> {
     db(`SELECT ${BUILDING_COLUMNS}
         FROM buildings b LEFT JOIN landlords l ON l.id = b.landlord_id
         ORDER BY b.address_display`),
-    db(`SELECT * FROM spaces WHERE is_active ORDER BY floor_number NULLS LAST`),
+    // The import is joined in rather than fetched separately, so every place
+    // that renders a space can also say which sheet it came from and when.
+    // Provenance that needs a second request is provenance that will be
+    // missing wherever someone forgot to make it.
+    db(`SELECT s.*, i.filename AS import_filename, i.uploaded_at AS import_uploaded_at
+        FROM spaces s LEFT JOIN imports i ON i.id = s.source_import_id
+        WHERE s.is_active ORDER BY s.floor_number NULLS LAST`),
     db(`SELECT * FROM tenants ORDER BY company_name`),
   ]);
 
@@ -450,7 +495,17 @@ export async function commitImport(
          agent_email          = EXCLUDED.agent_email,
          agent_email_suspect  = EXCLUDED.agent_email_suspect,
          source_import_id     = EXCLUDED.source_import_id,
-         is_active            = true
+         is_active            = true,
+         -- A newer sheet has just overwritten these columns, so any note that
+         -- one of them was corrected by hand is now describing a value that no
+         -- longer exists. Only the keys this statement actually writes are
+         -- dropped: a hand-typed SF or note the import leaves alone keeps its
+         -- stamp.
+         field_sources        = spaces.field_sources - ARRAY[
+           'asking_rent_psf','asking_rent_withheld','space_use','lease_type',
+           'occupancy_raw','available_from','term_raw','term_expires',
+           'leasing_company'
+         ]
        RETURNING (xmax = 0) AS was_inserted`,
       [
         buildingId,
@@ -529,25 +584,29 @@ async function patchRow(
   allowed: Set<string>,
   id: string,
   patch: Record<string, unknown>,
+  /** What is doing the writing. A CRM sync would pass its own kind. */
+  kind = 'manual',
 ) {
   const entries = Object.entries(patch).filter(([k]) => allowed.has(k));
   if (entries.length === 0) return null;
 
   const assignments = entries.map(([k], i) => `${k} = $${i + 2}`).join(', ');
-  const values = entries.map(([, v]) => v);
+  const values: unknown[] = [id, ...entries.map(([, v]) => v)];
+  const stamp = fieldSourceAssignment(table, Object.fromEntries(entries), values, kind);
+
   const db = sql();
   const rows = (await db(
-    `UPDATE ${table} SET ${assignments} WHERE id = $1 RETURNING *`,
-    [id, ...values],
+    `UPDATE ${table} AS t SET ${assignments}${stamp} WHERE t.id = $1 RETURNING *`,
+    values,
   )) as any[];
   return rows[0] ?? null;
 }
 
-export const updateSpace = (id: string, patch: Record<string, unknown>) =>
-  patchRow('spaces', SPACE_EDITABLE, id, patch);
+export const updateSpace = (id: string, patch: Record<string, unknown>, kind?: string) =>
+  patchRow('spaces', SPACE_EDITABLE, id, patch, kind);
 
-export const updateBuilding = (id: string, patch: Record<string, unknown>) =>
-  patchRow('buildings', BUILDING_EDITABLE, id, patch);
+export const updateBuilding = (id: string, patch: Record<string, unknown>, kind?: string) =>
+  patchRow('buildings', BUILDING_EDITABLE, id, patch, kind);
 
 export const updateTenant = (id: string, patch: Record<string, unknown>) =>
   patchRow('tenants', TENANT_EDITABLE, id, patch);

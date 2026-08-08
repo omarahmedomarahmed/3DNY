@@ -7,6 +7,8 @@ import { useApp } from '@/lib/store';
 import Badge from '@/components/ui/Badge';
 import { Num, formatCompactSf, formatRent } from '@/components/ui/Money';
 import Icon from '@/components/ui/Icon';
+import SourceInfo from '@/components/ui/SourceInfo';
+import { landlordSource, type SourceNote } from '@/lib/provenance';
 import EditDrawer, { type EditTarget } from '@/components/edit/EditDrawer';
 
 export async function fetchLandlords(): Promise<Landlord[]> {
@@ -86,10 +88,21 @@ function stripEmphasis(text: string): string {
   return text.replace(/\*\*(.+?)\*\*/g, '$1').replace(/`(.+?)`/g, '$1');
 }
 
-function Stat({ label, value }: { label: string; value: React.ReactNode }) {
+function Stat({
+  label,
+  value,
+  source,
+}: {
+  label: string;
+  value: React.ReactNode;
+  source?: SourceNote;
+}) {
   return (
     <div className="min-w-[140px] flex-1 border-l-2 border-goldenrod pl-3">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">{label}</p>
+      <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+        {label}
+        {source ? <SourceInfo label={label.toLowerCase()} note={source} /> : null}
+      </p>
       <p className="mt-0.5 text-xl font-semibold tabular leading-tight text-goldenrod-700">
         {value}
       </p>
@@ -274,10 +287,17 @@ export default function LandlordPanel({ building }: { building: Building }) {
     <div className="space-y-6 rounded-card border border-hairline bg-white p-6 shadow-card">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="text-xl font-semibold tracking-tight text-ink">{landlord.name}</h3>
+          <h3 className="flex items-center gap-1.5 text-xl font-semibold tracking-tight text-ink">
+            {landlord.name}
+            <SourceInfo label="this landlord name" note={landlordSource(landlord, 'name')} />
+          </h3>
           {ownerDiffers && (
-            <p className="mt-0.5 text-sm font-medium text-subtle">
+            <p className="mt-0.5 flex items-center gap-1 text-sm font-medium text-subtle">
               Owner of record: {landlord.owner_of_record}
+              <SourceInfo
+                label="this owner of record"
+                note={landlordSource(landlord, 'owner_of_record')}
+              />
             </p>
           )}
           {landlord.aliases.length > 0 && (
@@ -331,21 +351,46 @@ export default function LandlordPanel({ building }: { building: Building }) {
       )}
 
       <div className="flex flex-wrap gap-x-8 gap-y-4 border-y border-hairline py-4">
-        <Stat label="Portfolio SF" value={formatCompactSf(landlord.portfolio_sf) ?? '—'} />
-        <Stat label="Buildings owned" value={<Num value={landlord.buildings_owned} />} />
-        <Stat label="Avg asking rent" value={formatRent(landlord.avg_asking_rent) ?? '—'} />
+        <Stat
+          label="Portfolio SF"
+          value={formatCompactSf(landlord.portfolio_sf) ?? '—'}
+          source={landlordSource(landlord, 'portfolio_sf')}
+        />
+        <Stat
+          label="Buildings owned"
+          value={<Num value={landlord.buildings_owned} />}
+          source={landlordSource(landlord, 'buildings_owned')}
+        />
+        <Stat
+          label="Avg asking rent"
+          value={formatRent(landlord.avg_asking_rent) ?? '—'}
+          source={landlordSource(landlord, 'avg_asking_rent')}
+        />
       </div>
 
       {landlord.insights_md ? (
-        <Markdownish text={landlord.insights_md} />
+        <div>
+          <h4 className="mb-1.5 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+            Insights
+            <SourceInfo
+              label="these insights"
+              note={landlordSource(landlord, 'insights_md')}
+            />
+          </h4>
+          <Markdownish text={landlord.insights_md} />
+        </div>
       ) : (
         <p className="text-sm font-medium text-muted">No written insights yet.</p>
       )}
 
       {landlord.amenities.length > 0 && (
         <div>
-          <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+          <h4 className="mb-2 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
             Amenities
+            <SourceInfo
+              label="these amenities"
+              note={landlordSource(landlord, 'amenities')}
+            />
           </h4>
           <div className="flex flex-wrap gap-1.5">
             {landlord.amenities.map((a) => (
@@ -363,8 +408,12 @@ export default function LandlordPanel({ building }: { building: Building }) {
 
       {landlord.notable_tenants.length > 0 && (
         <div>
-          <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+          <h4 className="mb-2 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
             Notable tenants
+            <SourceInfo
+              label="these notable tenants"
+              note={landlordSource(landlord, 'notable_tenants')}
+            />
           </h4>
           <div className="flex flex-wrap gap-1.5">
             {landlord.notable_tenants.map((t) => (

@@ -4,9 +4,24 @@ import { useMemo } from 'react';
 import { useApp } from '@/lib/store';
 import { applyFilters } from '@/lib/filters';
 import { spacesWithin } from '@/lib/radius';
+import SourceInfo from '@/components/ui/SourceInfo';
+import type { SourceNote } from '@/lib/provenance';
 import SpaceCard, { formatSf } from './SpaceCard';
 
 const RADIUS_CHOICES = [0.1, 0.25, 0.5, 1] as const;
+
+/**
+ * The distance is straight-line, which is the honest caveat here: a quarter
+ * mile across a block is not a quarter mile of walking.
+ */
+const RADIUS_TOTALS: SourceNote = {
+  kind: 'derived',
+  label: 'Counted within a straight-line radius',
+  detail:
+    'Distance is measured as the crow flies from the origin building, not along the street grid, ' +
+    'and the count is of availabilities currently passing your filters.',
+  approximate: true,
+};
 
 /** Brokers say "quarter mile", not "0.25 mi". */
 export function radiusLabel(miles: number): string {
@@ -55,8 +70,11 @@ export default function RadiusResults() {
           <span className="tabular">{results.length}</span> available space
           {results.length === 1 ? '' : 's'} within {radiusLabel(radius.miles)} of {originLabel}
         </h2>
-        <p className="tabular text-xs text-muted">
-          {buildingCount} building{buildingCount === 1 ? '' : 's'} · {formatSf(totalSf)} available
+        <p className="flex items-center gap-1 text-xs text-muted">
+          <span className="tabular">
+            {buildingCount} building{buildingCount === 1 ? '' : 's'} · {formatSf(totalSf)} available
+          </span>
+          <SourceInfo label="this radius search" note={RADIUS_TOTALS} />
         </p>
 
         <div className="flex flex-wrap items-center gap-1.5">

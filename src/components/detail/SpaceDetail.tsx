@@ -14,16 +14,29 @@ import {
   annualRent,
 } from '@/components/ui/Money';
 import Icon from '@/components/ui/Icon';
+import SourceInfo from '@/components/ui/SourceInfo';
+import { spaceOriginNote, spaceSource, type SourceNote } from '@/lib/provenance';
 import PhotoGallery from './PhotoGallery';
 import EditDrawer, { type EditTarget } from '@/components/edit/EditDrawer';
 
 /** Quarter mile is how brokers describe "around the corner". */
 const COMPS_RADIUS_MILES = 0.25;
 
-function Spec({ label, children }: { label: string; children: React.ReactNode }) {
+function Spec({
+  label,
+  source,
+  children,
+}: {
+  label: string;
+  source?: SourceNote;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex flex-col gap-1 border-b border-hairline pb-3">
-      <dt className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">{label}</dt>
+      <dt className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+        {label}
+        {source ? <SourceInfo label={label.toLowerCase()} note={source} /> : null}
+      </dt>
       <dd className="text-sm font-medium tabular text-ink">{children}</dd>
     </div>
   );
@@ -108,7 +121,6 @@ export default function SpaceDetail({
     radius.miles === COMPS_RADIUS_MILES;
 
   const annual = annualRent(space.asking_rent_psf, space.sf, space.asking_rent_withheld);
-  const emailUsable = Boolean(space.agent_email) && !space.agent_email_suspect;
 
   const errors = validateDraft(draft);
   const invalid = Object.keys(errors).length > 0;
@@ -237,6 +249,10 @@ export default function SpaceDetail({
             <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
               <Icon name="dollar" size={13} />
               Asking rent
+              <SourceInfo
+                label="the asking rent"
+                note={spaceSource(space, 'asking_rent_psf')}
+              />
             </p>
             <p className="mt-1 text-3xl font-semibold tabular leading-none text-midnight">
               <Rent psf={space.asking_rent_psf} withheld={space.asking_rent_withheld} />
@@ -246,6 +262,7 @@ export default function SpaceDetail({
             <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
               <Icon name="ruler" size={13} />
               Square feet
+              <SourceInfo label="the square footage" note={spaceSource(space, 'sf')} />
             </p>
             <p className="mt-1 text-3xl font-semibold tabular leading-none text-midnight">
               <Sf value={space.sf} />
@@ -255,6 +272,10 @@ export default function SpaceDetail({
             <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
               <Icon name="calendar" size={13} />
               Available
+              <SourceInfo
+                label="the availability date"
+                note={spaceSource(space, 'available_from')}
+              />
             </p>
             <p className="mt-1 text-xl font-semibold tabular leading-none text-midnight">
               <DateText value={space.available_from} full fallback={space.occupancy_raw} />
@@ -366,26 +387,26 @@ export default function SpaceDetail({
       <div className="grid gap-8 px-5 py-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-8">
           <dl className="grid grid-cols-2 gap-x-8 gap-y-4 sm:grid-cols-3">
-            <Spec label="Annual rent">
+            <Spec label="Annual rent" source={spaceSource(space, 'annual_rent')}>
               {annual === null ? (
                 <span className="text-subtle">—</span>
               ) : (
                 <span className="tabular">{formatAnnualRent(annual)}</span>
               )}
             </Spec>
-            <Spec label="Space use">
+            <Spec label="Space use" source={spaceSource(space, 'space_use')}>
               {space.space_use ?? <span className="text-subtle">—</span>}
             </Spec>
-            <Spec label="Floor number">
+            <Spec label="Floor number" source={spaceSource(space, 'floor_number')}>
               {space.floor_number ?? <span className="text-subtle">—</span>}
             </Spec>
-            <Spec label="Sub-landlord">
+            <Spec label="Sub-landlord" source={spaceSource(space, 'sub_landlord')}>
               {space.sub_landlord ?? <span className="text-subtle">—</span>}
             </Spec>
-            <Spec label="Term expires">
+            <Spec label="Term expires" source={spaceSource(space, 'term_expires')}>
               <DateText value={space.term_expires} full fallback={space.term_raw} />
             </Spec>
-            <Spec label="Date added">
+            <Spec label="Date added" source={spaceSource(space, 'date_added')}>
               <DateText value={space.date_added} full />
             </Spec>
           </dl>
@@ -406,44 +427,27 @@ export default function SpaceDetail({
           <PhotoGallery spaceId={space.id} />
         </div>
 
+        {/* The listing broker, not the person.
+            Individual agent names and email addresses are deliberately never
+            displayed anywhere in this product — see the note in types/index.ts.
+            The firm marketing the space is genuine market context; the
+            competitor's named broker and their inbox are not ours to put on a
+            screen in front of a client. */}
         <aside className="space-y-3 self-start rounded-card border border-hairline bg-surface-alt p-4">
-          <h4 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-            Leasing contact
+          <h4 className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+            Listing broker
+            <SourceInfo
+              label="the listing broker"
+              note={spaceSource(space, 'leasing_company')}
+            />
           </h4>
-          <div className="space-y-0.5">
-            <p className="text-sm font-semibold text-ink">{space.agent_name ?? 'Unnamed agent'}</p>
-            {space.leasing_company && (
-              <p className="flex items-center gap-1.5 text-sm font-medium text-muted">
-                <Icon name="building" size={13} />
-                {space.leasing_company}
-              </p>
-            )}
-          </div>
-
-          {space.agent_email ? (
-            emailUsable ? (
-              <a
-                href={`mailto:${space.agent_email}?subject=${encodeURIComponent(
-                  `${building.address_display} — ${space.floor_label}`,
-                )}`}
-                className="flex items-start gap-1.5 break-all text-sm font-medium text-info hover:underline"
-              >
-                <Icon name="mail" size={14} className="mt-0.5" />
-                {space.agent_email}
-              </a>
-            ) : (
-              <div className="space-y-1.5">
-                <p className="break-all text-sm font-medium text-body">{space.agent_email}</p>
-                <p className="flex items-start gap-1.5 rounded border-l-2 border-warmorange bg-warn-surface px-2.5 py-2 text-[11px] font-medium leading-4 text-warmorange">
-                  <Icon name="warning" size={14} />
-                  <span>
-                    This email looks truncated in the source sheet — verify before sending.
-                  </span>
-                </p>
-              </div>
-            )
+          {space.leasing_company ? (
+            <p className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+              <Icon name="building" size={13} />
+              {space.leasing_company}
+            </p>
           ) : (
-            <p className="text-sm font-medium text-muted">No email on file.</p>
+            <p className="text-sm font-medium text-muted">Not stated on the sheet.</p>
           )}
         </aside>
       </div>
@@ -474,29 +478,23 @@ function QuickField({
 }
 
 /**
- * Which numbers came off a sheet and which a person typed. Without this line
- * there is no way to tell an imported asking rent from a corrected one.
+ * Where the record as a whole came from, under the fields themselves.
+ *
+ * The per-value markers answer "where did THIS number come from"; this answers
+ * "where did this record come from", which is the question someone asks before
+ * they trust any of it. The caller may know the sheet name from a route that
+ * did not join the import in, so an explicitly passed filename wins.
  */
 function Provenance({ space, filename }: { space: Space; filename: string | null }) {
-  const importedOn = formatFullDate(space.date_added ?? space.updated_at);
-  const source = filename ?? `import ${space.source_import_id?.slice(0, 8) ?? ''}`.trim();
-
-  if (!space.source_import_id) {
-    return (
-      <p className="flex items-center gap-1.5 text-sm font-medium text-subtle">
-        <Icon name="edit" size={13} />
-        Entered by hand
-        {formatFullDate(space.updated_at) ? ` · last edited ${formatFullDate(space.updated_at)}` : ''}
-      </p>
-    );
-  }
+  const note = spaceOriginNote(filename ? { ...space, import_filename: filename } : space);
+  const edited = formatFullDate(space.updated_at);
 
   return (
     <p className="flex items-center gap-1.5 text-sm font-medium text-subtle">
-      <Icon name="info" size={13} />
-      From {source}
-      {importedOn ? `, imported ${importedOn}` : ''}
-      {formatFullDate(space.updated_at) ? ` · last edited ${formatFullDate(space.updated_at)}` : ''}
+      <Icon name={note.kind === 'manual' ? 'edit' : 'info'} size={13} />
+      {note.label}
+      {edited && note.kind !== 'manual' ? ` · last edited ${edited}` : ''}
+      <SourceInfo label="this record" note={note} />
     </p>
   );
 }

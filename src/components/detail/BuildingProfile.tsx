@@ -7,6 +7,8 @@ import { useApp } from '@/lib/store';
 import { floorHeightFt } from '@/lib/floor-bands';
 import Badge, { ClassBadge } from '@/components/ui/Badge';
 import { Num, RentRange, Sf } from '@/components/ui/Money';
+import SourceInfo from '@/components/ui/SourceInfo';
+import { buildingSource, type SourceNote } from '@/lib/provenance';
 import EditDrawer, { type EditTarget } from '@/components/edit/EditDrawer';
 import SpaceTable from './SpaceTable';
 import SpaceDetail from './SpaceDetail';
@@ -16,12 +18,26 @@ import LandlordPanel from './LandlordPanel';
 /**
  * A metadata chip in the header row. Label above, value below — the value is
  * the thing a broker reads aloud, so it carries the weight.
+ *
+ * These six chips are the clearest case in the product for marking sources.
+ * They read as one uniform strip of facts about the building, and they are
+ * not: the class came off a leasing sheet, the year built off the city's tax
+ * record, and the asking rent is arithmetic over the spaces below.
  */
-function Chip({ label, children }: { label: string; children: React.ReactNode }) {
+function Chip({
+  label,
+  source,
+  children,
+}: {
+  label: string;
+  source?: SourceNote;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex flex-col gap-0.5 rounded border border-hairline bg-white px-3 py-2">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
+      <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
         {label}
+        {source ? <SourceInfo label={label.toLowerCase()} note={source} /> : null}
       </span>
       <span className="text-sm font-semibold tabular text-ink">{children}</span>
     </div>
@@ -165,21 +181,46 @@ export default function BuildingProfile({ buildingId }: { buildingId: string }) 
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-3xl font-semibold leading-tight tracking-tight text-ink">
+              <h1 className="flex items-center gap-1.5 text-3xl font-semibold leading-tight tracking-tight text-ink">
                 {building.address_display}
+                <SourceInfo
+                  label="this address"
+                  note={buildingSource(building, 'address_display')}
+                />
               </h1>
               <ClassBadge value={building.class} />
               {activeSpaces.length === 0 && <Badge variant="neutral">No availabilities</Badge>}
             </div>
-            <p className="mt-1.5 text-base text-body">
+            <p className="mt-1.5 flex items-center gap-1.5 text-base text-body">
               {building.building_name ?? 'Unnamed building'}
+              {building.building_name ? (
+                <SourceInfo
+                  label="the building name"
+                  note={buildingSource(building, 'building_name')}
+                />
+              ) : null}
             </p>
-            <p className="mt-2 text-xs text-muted">
+            <p className="mt-2 flex items-center gap-1 text-xs text-muted">
               Landlord:{' '}
               <a href="#landlord" className="font-medium text-brightblue hover:underline">
                 {building.landlord_name ?? 'Not recorded — add insights'}
               </a>
+              {building.landlord_name ? (
+                <SourceInfo
+                  label="the landlord name"
+                  note={buildingSource(building, 'landlord_name')}
+                />
+              ) : null}
             </p>
+            {building.bin ? (
+              <p className="mt-1.5 flex items-center gap-1 text-xs text-subtle">
+                <span className="tabular">BIN {building.bin}</span>
+                <SourceInfo
+                  label="this building identification number"
+                  note={buildingSource(building, 'bin')}
+                />
+              </p>
+            ) : null}
           </div>
           <button
             type="button"
@@ -197,12 +238,18 @@ export default function BuildingProfile({ buildingId }: { buildingId: string }) 
         </div>
 
         <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-          <Chip label="Class">{building.class ? `Class ${building.class}` : '—'}</Chip>
-          <Chip label="Submarket">{building.submarket_cluster ?? building.submarket ?? '—'}</Chip>
-          <Chip label="Year built">
-            <Num value={building.year_built} />
+          <Chip label="Class" source={buildingSource(building, 'class')}>
+            {building.class ? `Class ${building.class}` : '—'}
           </Chip>
-          <Chip label="Floors">
+          <Chip label="Submarket" source={buildingSource(building, 'submarket_cluster')}>
+            {building.submarket_cluster ?? building.submarket ?? '—'}
+          </Chip>
+          <Chip label="Year built" source={buildingSource(building, 'year_built')}>
+            {/* Not <Num>: a year is not a quantity, and thousands-separating
+                it renders 1908 as "1,908" on a screen a broker reads aloud. */}
+            {building.year_built ?? <span className="text-subtle">—</span>}
+          </Chip>
+          <Chip label="Floors" source={buildingSource(building, 'num_floors')}>
             <Num value={building.num_floors} />
             {derived && building.num_floors ? (
               <span
@@ -213,10 +260,10 @@ export default function BuildingProfile({ buildingId }: { buildingId: string }) 
               </span>
             ) : null}
           </Chip>
-          <Chip label="Total available">
+          <Chip label="Total available" source={buildingSource(building, 'availability_summary')}>
             <Sf value={totalSf || null} />
           </Chip>
-          <Chip label="Asking rent">
+          <Chip label="Asking rent" source={buildingSource(building, 'availability_summary')}>
             <RentRange min={minRent} max={maxRent} />
           </Chip>
         </div>

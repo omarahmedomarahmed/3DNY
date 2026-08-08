@@ -21,12 +21,19 @@ import {
   type TransitStop,
   type WalkLabel,
 } from '@/lib/transit';
-import { MULLIONS_DARK, MULLIONS_LIGHT } from './mullions';
+import {
+  FACADE_CONTEXT_DARK,
+  FACADE_CONTEXT_LIGHT,
+  FACADE_DARK,
+  FACADE_LIGHT,
+} from './facade';
 import { ATMOSPHERE, DEFAULT_TIME, hazeFor, type AtmospherePreset } from './atmosphere';
-import { buildGroundLayers, GROUND_TOP_Z, type ViewportBounds } from './ground';
+import { buildGroundLayers, cachedRoadIndex, GROUND_TOP_Z, type ViewportBounds } from './ground';
 import { buildRoofLayers, CONTEXT_ROOF_LIMIT, CONTEXT_ROOF_ZOOM } from './roofs';
 import type { StreetscapeResult } from '@/lib/streetscape';
 import { seededUnit } from '@/lib/roofscape';
+import { routeOnStreets, walkGraphFor } from '@/lib/walk-network';
+import { buildStationLayers } from './stations';
 import type { Building } from '@/types';
 import {
   DIMMED_COLOR,
@@ -222,24 +229,53 @@ function labelText(b: BuildingWithSpaces): string {
  * layer rebuild would also defeat the roofscape cache downstream — which is
  * keyed on object identity. Both caches have to hold for either to help.
  */
-const contextRoofCache = new WeakMap<ContextBuilding[], Building[]>();
+const contextRoofCache = new WeakMap<ContextBuilding[], Map<string, Building[]>>();
 
 function contextRoofSources(
   cityContext: ContextBuilding[] | undefined,
   buildings: BuildingWithSpaces[],
   zoom: number,
+  view: ViewportBounds | null,
 ): Building[] {
   if (!cityContext || cityContext.length === 0 || zoom < CONTEXT_ROOF_ZOOM) return [];
 
-  const cached = contextRoofCache.get(cityContext);
+  // Keyed on the payload AND the view, because which buildings are on screen
+  // decides which ones are worth a roof.
+  const viewKey = view
+    ? `${view.west.toFixed(3)},${view.south.toFixed(3)},${view.east.toFixed(3)},${view.north.toFixed(3)}`
+    : 'all';
+  let byView = contextRoofCache.get(cityContext);
+  if (!byView) {
+    byView = new Map();
+    contextRoofCache.set(cityContext, byView);
+  }
+  const cached = byView.get(viewKey);
   if (cached) return cached;
+
+  /** A generous margin, since the map is pitched and rotated. */
+  const inView = (c: ContextBuilding): boolean => {
+    if (!view) return true;
+    const padX = (view.east - view.west) * 0.6;
+    const padY = (view.north - view.south) * 0.6;
+    for (const [lon, lat] of c.r) {
+      if (
+        lon >= view.west - padX &&
+        lon <= view.east + padX &&
+        lat >= view.south - padY &&
+        lat <= view.north + padY
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
 
   const ownBins = new Set(
     buildings.map((b) => b.bin).filter((bin): bin is string => Boolean(bin)),
   );
 
   const sources = cityContext
-    .filter((c) => (!c.b || !ownBins.has(c.b)) && c.h >= 80 && c.r.length >= 4)
+    .filter((c) => (!c.b || !ownBins.has(c.b)) && c.h >= 80 && c.r.length >= 4 && inView(c))
     .sort((a, b) => b.h - a.h)
     .slice(0, CONTEXT_ROOF_LIMIT)
     .map((c, i) => {
@@ -261,7 +297,11 @@ function contextRoofSources(
       } as unknown as Building;
     });
 
-  contextRoofCache.set(cityContext, sources);
+  byView.set(viewKey, sources);
+  // The camera moves; without a bound this grows for the life of the page.
+  if (byView.size > 24) {
+    for (const k of [...byView.keys()].slice(0, 12)) byView.delete(k);
+  }
   return sources;
 }
 
@@ -344,7 +384,12 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         new PolygonLayer<ContextBuilding>({
           id: 'city-context',
           data: scenery,
-          extensions: [sceneryHaze],
+          // The grey city used to be blank massing: correct silhouettes with
+          // nothing on them, which is what made it read as packaging foam
+          // rather than as buildings. It now carries the same curtain wall at
+          // a lower strength — built, but never detailed enough to compete
+          // with the towers that carry data.
+          extensions: [theme === 'dark' ? FACADE_CONTEXT_DARK : FACADE_CONTEXT_LIGHT, sceneryHaze],
           extruded: true,
           filled: true,
           stroked: false,
@@ -485,7 +530,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       // footprint is a flat plate with no side faces to draw them on. The
       // haze rides alongside at reduced strength — a building carrying data
       // sits in the air but is never softened out of the conversation.
-      extensions: photoreal ? [] : [theme === 'dark' ? MULLIONS_DARK : MULLIONS_LIGHT, subjectHaze],
+      extensions: photoreal ? [] : [theme === 'dark' ? FACADE_DARK : FACADE_LIGHT, subjectHaze],
       // Tuned for a real sun rather than a flat ambient wash: enough diffuse
       // that the lit and shaded walls of a tower differ plainly as the camera
       // orbits, and a small specular term so the highlight travels across the
@@ -522,7 +567,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       ...buildRoofLayers({
         buildings: active,
         colorFor: (b) => buildingFill(b as BuildingWithSpaces),
-        context: showContext ? contextRoofSources(cityContext, buildings, zoom) : [],
+        context: showContext ? contextRoofSources(cityContext, buildings, zoom, view) : [],
         theme,
         zoom,
         haze: sceneryHaze,
@@ -684,81 +729,22 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
   // then the minutes — each above the last so a number is never covered by the
   // dot it belongs to.
   if (transitStops && transitStops.length > 0) {
-    // A flat dot reads as a pin dropped on a picture. These are little
-    // stanchions standing on the street: a post you can see behind a tower,
-    // with a coloured head whose height and width say which mode it is —
-    // subway tallest and widest because it is the one that decides a lease,
-    // bus lowest so four hundred of them stay texture rather than clutter.
-    // ColumnLayer takes one radius for the whole layer, so the markers are
-    // grouped by size rather than sized per feature. Two groups is all this
-    // needs: the modes that decide a lease, and bus.
-    const GROUPS: { key: string; modes: TransitMode[]; radius: number; height: number }[] = [
-      {
-        key: 'major',
-        modes: ['subway', 'rail', 'path', 'ferry', 'tram'],
-        radius: 15,
-        height: 36,
-      },
-      { key: 'bus', modes: ['bus'], radius: 7, height: 15 },
-    ];
-
-    for (const group of GROUPS) {
-      const data = transitStops.filter((s) => group.modes.includes(s.mode));
-      if (data.length === 0) continue;
-
-      // The mast: a thin dark post, so the head reads as standing off the
-      // street rather than painted on it, and stays visible past a tower.
-      layers.push(
-        new ColumnLayer<TransitStop>({
-          id: `transit-masts-${group.key}`,
-          data,
-          pickable: false,
-          diskResolution: 8,
-          extruded: true,
-          radiusUnits: 'meters',
-          radius: Math.max(2, group.radius * 0.22),
-          getPosition: (d) => [d.lon, d.lat],
-          getElevation: group.height,
-          getFillColor: palette.transitMast,
-          material: {
-            ambient: 0.7,
-            diffuse: 0.5,
-            shininess: 1,
-            specularColor: [255, 255, 255],
-          },
-          updateTriggers: { getFillColor: [theme] },
-        }),
-      );
-
-      // The head, on top of the mast, carrying the mode colour. Lit like the
-      // towers so the whole scene reads as one model rather than as icons
-      // pasted over it.
-      layers.push(
-        new ColumnLayer<TransitStop>({
-          id: `transit-stops-${group.key}`,
-          data,
-          pickable: true,
-          diskResolution: group.key === 'bus' ? 6 : 14,
-          extruded: true,
-          radiusUnits: 'meters',
-          radius: group.radius,
-          getPosition: (d) => [d.lon, d.lat, group.height],
-          getElevation: Math.max(3, group.height * 0.22),
-          getFillColor: (d) => TRANSIT_COLORS[d.mode] ?? TRANSIT_COLORS.bus,
-          material: {
-            ambient: 0.58,
-            diffuse: 0.62,
-            shininess: 8,
-            specularColor: [60, 68, 86],
-          },
-          onClick: (info: PickingInfo<TransitStop>) => {
-            if (!info.object || !onTransitClick) return false;
-            onTransitClick(info.object, { x: info.x, y: info.y });
-            return true;
-          },
-        }),
-      );
-    }
+    // Stations are modelled structures rather than map pins — see
+    // stations.ts. Bus stops keep a small post: there are hundreds in a
+    // viewport and they are texture, not subject.
+    layers.push(
+      ...buildStationLayers({
+        stops: transitStops,
+        theme,
+        zoom,
+        roadIndex:
+          streetscape && streetscape.roads.length > 0
+            ? cachedRoadIndex(streetscape.roads)
+            : null,
+        haze: sceneryHaze,
+        onClick: onTransitClick,
+      }),
+    );
 
     if (transitOrigin) {
       const nearby = nearestStops(transitOrigin, transitStops, {
@@ -772,9 +758,20 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       // zoom. The label positions still use the straight line to the stop,
       // because a pill belongs on the sightline to its destination, not
       // halfway round a corner.
+      // Route along the streets that are actually drawn, when we have them.
+      // The synthetic L-route falls back in only when the ground plane has
+      // not loaded — it assumes one bearing for the whole island, which is
+      // visibly wrong against real centrelines and simply false below Houston.
+      const graph =
+        streetscape && streetscape.roads.length > 0 ? walkGraphFor(streetscape.roads) : null;
+
       const dashes: { path: [number, number][] }[] = [];
       for (const stop of nearby) {
-        for (const piece of dashPath(walkRoute(transitOrigin, [stop.lon, stop.lat]))) {
+        const destination: [number, number] = [stop.lon, stop.lat];
+        const route =
+          (graph ? routeOnStreets(graph, transitOrigin, destination) : null) ??
+          walkRoute(transitOrigin, destination);
+        for (const piece of dashPath(route)) {
           dashes.push({ path: piece });
         }
       }

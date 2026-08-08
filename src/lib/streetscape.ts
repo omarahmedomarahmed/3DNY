@@ -623,6 +623,29 @@ export function nearestRoadAngle(
   return best;
 }
 
+/**
+ * The point on a segment closest to `p`, and how far away it is.
+ *
+ * Clamped to the segment's ends, so a point beyond either end resolves to that
+ * end rather than to somewhere on the infinite line.
+ */
+export function closestPointOnSegment(
+  p: [number, number],
+  a: [number, number],
+  b: [number, number],
+): { point: [number, number]; meters: number } {
+  const mLon = 111_320 * Math.cos((p[1] * Math.PI) / 180);
+  const px = (p[0] - a[0]) * mLon;
+  const py = (p[1] - a[1]) * 111_320;
+  const bx = (b[0] - a[0]) * mLon;
+  const by = (b[1] - a[1]) * 111_320;
+
+  const lenSq = bx * bx + by * by;
+  const t = lenSq === 0 ? 0 : Math.max(0, Math.min(1, (px * bx + py * by) / lenSq));
+  const point: [number, number] = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  return { point, meters: Math.hypot(px - bx * t, py - by * t) };
+}
+
 /** Perpendicular distance from a point to a segment, in metres. */
 export function pointToSegmentMeters(
   p: [number, number],
@@ -649,18 +672,55 @@ export function pointToSegmentMeters(
 const NAME_PRIORITY: Record<RoadTier, number> = { 1: 0, 2: 1, 3: 2, 0: 3 };
 
 /**
+ * Where on a road its name should sit, given where the camera is looking: the
+ * closest point on the road to the focus, with the bearing of the piece it
+ * lands on so the text still lies along the street.
+ */
+export function anchorFor(
+  road: RoadSegment,
+  focus: [number, number],
+): { point: [number, number]; angle: number; meters: number } {
+  let best: { point: [number, number]; angle: number; meters: number } | null = null;
+  for (let i = 1; i < road.p.length; i++) {
+    const a = road.p[i - 1];
+    const b = road.p[i];
+    const { point, meters } = closestPointOnSegment(focus, a, b);
+    if (!best || meters < best.meters) {
+      best = { point, angle: segmentAngle(a, b), meters };
+    }
+  }
+  return best ?? { ...polylineMidpoint(road.p), meters: Infinity };
+}
+
+/**
  * Chooses where street names are painted.
  *
- * One name per street roughly every `repeatMeters`, longest segments first so
- * the name lands on the block face with room for it, and a global spacing so
- * two different names never collide at an intersection. Grid-hash rather than
- * pairwise, so it stays O(n) for a few thousand segments.
+ * The rule that matters most here is that a name is placed near where the
+ * camera is looking, not at the street's own midpoint.
+ *
+ * Placing each name at the midpoint of a segment is fine on a map you read
+ * from above. It fails exactly where this map is used: zoomed in on one
+ * building, standing at a corner, the midpoint of the street you are standing
+ * on is two blocks away and off screen — so the street has no name until you
+ * pan along it to go and find one. Anchoring to the view instead means every
+ * street in frame is named in frame.
+ *
+ * Longer streets still repeat every `repeatMeters` so a wide view is not left
+ * with one label per avenue, and a global spacing stops two different names
+ * colliding at an intersection. Grid-hashed rather than pairwise, so it stays
+ * linear over a few thousand segments.
  */
 export function layoutStreetNames(
   roads: RoadSegment[],
-  opts: { repeatMeters?: number; clearMeters?: number; minSegmentMeters?: number } = {},
+  opts: {
+    repeatMeters?: number;
+    clearMeters?: number;
+    minSegmentMeters?: number;
+    /** Where the camera is looking. Names are pulled toward it. */
+    focus?: [number, number] | null;
+  } = {},
 ): StreetNameLabel[] {
-  const { repeatMeters = 420, clearMeters = 80, minSegmentMeters = 55 } = opts;
+  const { repeatMeters = 420, clearMeters = 80, minSegmentMeters = 55, focus = null } = opts;
 
   const named = roads
     .filter((r) => r.n && r.p.length >= 2)
@@ -671,7 +731,16 @@ export function layoutStreetNames(
     // whole label budget on "FDR DRIVE SB ENTRANCE E 34 ST" while Park Avenue
     // goes unnamed. A broker names avenues and cross-streets; a ramp is the
     // least useful word this map can paint on itself.
-    .sort((a, b) => NAME_PRIORITY[a.road.t] - NAME_PRIORITY[b.road.t] || b.meters - a.meters);
+    //
+    // Within a tier, the segment nearest the camera goes first when there is a
+    // focus, so the label a street does get is the one in front of you.
+    .sort(
+      (a, b) =>
+        NAME_PRIORITY[a.road.t] - NAME_PRIORITY[b.road.t] ||
+        (focus
+          ? anchorFor(a.road, focus).meters - anchorFor(b.road, focus).meters
+          : b.meters - a.meters),
+    );
 
   const labels: StreetNameLabel[] = [];
   // ~1.1km cells; every check looks at the surrounding 3×3 block.
@@ -690,7 +759,9 @@ export function layoutStreetNames(
 
   for (const { road } of named) {
     const name = road.n as string;
-    const { point, angle } = polylineMidpoint(road.p);
+    // On the part of this street nearest the camera when there is one, at its
+    // own midpoint otherwise.
+    const { point, angle } = focus ? anchorFor(road, focus) : polylineMidpoint(road.p);
 
     if (tooClose(point, placedByName.get(name), repeatMeters)) continue;
 

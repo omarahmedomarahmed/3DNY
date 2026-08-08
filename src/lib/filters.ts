@@ -84,7 +84,6 @@ export function spaceMatches(
       building.submarket_cluster,
       space.floor_label,
       space.leasing_company,
-      space.agent_name,
       space.space_use,
       space.notes,
     ]

@@ -29,9 +29,11 @@ import { useStreetscape } from './useStreetscape';
 import type { ViewportBounds } from './ground';
 import { useTransit } from './useTransit';
 import { buildingHeightFt, buildingRing } from '@/lib/floor-bands';
-import { composeSnapshot, downloadSnapshot } from '@/lib/stack-snapshot';
+import { composeSnapshot, downloadSnapshot, SNAPSHOT_SIDE } from '@/lib/stack-snapshot';
 import type { Landlord } from '@/types';
 import { MODE_LABEL, metersBetween, walkMinutes, type TransitStop } from '@/lib/transit';
+import { transitSource } from '@/lib/provenance';
+import SourceInfo from '@/components/ui/SourceInfo';
 import {
   buildPhotorealLayer,
   loadPhotorealModule,
@@ -863,11 +865,22 @@ export default function MapView() {
     // A centred square. The map viewport is wide because the app is, but a
     // single framed building in a 16:9 frame is mostly empty ground.
     const side = Math.min(flat.width, flat.height);
+
+    // Delivered at the sheet's own square size, upscaled when the window is
+    // small rather than handing the composer fewer pixels than it draws into.
+    //
+    // The capture is only ever as detailed as the GPU rendered it — on a
+    // non-Retina laptop in a small window that is around 900px, which is
+    // where "very low quality" came from. Resampling here at least stops the
+    // composer scaling it a second time, and on a Retina display the source
+    // is already larger than the target so nothing is invented.
     const out = document.createElement('canvas');
-    out.width = side;
-    out.height = side;
+    out.width = SNAPSHOT_SIDE;
+    out.height = SNAPSHOT_SIDE;
     const ctx = out.getContext('2d');
     if (!ctx) return null;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(
       flat,
       Math.round((flat.width - side) / 2),
@@ -876,8 +889,8 @@ export default function MapView() {
       side,
       0,
       0,
-      side,
-      side,
+      SNAPSHOT_SIDE,
+      SNAPSHOT_SIDE,
     );
     return out;
   }, []);
@@ -1172,6 +1185,21 @@ export default function MapView() {
     setTransitPopup(null);
   }, [selectedBuildingId, showTransit]);
 
+  // --- One panel at a time.
+  //
+  // Compare is the only thing on this map big enough to be worth reading on
+  // its own, and a space card or a station card floating over it is noise
+  // rather than context. Opening the comparison dismisses whatever else was
+  // open; while it stays open, nothing else takes its place — the click that
+  // would open a space card closes the comparison first, which is the same
+  // click-elsewhere rule every popup here already follows.
+  const compareOpen = useApp((s) => s.compareOpen);
+  useEffect(() => {
+    if (!compareOpen) return;
+    setPopup(null);
+    setTransitPopup(null);
+  }, [compareOpen]);
+
   const closePopup = useCallback(() => setPopup(null), []);
 
   return (
@@ -1229,7 +1257,10 @@ export default function MapView() {
       )}
 
       <div className="pointer-events-none absolute inset-0 z-10">
-        <MapLegend />
+        {/* The expanded comparison covers the bottom-left corner entirely, so
+            a legend underneath it is not hidden, it is half-hidden — which
+            looks like a bug. It comes back when the panel is minimised. */}
+        {!compareOpen && <MapLegend />}
         <RadiusControl />
         <MapControls
           map={map}
@@ -1310,11 +1341,15 @@ export default function MapView() {
           <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
             {MODE_LABEL[transitPopup.stop.mode]}
           </p>
-          <p className="mt-1 text-sm font-semibold leading-snug text-ink">
+          <p className="mt-1 flex items-center gap-1 text-sm font-semibold leading-snug text-ink">
             {transitPopup.stop.name}
+            <SourceInfo
+              label="this station"
+              note={transitSource('name', transitPopup.stop.mode)}
+            />
           </p>
           {transitPopup.stop.routes.length > 0 && (
-            <p className="mt-1.5 flex flex-wrap gap-1">
+            <p className="mt-1.5 flex flex-wrap items-center gap-1">
               {transitPopup.stop.routes.map((r) => (
                 <span
                   key={r}
@@ -1323,20 +1358,24 @@ export default function MapView() {
                   {r}
                 </span>
               ))}
+              <SourceInfo
+                label="these routes"
+                note={transitSource('routes', transitPopup.stop.mode)}
+              />
             </p>
           )}
           {transitOrigin && (
-            <p className="mt-2 text-xs font-medium text-body">
-              About{' '}
-              {walkMinutes(
-                metersBetween(transitOrigin, [transitPopup.stop.lon, transitPopup.stop.lat]),
-              )}{' '}
-              min walk from the selected building
+            <p className="mt-2 flex items-center gap-1 text-xs font-medium text-body">
+              <span>
+                About{' '}
+                {walkMinutes(
+                  metersBetween(transitOrigin, [transitPopup.stop.lon, transitPopup.stop.lat]),
+                )}{' '}
+                min walk from the selected building
+              </span>
+              <SourceInfo label="this walk time" note={transitSource('walk_time')} />
             </p>
           )}
-          <p className="mt-2 text-[10px] leading-snug text-subtle">
-            Stop locations from OpenStreetMap. Walk time is estimated, not routed.
-          </p>
         </div>
       )}
 

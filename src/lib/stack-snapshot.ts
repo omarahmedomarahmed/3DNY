@@ -1,4 +1,5 @@
 import type { BuildingWithSpaces, Landlord, Space } from '@/types';
+import { recordSourceSummary } from '@/lib/provenance';
 
 /**
  * Stack Snapshot — one building, captured as a shareable image.
@@ -20,6 +21,95 @@ import type { BuildingWithSpaces, Landlord, Space } from '@/types';
 const PANEL_W = 560;
 const PAD = 40;
 const GUTTER = 36;
+
+/**
+ * The sheet is composed at this multiple of its layout size.
+ *
+ * A snapshot goes into an email or a deck, where it is viewed at least at
+ * 100% and often zoomed. Composed 1:1 it was a screenshot: the type came out
+ * as soft as the map behind it, which is most of why the result looked cheap.
+ * Drawing at 2x makes every rule, label and number resolution-independent,
+ * and gives the map picture room to be presented rather than downscaled.
+ */
+export const DRAW_SCALE = 2;
+
+/**
+ * Shortest the sheet gets, in layout units.
+ *
+ * Low enough that a building with a single availability produces a compact
+ * sheet rather than one with a void under the landlord block, and high enough
+ * that the picture beside the panel is still a picture — the two are the same
+ * height, so this is also the smallest the building is ever shown at.
+ */
+const MIN_SHEET_H = 520;
+
+
+/** Height of one floor row in the stack. */
+const ROW = 62;
+
+/**
+ * Most floors a sheet will list.
+ *
+ * Beyond this the picture beside it would be enormous — the two are the same
+ * height — and the point of a snapshot is a glance, not a rent roll. The
+ * remainder is called out as "+ N more in the app".
+ */
+const MAX_STACK_ROWS = 16;
+
+/**
+ * Room the footer needs beneath the panel's last line, over and above its own
+ * text. Just the rule and the breathing space either side of it — the lines
+ * themselves are counted after wrapping, so this no longer has to guess how
+ * many there will be.
+ */
+const FOOTER_H = 30;
+/** Leading and face for the footer's provenance lines. */
+const FOOT_LINE = 14;
+const FOOT_FONT = '400 11px ui-sans-serif, system-ui, Helvetica, Arial, sans-serif';
+
+/** The sheet never grows past this, however much a building has in it. */
+const MAX_SHEET_H = 1600;
+
+/**
+ * Pixel size the map capture is delivered at.
+ *
+ * The sheet's height varies with its content, so this is sized for the common
+ * case rather than derived from it: enough that a typical sheet draws the
+ * picture at roughly 1:1, and cropped-to-cover either way. It is deliberately
+ * larger than a small window renders, because handing the composer fewer
+ * pixels than it draws into is exactly what made snapshots look soft.
+ */
+export const SNAPSHOT_SIDE = 1800;
+
+/**
+ * Draws an image filling a rectangle, cropping the overflow rather than
+ * distorting — the `object-fit: cover` rule, which canvas has no shorthand
+ * for. Centred, so a framed building stays framed.
+ */
+function drawCover(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLCanvasElement,
+  dx: number,
+  dy: number,
+  dw: number,
+  dh: number,
+): void {
+  if (image.width === 0 || image.height === 0 || dw <= 0 || dh <= 0) return;
+  const scale = Math.max(dw / image.width, dh / image.height);
+  const sw = dw / scale;
+  const sh = dh / scale;
+  ctx.drawImage(
+    image,
+    (image.width - sw) / 2,
+    (image.height - sh) / 2,
+    sw,
+    sh,
+    dx,
+    dy,
+    dw,
+    dh,
+  );
+}
 
 const INK = '#001E5A';
 const BODY = '#31405C';
@@ -96,37 +186,22 @@ function wrap(
  * Draws the sheet. Returns the finished canvas so the caller decides whether to
  * download it, open it, or attach it somewhere.
  */
-export function composeSnapshot(input: SnapshotInput): HTMLCanvasElement {
-  const { building, landlord, mapImage, capturedAt, photoreal } = input;
-  const spaces = sortForStack(building.spaces);
-
-  const mapW = mapImage.width;
-  const mapH = mapImage.height;
-  const width = mapW + PANEL_W;
-  const height = Math.max(mapH, 900);
-
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return canvas;
-
-  ctx.fillStyle = WHITE;
-  ctx.fillRect(0, 0, width, height);
-
-  // --- The building itself, top-aligned and never stretched.
-  ctx.drawImage(mapImage, 0, 0, mapW, mapH);
-  if (mapH < height) {
-    ctx.fillStyle = '#F4F6FA';
-    ctx.fillRect(0, mapH, mapW, height - mapH);
-  }
-
-  // A rule between picture and panel, so the two never bleed together.
-  ctx.fillStyle = HAIRLINE;
-  ctx.fillRect(mapW, 0, 1, height);
-
-  const x = mapW + PAD;
-  const w = PANEL_W - PAD * 2;
+/**
+ * Draws the right-hand panel and returns the y it finished at.
+ *
+ * Split out so it can be run twice: once against a throwaway context purely to
+ * measure how tall this building's content actually is, then again for real
+ * into a sheet cut to that height. Nothing here reads the sheet's dimensions,
+ * which is what makes the measuring pass honest.
+ */
+function drawPanel(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  w: number,
+  input: SnapshotInput,
+  spaces: Space[],
+): number {
+  const { building, landlord } = input;
   let y = PAD + 8;
 
   // --- Header.
@@ -181,9 +256,11 @@ export function composeSnapshot(input: SnapshotInput): HTMLCanvasElement {
   y += 26;
 
   // --- The stack, top floor first.
-  const ROW = 62;
-  const maxRows = Math.max(0, Math.floor((height - y - 250) / ROW));
-  const shown = spaces.slice(0, maxRows);
+  //
+  // The row count no longer depends on how tall the sheet is — the sheet is
+  // cut to fit the rows. It is capped only so a building with forty
+  // availabilities does not produce a sheet nobody can read at a glance.
+  const shown = spaces.slice(0, MAX_STACK_ROWS);
 
   for (const space of shown) {
     // A Goldenrod tick tying each row back to its band on the tower.
@@ -294,13 +371,32 @@ export function composeSnapshot(input: SnapshotInput): HTMLCanvasElement {
     y += 18;
   }
 
-  // --- Footer. Provenance, because a snapshot outlives the data in it.
-  const footY = height - PAD;
-  ctx.fillStyle = HAIRLINE;
-  ctx.fillRect(x, footY - 34, w, 1);
 
-  ctx.fillStyle = MUTED;
-  ctx.font = '400 11px ui-sans-serif, system-ui, Helvetica, Arial, sans-serif';
+  return y;
+}
+
+export function composeSnapshot(input: SnapshotInput): HTMLCanvasElement {
+  const { building, landlord, mapImage, capturedAt, photoreal } = input;
+  const spaces = sortForStack(building.spaces);
+
+  // The sheet is cut to fit what is actually in it.
+  //
+  // Two separate causes of dead space, both fixed here. The layout used to
+  // take its dimensions from whatever the capture happened to be, so any
+  // capture shorter than the panel needed left a grey band under the picture.
+  // And the height was then fixed regardless of content, so a building with
+  // one availability produced a sheet two-thirds empty below the landlord
+  // block — which is the white space you actually notice.
+  //
+  // So the panel is drawn once against a throwaway context purely to find out
+  // how tall it is, and the sheet is cut to that. A one-space building gets a
+  // compact sheet; a twelve-space building gets a taller one; neither has a
+  // void in it.
+  // A snapshot leaves the building. It gets forwarded, printed and looked at
+  // months later, by people who were not in the room and cannot click an "i"
+  // to ask where a number came from. So it carries in text what the app
+  // carries as an affordance — the same facts, in the only form that survives
+  // being emailed.
   const stamp = capturedAt.toLocaleString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -308,12 +404,89 @@ export function composeSnapshot(input: SnapshotInput): HTMLCanvasElement {
     hour: 'numeric',
     minute: '2-digit',
   });
-  ctx.fillText(`Cresa Spaces · ${stamp}`, x, footY - 14);
+  const summary = recordSourceSummary(building, spaces);
 
-  const source = photoreal
-    ? 'Imagery © Google · floors from your availability sheet'
-    : 'Massing from NYC Open Data · floors from your availability sheet';
-  ctx.fillText(source, x, footY);
+  // Google's imagery attribution is required whenever the tiles are on. The
+  // massing credit is not repeated when the summary above already named the
+  // city datasets — a footer that says the same thing twice reads as boilerplate
+  // and stops being read at all.
+  const credit = photoreal
+    ? 'Imagery © Google.'
+    : summary.some((l) => l.startsWith('Building:'))
+      ? null
+      : 'Massing from NYC Open Data.';
+
+  const measure = document.createElement('canvas').getContext('2d');
+  const panelBottom = measure ? drawPanel(measure, 0, PANEL_W - PAD * 2, input, spaces) : MIN_SHEET_H;
+
+  // Wrapped BEFORE the sheet is sized, not while it is being drawn. A line
+  // that wraps to two is two lines of height, and reserving room for one is
+  // how the credit ended up printed on top of the provenance.
+  const footerW = PANEL_W - PAD * 2;
+  const footerLines = [`Cresa Spaces · ${stamp}`];
+  const body = credit ? [...summary, credit] : summary;
+  if (measure) {
+    measure.font = FOOT_FONT;
+    for (const line of body) footerLines.push(...wrap(measure, line, footerW, 2));
+  } else {
+    footerLines.push(...body);
+  }
+
+  const footerH = FOOTER_H + footerLines.length * FOOT_LINE;
+  const height = Math.min(
+    MAX_SHEET_H,
+    Math.max(MIN_SHEET_H, Math.ceil(panelBottom + footerH + PAD)),
+  );
+  const mapW = height;
+  const width = mapW + PANEL_W;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(width * DRAW_SCALE);
+  canvas.height = Math.round(height * DRAW_SCALE);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return canvas;
+  ctx.scale(DRAW_SCALE, DRAW_SCALE);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+
+  ctx.fillStyle = WHITE;
+  ctx.fillRect(0, 0, width, height);
+
+  // --- The building itself, filling its whole half of the sheet.
+  //
+  // This used to be drawn 1:1 from the top with the remainder filled by a flat
+  // grey block — the band of dead space that appeared under every capture
+  // whose square came out shorter than the panel needed. Scaling to COVER and
+  // centring the overflow means the picture always reaches the bottom edge,
+  // and the building is never stretched to get there.
+  drawCover(ctx, mapImage, 0, 0, mapW, height);
+
+  // A rule between picture and panel, so the two never bleed together.
+  ctx.fillStyle = HAIRLINE;
+  ctx.fillRect(mapW, 0, 1, height);
+
+  const x = mapW + PAD;
+  const w = PANEL_W - PAD * 2;
+  const y = drawPanel(ctx, x, w, input, spaces);
+  void y;
+
+  // --- Footer. Provenance, because a snapshot outlives the data in it.
+  //
+  // The lines were wrapped and counted above, so the block is laid out from
+  // the bottom of the sheet upward and the rule always lands above the first
+  // of them however many there turn out to be.
+  const footY = height - PAD;
+  const ruleY = footY - footerLines.length * FOOT_LINE - 8;
+  ctx.fillStyle = HAIRLINE;
+  ctx.fillRect(x, ruleY, w, 1);
+
+  ctx.fillStyle = MUTED;
+  ctx.font = FOOT_FONT;
+  let sy = ruleY + 8 + FOOT_LINE;
+  for (const line of footerLines) {
+    ctx.fillText(line, x, sy);
+    sy += FOOT_LINE;
+  }
 
   return canvas;
 }

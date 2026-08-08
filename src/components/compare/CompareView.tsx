@@ -22,8 +22,30 @@ import {
   formatRent,
   formatSf,
 } from '@/components/ui/Money';
+import SourceInfo from '@/components/ui/SourceInfo';
+import {
+  buildingSource,
+  landlordSource,
+  spaceOriginNote,
+  spaceSource,
+  transitSource,
+  type SourceNote,
+} from '@/lib/provenance';
 import { Markdownish, fetchLandlords } from '@/components/detail/LandlordPanel';
 import { fetchSpaceImages } from '@/components/detail/PhotoGallery';
+
+/**
+ * The landlord rows when there is no landlord record at all. Every value on
+ * that panel is hand-authored, so the honest answer to "where did this come
+ * from" is the same whether the record exists or not.
+ */
+const HAND_KEPT: SourceNote = {
+  kind: 'manual',
+  label: 'Entered here',
+  detail:
+    'Hand-authored by this team. Nothing on the landlord rows is a public record — it is what we ' +
+    'know, kept up to date by whoever last edited it.',
+};
 
 interface Column {
   building: BuildingWithSpaces;
@@ -46,6 +68,13 @@ interface Row {
   /** Stable string used to detect values identical across every column. */
   compareKey: (c: Column) => string;
   render: (c: Column) => React.ReactNode;
+  /**
+   * Where this cell's value came from, per column. Compare is the surface
+   * where provenance matters most — the whole point is putting figures from
+   * different sheets, of different ages, beside each other as if they were
+   * commensurable.
+   */
+  source?: (c: Column) => SourceNote;
   /** Insights and chip lists need room to breathe. */
   tall?: boolean;
 }
@@ -97,6 +126,7 @@ const SPACE_ROWS: Row[] = [
     key: 'building',
     label: 'Building',
     compareKey: (c) => c.building.id,
+    source: (c) => buildingSource(c.building, 'address_display'),
     render: (c) => (
       <div>
         <p className="font-semibold text-ink">{c.building.address_display}</p>
@@ -110,6 +140,7 @@ const SPACE_ROWS: Row[] = [
     key: 'floor',
     label: 'Floor',
     compareKey: (c) => c.space.floor_label,
+    source: (c) => spaceSource(c.space, 'floor_label'),
     render: (c) => (
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="font-medium text-ink">{c.space.floor_label || '—'}</span>
@@ -125,6 +156,7 @@ const SPACE_ROWS: Row[] = [
     best: 'max',
     numeric: (c) => c.space.sf,
     compareKey: (c) => String(c.space.sf ?? ''),
+    source: (c) => spaceSource(c.space, 'sf'),
     render: (c) => <span className="tabular">{formatSf(c.space.sf) ?? DASH}</span>,
   },
   {
@@ -134,6 +166,7 @@ const SPACE_ROWS: Row[] = [
     numeric: (c) => (c.space.asking_rent_withheld ? null : c.space.asking_rent_psf),
     compareKey: (c) =>
       c.space.asking_rent_withheld ? 'withheld' : String(c.space.asking_rent_psf ?? ''),
+    source: (c) => spaceSource(c.space, 'asking_rent_psf'),
     render: (c) =>
       c.space.asking_rent_withheld ? (
         <span className="italic text-muted">Withheld</span>
@@ -148,6 +181,7 @@ const SPACE_ROWS: Row[] = [
     numeric: (c) => annualRent(c.space.asking_rent_psf, c.space.sf, c.space.asking_rent_withheld),
     compareKey: (c) =>
       String(annualRent(c.space.asking_rent_psf, c.space.sf, c.space.asking_rent_withheld) ?? ''),
+    source: (c) => spaceSource(c.space, 'annual_rent'),
     render: (c) => {
       const value = annualRent(c.space.asking_rent_psf, c.space.sf, c.space.asking_rent_withheld);
       return value === null ? DASH : <span className="tabular">{formatAnnualRent(value)}</span>;
@@ -157,12 +191,14 @@ const SPACE_ROWS: Row[] = [
     key: 'use',
     label: 'Space Use',
     compareKey: (c) => c.space.space_use ?? '',
+    source: (c) => spaceSource(c.space, 'space_use'),
     render: (c) => text(c.space.space_use),
   },
   {
     key: 'lease_type',
     label: 'Direct / Sublet',
     compareKey: (c) => c.space.lease_type ?? '',
+    source: (c) => spaceSource(c.space, 'lease_type'),
     render: (c) => <LeaseTypeBadge value={c.space.lease_type} />,
   },
   {
@@ -171,6 +207,7 @@ const SPACE_ROWS: Row[] = [
     best: 'min',
     numeric: (c) => dateValue(c.space.available_from),
     compareKey: (c) => c.space.available_from ?? c.space.occupancy_raw ?? '',
+    source: (c) => spaceSource(c.space, 'available_from'),
     render: (c) =>
       formatMonthYear(c.space.available_from) ??
       (c.space.occupancy_raw ? <span className="text-muted">{c.space.occupancy_raw}</span> : DASH),
@@ -179,6 +216,7 @@ const SPACE_ROWS: Row[] = [
     key: 'expires',
     label: 'Expires',
     compareKey: (c) => c.space.term_expires ?? c.space.term_raw ?? '',
+    source: (c) => spaceSource(c.space, 'term_expires'),
     render: (c) =>
       formatMonthYear(c.space.term_expires) ??
       (c.space.term_raw ? <span className="text-muted">{c.space.term_raw}</span> : DASH),
@@ -187,46 +225,25 @@ const SPACE_ROWS: Row[] = [
     key: 'class',
     label: 'Class',
     compareKey: (c) => c.building.class ?? '',
+    source: (c) => buildingSource(c.building, 'class'),
     render: (c) => <ClassBadge value={c.building.class} />,
   },
   {
     key: 'submarket',
     label: 'Submarket',
     compareKey: (c) => c.building.submarket_cluster ?? c.building.submarket ?? '',
+    source: (c) => buildingSource(c.building, 'submarket_cluster'),
     render: (c) => text(c.building.submarket_cluster ?? c.building.submarket),
   },
   {
     key: 'leasing_company',
-    label: 'Leasing Company',
+    label: 'Listing broker',
     compareKey: (c) => c.space.leasing_company ?? '',
+    source: (c) => spaceSource(c.space, 'leasing_company'),
     render: (c) => text(c.space.leasing_company),
   },
-  {
-    key: 'agent',
-    label: 'Agent',
-    compareKey: (c) => c.space.agent_name ?? '',
-    render: (c) => (
-      <div>
-        <p>{c.space.agent_name ?? DASH}</p>
-        {c.space.agent_email &&
-          (c.space.agent_email_suspect ? (
-            <p
-              className="break-all text-[13px] font-medium text-warmorange"
-              title="Email looks truncated in the source sheet"
-            >
-              {c.space.agent_email} (verify)
-            </p>
-          ) : (
-            <a
-              href={`mailto:${c.space.agent_email}`}
-              className="block break-all text-[13px] font-medium text-info hover:underline"
-            >
-              {c.space.agent_email}
-            </a>
-          ))}
-      </div>
-    ),
-  },
+  // There is deliberately no Agent row. Named agents and their email
+  // addresses are never displayed anywhere in this product.
 ];
 
 /** The best stop of a given mode, or null when there is none within range. */
@@ -271,6 +288,7 @@ const TRANSIT_ROWS: Row[] = [
     best: 'min',
     numeric: (c) => bestOfMode(c, 'subway')?.minutes ?? null,
     compareKey: (c) => bestOfMode(c, 'subway')?.name ?? '',
+    source: () => transitSource('walk_time'),
     render: (c) => stopCell(bestOfMode(c, 'subway'), c.transit === null),
     tall: true,
   },
@@ -285,6 +303,7 @@ const TRANSIT_ROWS: Row[] = [
       return best.length ? Math.min(...best.map((s) => s.minutes)) : null;
     },
     compareKey: (c) => (bestOfMode(c, 'rail') ?? bestOfMode(c, 'path'))?.name ?? '',
+    source: () => transitSource('walk_time'),
     render: (c) => {
       const rail = bestOfMode(c, 'rail');
       const path = bestOfMode(c, 'path');
@@ -300,6 +319,7 @@ const TRANSIT_ROWS: Row[] = [
     best: 'min',
     numeric: (c) => bestOfMode(c, 'bus')?.minutes ?? null,
     compareKey: (c) => bestOfMode(c, 'bus')?.name ?? '',
+    source: () => transitSource('walk_time'),
     render: (c) => stopCell(bestOfMode(c, 'bus'), c.transit === null),
     tall: true,
   },
@@ -309,6 +329,7 @@ const TRANSIT_ROWS: Row[] = [
     best: 'min',
     numeric: (c) => bestOfMode(c, 'ferry')?.minutes ?? null,
     compareKey: (c) => bestOfMode(c, 'ferry')?.name ?? '',
+    source: () => transitSource('walk_time'),
     render: (c) => stopCell(bestOfMode(c, 'ferry'), c.transit === null),
     tall: true,
   },
@@ -318,6 +339,7 @@ const TRANSIT_ROWS: Row[] = [
     best: 'max',
     numeric: (c) => c.transit?.filter((s) => s.minutes <= 10).length ?? null,
     compareKey: (c) => String(c.transit?.filter((s) => s.minutes <= 10).length ?? ''),
+    source: () => transitSource('walk_time'),
     render: (c) => {
       if (c.transit === null) return <span className="text-subtle">Checking…</span>;
       const within = c.transit.filter((s) => s.minutes <= 10);
@@ -343,6 +365,8 @@ const LANDLORD_ROWS: Row[] = [
     key: 'landlord',
     label: 'Landlord',
     compareKey: (c) => c.landlord?.name ?? c.building.landlord_name ?? '',
+    source: (c) =>
+      c.landlord ? landlordSource(c.landlord, 'name') : buildingSource(c.building, 'landlord_name'),
     render: (c) => text(c.landlord?.name ?? c.building.landlord_name),
   },
   {
@@ -351,6 +375,7 @@ const LANDLORD_ROWS: Row[] = [
     best: 'max',
     numeric: (c) => c.landlord?.portfolio_sf ?? null,
     compareKey: (c) => String(c.landlord?.portfolio_sf ?? ''),
+    source: (c) => (c.landlord ? landlordSource(c.landlord, 'portfolio_sf') : HAND_KEPT),
     render: (c) => (
       <span className="tabular">{formatCompactSf(c.landlord?.portfolio_sf) ?? DASH}</span>
     ),
@@ -361,6 +386,7 @@ const LANDLORD_ROWS: Row[] = [
     best: 'max',
     numeric: (c) => c.landlord?.buildings_owned ?? null,
     compareKey: (c) => String(c.landlord?.buildings_owned ?? ''),
+    source: (c) => (c.landlord ? landlordSource(c.landlord, 'buildings_owned') : HAND_KEPT),
     render: (c) => (
       <span className="tabular">{formatNumber(c.landlord?.buildings_owned) ?? DASH}</span>
     ),
@@ -370,6 +396,7 @@ const LANDLORD_ROWS: Row[] = [
     label: 'Amenities',
     tall: true,
     compareKey: (c) => (c.landlord?.amenities ?? []).join('|'),
+    source: (c) => (c.landlord ? landlordSource(c.landlord, 'amenities') : HAND_KEPT),
     render: (c) => chips(c.landlord?.amenities ?? []),
   },
   {
@@ -377,6 +404,7 @@ const LANDLORD_ROWS: Row[] = [
     label: 'Notable tenants',
     tall: true,
     compareKey: (c) => (c.landlord?.notable_tenants ?? []).join('|'),
+    source: (c) => (c.landlord ? landlordSource(c.landlord, 'notable_tenants') : HAND_KEPT),
     render: (c) => chips(c.landlord?.notable_tenants ?? []),
   },
   {
@@ -384,6 +412,7 @@ const LANDLORD_ROWS: Row[] = [
     label: 'Insights',
     tall: true,
     compareKey: (c) => c.landlord?.insights_md ?? '',
+    source: (c) => (c.landlord ? landlordSource(c.landlord, 'insights_md') : HAND_KEPT),
     render: (c) =>
       c.landlord?.insights_md ? (
         <Markdownish
@@ -614,13 +643,41 @@ export default function CompareView({
         {rows.map((row) => {
           const best = bestIndices(columns, row);
           const identical = allIdentical(columns, row);
+          // A marker only appears where it says something the surface does not
+          // already say, and this table says it twice over.
+          //
+          // Each COLUMN already carries its sheet in its header. So most cells
+          // — the rent, the size, the dates, all off that one sheet — would be
+          // repeating their own column, eight identical icons deep. Those stay
+          // silent.
+          //
+          // What is left is genuinely worth marking: a row whose answer is the
+          // same for every column and is NOT the column's sheet (annual rent
+          // is arithmetic; the class came off the sheet's own column, not the
+          // listing) goes on the row label, once. And a cell that disagrees
+          // with its own column — a rent retyped last week against one that
+          // came off the sheet — gets its own, which is precisely the thing a
+          // side-by-side comparison exists to surface.
+          const notes = row.source ? columns.map(row.source) : null;
+          const same = (a: SourceNote, b: SourceNote) =>
+            a.label === b.label && a.detail === b.detail;
+          const columnOrigins = columns.map((c) => spaceOriginNote(c.space));
+          const redundant = notes !== null && notes.every((n, i) => same(n, columnOrigins[i]));
+          const sharedNote =
+            notes && !redundant && notes.every((n) => same(n, notes[0])) ? notes[0] : null;
+          const cellNotes = notes && !redundant && !sharedNote ? notes : null;
           return (
             <tr key={row.key} className="border-b border-hairline last:border-b-0">
               <th
                 scope="row"
                 className="sticky left-0 z-10 w-[180px] min-w-[180px] border-r border-hairline bg-surface-alt px-4 py-3 text-left align-top text-[11px] font-semibold uppercase tracking-[0.12em] text-muted"
               >
-                {row.label}
+                <span className="flex items-center gap-1">
+                  {row.label}
+                  {sharedNote ? (
+                    <SourceInfo label={row.label.toLowerCase()} note={sharedNote} />
+                  ) : null}
+                </span>
               </th>
               {columns.map((c, i) => (
                 <td
@@ -634,7 +691,17 @@ export default function CompareView({
                       'border-l-[3px] border-l-goldenrod bg-goldenrod-50 font-semibold text-ink',
                   )}
                 >
-                  {row.render(c)}
+                  {cellNotes && !same(cellNotes[i], columnOrigins[i]) ? (
+                    <span className="flex items-start gap-1">
+                      <span className="min-w-0">{row.render(c)}</span>
+                      <SourceInfo
+                        label={`${row.label.toLowerCase()} for ${c.building.address_display}`}
+                        note={cellNotes[i]}
+                      />
+                    </span>
+                  ) : (
+                    row.render(c)
+                  )}
                 </td>
               ))}
             </tr>
@@ -657,9 +724,11 @@ export default function CompareView({
       className={clsx(
         'flex flex-col overflow-hidden rounded-card bg-white',
         isPanel
-          ? // Sized so the map stays the larger thing on screen. A panel that
-            // fills the frame is the page takeover this was moved away from.
-            'pointer-events-auto max-h-[48vh] w-full max-w-4xl border border-hairline-strong shadow-float'
+          ? // Fills the region its container gives it, which is most of the
+            // map minus the right-hand control rail. A comparison is a table,
+            // and a table squeezed into a strip cannot be read across a
+            // conference table.
+            'pointer-events-auto h-full w-full border border-hairline-strong shadow-float'
           : 'max-h-[92vh] w-full max-w-[min(96rem,95vw)] shadow-float',
       )}
     >
@@ -681,14 +750,10 @@ export default function CompareView({
                 ({columns.length} {columns.length === 1 ? 'space' : 'spaces'})
               </span>
             </h2>
-            {/* The panel is short, and every line of explanation is a row of
-                the table the broker cannot see. */}
-            {!isPanel && (
-              <p className="mt-1 text-[13px] font-medium leading-5 text-muted">
-                Best value in each numeric row is highlighted; values identical across every column
-                are dimmed.
-              </p>
-            )}
+            <p className="mt-1 text-[13px] font-medium leading-5 text-muted">
+              Best value in each numeric row is highlighted; values identical across every column
+              are dimmed.
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {copied && <span className="text-sm font-medium text-ok">{copied}</span>}
@@ -707,14 +772,41 @@ export default function CompareView({
             >
               Clear all
             </button>
+            {/* On the map this MINIMISES — the comparison keeps every space
+                in it and comes back with the chip. Calling it "close" made a
+                non-destructive action read as a destructive one, which is
+                exactly the confusion this feature is built to avoid. The
+                modal, which has a scrim and no chip to return from, still
+                closes. */}
             <button
               type="button"
               onClick={close}
-              aria-label="Close comparison"
-              title="Close comparison"
-              className="rounded-full border border-hairline-strong bg-white p-2 text-muted transition-colors hover:border-midnight hover:text-ink"
+              aria-label={isPanel ? 'Minimise comparison' : 'Close comparison'}
+              title={
+                isPanel
+                  ? 'Minimise — the spaces stay in the comparison'
+                  : 'Close comparison'
+              }
+              className="flex items-center gap-1.5 rounded-full border border-hairline-strong bg-white py-2 pl-3 pr-3 text-sm font-medium text-muted transition-colors hover:border-midnight hover:text-ink"
             >
-              <CloseIcon />
+              {isPanel ? (
+                <>
+                  <svg
+                    viewBox="0 0 16 16"
+                    className="h-3.5 w-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M3 12h10" />
+                  </svg>
+                  Minimise
+                </>
+              ) : (
+                <CloseIcon />
+              )}
             </button>
           </div>
         </header>
@@ -747,8 +839,16 @@ export default function CompareView({
                           >
                             {c.building.address_display}
                           </p>
-                          <p className="truncate text-[13px] font-medium text-muted">
+                          <p className="flex items-center gap-1 truncate text-[13px] font-medium text-muted">
                             {c.space.floor_label}
+                            {/* The column's own origin, once. Every figure
+                                below it came off this sheet unless a cell
+                                says otherwise, which is why the cells below
+                                stay unmarked until one disagrees. */}
+                            <SourceInfo
+                              label={`this column — ${c.building.address_display}`}
+                              note={spaceOriginNote(c.space)}
+                            />
                           </p>
                         </div>
                         <button

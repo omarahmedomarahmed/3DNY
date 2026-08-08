@@ -193,7 +193,7 @@ const WATER_BANDS: { z: number; inset: number; tone: 'edge' | 'shallow' | 'deep'
 const roadIndexCache = new WeakMap<RoadSegment[], ReturnType<typeof buildRoadIndex>>();
 const nameLayoutCache = new WeakMap<RoadSegment[], Map<string, StreetNameLabel[]>>();
 
-function cachedRoadIndex(roads: RoadSegment[]) {
+export function cachedRoadIndex(roads: RoadSegment[]) {
   let index = roadIndexCache.get(roads);
   if (!index) {
     index = buildRoadIndex(roads);
@@ -202,21 +202,38 @@ function cachedRoadIndex(roads: RoadSegment[]) {
   return index;
 }
 
-/** `tier` distinguishes the two level-of-detail cuts of the same road set. */
+/**
+ * Street names, cached per road set, per level-of-detail cut, and per focus.
+ *
+ * Names are anchored to where the camera is looking, so the layout genuinely
+ * depends on the camera and cannot be computed once. The focus is quantised to
+ * roughly a block before it becomes part of the key: fine enough that the
+ * labels follow the view, coarse enough that nudging the map does not
+ * re-solve a few thousand segments.
+ */
 function cachedStreetNames(
   allRoads: RoadSegment[],
   nameRoads: RoadSegment[],
   tier: string,
+  focus: [number, number] | null,
 ): StreetNameLabel[] {
-  let byTier = nameLayoutCache.get(allRoads);
-  if (!byTier) {
-    byTier = new Map();
-    nameLayoutCache.set(allRoads, byTier);
+  let byKey = nameLayoutCache.get(allRoads);
+  if (!byKey) {
+    byKey = new Map();
+    nameLayoutCache.set(allRoads, byKey);
   }
-  let labels = byTier.get(tier);
+  // ~0.0008 degrees is about 70m north-south — under one Manhattan block.
+  const q = focus ? `${(focus[0] / 0.0008) | 0},${(focus[1] / 0.0008) | 0}` : 'none';
+  const key = `${tier}|${q}`;
+  let labels = byKey.get(key);
   if (!labels) {
-    labels = layoutStreetNames(nameRoads);
-    byTier.set(tier, labels);
+    labels = layoutStreetNames(nameRoads, { focus });
+    byKey.set(key, labels);
+    // The camera moves continuously; without a bound this map grows for the
+    // life of the page.
+    if (byKey.size > 60) {
+      for (const k of [...byKey.keys()].slice(0, 30)) byKey.delete(k);
+    }
   }
   return labels;
 }
@@ -651,7 +668,12 @@ export function buildGroundLayers(opts: GroundLayerOptions): Layer[] {
   if (zoom >= GROUND_LOD.names) {
     const wide = zoom < GROUND_LOD.allNames;
     const nameRoads = wide ? streetscape.roads.filter((r) => r.t <= 2) : streetscape.roads;
-    const labels = cachedStreetNames(streetscape.roads, nameRoads, wide ? 'major' : 'all');
+    const labels = cachedStreetNames(
+      streetscape.roads,
+      nameRoads,
+      wide ? 'major' : 'all',
+      view ? [(view.west + view.east) / 2, (view.south + view.north) / 2] : null,
+    );
 
     if (labels.length > 0) {
       layers.push(

@@ -5,6 +5,8 @@ import clsx from 'clsx';
 import type { Tenant } from '@/types';
 import Badge from '@/components/ui/Badge';
 import { DateText, Sf, monthsUntil } from '@/components/ui/Money';
+import SourceInfo from '@/components/ui/SourceInfo';
+import { tenantSource } from '@/lib/provenance';
 import EditDrawer, { type EditTarget } from '@/components/edit/EditDrawer';
 
 const TH =
@@ -291,7 +293,17 @@ export default function TenantTable({
               }
               return (
                 <tr key={t.id} className="transition-colors hover:bg-goldenrod-50">
-                  <td className={clsx(TD, 'font-semibold text-ink')}>{t.company_name}</td>
+                  <td className={clsx(TD, 'font-semibold text-ink')}>
+                    <span className="flex items-center gap-1">
+                      {t.company_name}
+                      {/* One marker per tenant, not per column: the whole row
+                          arrived together, from a sheet or from a person. */}
+                      <SourceInfo
+                        label={`this tenant record`}
+                        note={tenantSource(t.source)}
+                      />
+                    </span>
+                  </td>
                   <td className={clsx(TD, 'text-body')}>{t.floors ?? '—'}</td>
                   <td className={clsx(TD, 'text-right tabular font-medium')}>
                     <Sf value={t.sf} />
