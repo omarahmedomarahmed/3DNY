@@ -23,6 +23,10 @@ import { LayerExtension } from '@deck.gl/core';
  * 3. The line is drawn with a derivative-based width rather than a fixed one,
  *    so it stays a hairline as the camera pulls back instead of turning the
  *    facade into a solid block of mullion.
+ *
+ * And one rule that is not about looks at all: the fragment hook this injects
+ * into is the same one deck.gl uses to emit picking colours, so the effect has
+ * to switch itself off while picking is active.
  */
 
 export interface MullionExtensionProps {
@@ -85,7 +89,11 @@ out float deckgl_mullion;
 in float deckgl_mullion;
 `,
         'fs:DECKGL_FILTER_COLOR': `
-  if (deckgl_mullion >= 0.0) {
+  // NEVER touch the colour during a picking pass. deck.gl encodes each object
+  // as an exact RGB value and reads it back from the framebuffer; shading that
+  // value even slightly makes it decode to a different object, or to none —
+  // which is exactly how this broke clicking on buildings.
+  if (deckgl_mullion >= 0.0 && !bool(picking.isActive)) {
     float mullionFract = fract(deckgl_mullion);
     // Distance to the nearest module edge, wrapped so both sides of a line
     // are treated alike.
