@@ -22,6 +22,8 @@ import {
   type WalkLabel,
 } from '@/lib/transit';
 import { MULLIONS_DARK, MULLIONS_LIGHT } from './mullions';
+import { buildGroundLayers, GROUND_TOP_Z } from './ground';
+import type { StreetscapeResult } from '@/lib/streetscape';
 import {
   DIMMED_COLOR,
   FLOOR_BAND_COLOR,
@@ -93,6 +95,11 @@ export interface BuildLayersOptions {
   showContext?: boolean;
   /** Dark or light basemap. Only the recessive colours change with it. */
   theme?: MapTheme;
+  /**
+   * Our own ground plane: streets, kerbs, sidewalks, water. When present it
+   * covers the basemap entirely — the default map draws every pixel itself.
+   */
+  streetscape?: StreetscapeResult | null;
   /** Transit stops in view. Empty unless the transit layer is switched on. */
   transitStops?: TransitStop[];
   /** Walk lines are drawn from this building to its nearest stops. */
@@ -201,6 +208,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
     photorealLayer = null,
     showContext = false,
     theme = 'dark',
+    streetscape = null,
     transitStops,
     transitOrigin = null,
     onTransitClick,
@@ -216,6 +224,13 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
   // The photoreal mesh is the ground itself — first in, so everything with
   // data draws over it.
   if (photorealLayer) layers.push(photorealLayer);
+
+  // --- Our own ground: streets, kerbs, sidewalks, water. Drawn before every
+  // other layer so the whole city stands on it. Photoreal imagery carries its
+  // own ground, so the two never draw together.
+  if (!photoreal && streetscape) {
+    layers.push(...buildGroundLayers({ streetscape, theme, zoom }));
+  }
 
   // --- The city itself. Drawn first so everything with data sits on top of it,
   // and never pickable: this is scenery, and a click that selects a random
@@ -306,7 +321,11 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         filled: true,
         stroked: false,
         pickable: false,
-        getPolygon: (d) => d.ring,
+        // Above the whole ground stack: a contact shadow falls ON the street,
+        // and at exactly street level the depth buffer cannot say which of the
+        // two is in front.
+        getPolygon: (d) =>
+          d.ring.map(([lon, lat]) => [lon, lat, GROUND_TOP_Z] as [number, number, number]),
         getFillColor: (d) => [
           palette.contactShadow[0],
           palette.contactShadow[1],

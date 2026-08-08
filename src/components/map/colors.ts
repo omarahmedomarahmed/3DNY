@@ -253,6 +253,20 @@ export interface ThemeColors {
   dimmed: RGBA;
   /** The surrounding city from NYC footprints. */
   cityContext: RGBA;
+  /** The ground plane itself — the block interiors between streets. */
+  ground: RGBA;
+  /** Rivers and ponds, as a flat fill under the water shader treatment. */
+  water: RGBA;
+  /** The pavement band flanking every roadbed. */
+  sidewalk: RGBA;
+  /** The kerb line between sidewalk and asphalt. */
+  roadCasing: RGBA;
+  /** The roadbed. */
+  roadFill: RGBA;
+  /** Street names painted onto the asphalt at close zoom. */
+  streetName: RGBA;
+  /** The halo behind painted names, keeping them legible over the kerb. */
+  streetNameHalo: RGBA;
   /** Floor plate lines drawn up every facade. */
   floorLine: RGBA;
   /** The post a transit marker stands on. */
@@ -271,6 +285,17 @@ export interface ThemeColors {
 const LIGHT_THEME: ThemeColors = {
   dimmed: rgba('#D8DCE4', 130),
   cityContext: rgba('#C6CFDE', 255),
+  // Daylight ground: block interiors a quiet blue-gray, pavements a step
+  // lighter, roadbeds white — the Positron reading, but drawn by us.
+  // The blocks have to be a clear step darker than the pavement, or a white
+  // roadbed on a near-white block field leaves no street grid at all.
+  ground: rgba('#D9E0EB', 255),
+  water: rgba('#BACEE6', 255),
+  sidewalk: rgba('#EDF1F7', 255),
+  roadCasing: rgba('#BFC7D6', 255),
+  roadFill: rgba('#FFFFFF', 255),
+  streetName: rgba('#5E6A85', 235),
+  streetNameHalo: rgba('#FDFDFE', 200),
   // Darker than the facade on a light map: a floor line is a shadow gap
   // between plates, not a highlight.
   floorLine: rgba('#0A1428', 42),
@@ -293,6 +318,15 @@ const LIGHT_THEME: ThemeColors = {
 const DARK_THEME: ThemeColors = {
   dimmed: rgba('#2A3345', 170),
   cityContext: rgba('#39435A', 255),
+  // Night ground: near-black blocks, streets a shade lighter — the street
+  // grid reads as the lit network it is at night, kerbs as lit stone edges.
+  ground: rgba('#0A0E17', 255),
+  water: rgba('#0C1524', 255),
+  sidewalk: rgba('#151C2B', 255),
+  roadCasing: rgba('#2C3750', 255),
+  roadFill: rgba('#1D2637', 255),
+  streetName: rgba('#A7B8DC', 215),
+  streetNameHalo: rgba('#0F1522', 190),
   // Lighter than the facade on a dark map — the same reading inverted, as a
   // lit slot between floor plates.
   floorLine: rgba('#9FB4D8', 46),

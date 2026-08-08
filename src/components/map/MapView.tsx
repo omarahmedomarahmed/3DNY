@@ -19,6 +19,7 @@ import { applyFilters } from '@/lib/filters';
 import type { BuildingWithSpaces } from '@/types';
 import { BAND_ZOOM_THRESHOLD, buildLayers, type MapPoint } from './layers';
 import { useCityContext } from './useCityContext';
+import { useStreetscape } from './useStreetscape';
 import { useTransit } from './useTransit';
 import { buildingHeightFt, buildingRing } from '@/lib/floor-bands';
 import { composeSnapshot, downloadSnapshot } from '@/lib/stack-snapshot';
@@ -511,6 +512,9 @@ export default function MapView() {
   // The surrounding city, so the towers that carry data stand in Manhattan
   // rather than in an empty plane.
   const cityContext = useCityContext(map, zoom, showContext);
+  // Our own ground plane — always on (streets are orientation, not clutter),
+  // except under photoreal imagery, which is its own ground.
+  const streetscape = useStreetscape(map, zoom, !photoreal);
   const { stops: allTransitStops, error: transitError } = useTransit(map, zoom, showTransit);
 
   // An empty mode list means "all of them", so the map is useful before
@@ -952,6 +956,7 @@ export default function MapView() {
         photoreal: activePhotorealLayer !== null && photorealDrawn,
         showContext,
         theme: mapTheme,
+        streetscape,
         transitStops,
         transitOrigin,
         onTransitClick: (stop, at) => setTransitPopup({ stop, at: toViewport(at) }),
@@ -983,6 +988,7 @@ export default function MapView() {
     radius,
     zoom,
     cityContext,
+    streetscape,
     photoreal,
     activePhotorealLayer,
     photorealDrawn,
