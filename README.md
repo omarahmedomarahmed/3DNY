@@ -134,7 +134,7 @@ for the same reason and with a test to hold it.
 | Plan | Complete — [PLAN.md](./PLAN.md) |
 | Build | Complete and deployable |
 | Production build | Passing |
-| Tests | 238 passing — parser against both real sheets, plus transit, photoreal gating, streetscape and label layout, roofscape geometry, atmosphere and both shaders' picking guards, entrance placement, street-network routing, station deduplication, the fallback geocoder's address normalisation, the compare set's lifecycle, the source resolver's field-by-field answers, and two guards that hold rules a comment cannot: that no UI file references a named agent, and that every dismiss-on-outside-click surface exempts the source popover |
+| Tests | 254 passing — parser against both real sheets, plus transit, photoreal gating, streetscape and label layout, roofscape geometry, atmosphere and both shaders' picking guards, entrance placement, street-network routing, station deduplication, the fallback geocoder's address normalisation, the compare set's lifecycle, the source resolver's field-by-field answers, and two guards that hold rules a comment cannot: that no UI file references a named agent, and that every dismiss-on-outside-click surface exempts the source popover |
 | Coverage | Midtown + Midtown South |
 
 ### Verifying it by looking at it
@@ -152,7 +152,15 @@ against the live database, and every assertion is on the thing itself:
 | `node scripts/shoot.mjs <dir> <tag>` | Both themes, wide and close, with and without transit. |
 | `node scripts/shoot-ground.mjs`, `shoot-atmosphere.mjs`, `shoot-stations.mjs` | The ground plane, the four hours, and the subway entrances. |
 | `node scripts/verify-snapshot.mjs <dir>` | Stack Snapshot is produced for real and the PNG inspected: composed at 2x, and no blank filler band. |
-| `node scripts/verify-sources.mjs <dir>` | The source markers are reachable on the map, the building page and compare; opening one does **not** close the card it sits on; only one opens at a time; and the sheet and the city give different answers where they should. |
+| `node scripts/verify-sources.mjs <dir>` | The source markers are reachable on the map, on a station, on the building page and in compare; opening one does **not** close the card it sits on; only one opens at a time; and the sheet, the city and the hand-kept transit table give different answers where they should. |
+
+Clicking a subway station in a headless browser needs the station's real screen
+position, not a guess — a few metres of geometry is not something you find by
+sweeping the canvas, and trying cost an evening. `verify-sources.mjs` asks the
+map: it walks React's fiber tree for the MapLibre instance MapView holds, puts
+the stop dead centre at pitch 0 so its height projects onto its own base, and
+clicks that pixel. It throws rather than skipping if the instance cannot be
+found, because a transit check that quietly never runs is worse than none.
 | `node scripts/measure-perf.mjs` | Frame rate across five scenes. |
 
 All of them need the app running: `npx next build && sh scripts/restart-server.sh`.

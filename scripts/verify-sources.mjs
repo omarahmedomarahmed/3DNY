@@ -41,6 +41,55 @@ const SOURCE = '[data-source-popover]';
 const popovers = () => page.locator(SOURCE);
 const popupOpen = () => page.locator(POPUP).count();
 
+/**
+ * Puts a lon/lat dead centre, straight down, and returns the pixel it lands on.
+ *
+ * A subway station is a few metres of geometry on a canvas. Clicking one by
+ * eye does not work — I spent a long time proving that — so this asks the map
+ * itself where the thing is, and at pitch 0 with the stop centred, its height
+ * projects onto its own base, which makes the answer exact rather than
+ * approximate.
+ *
+ * Reaching the map means walking React's fiber tree for the ref MapView keeps
+ * it in. That is an internal, and if React changes shape this throws rather
+ * than quietly skipping — a transit check that silently passes because it
+ * never ran is the exact failure this file exists to avoid.
+ */
+async function aimAt(lon, lat, zoom = 18) {
+  const reached = await page.evaluate(
+    ([lon, lat, zoom]) => {
+      const el = document.querySelector('.maplibregl-map');
+      const key = el && Object.keys(el).find((k) => k.startsWith('__reactFiber$'));
+      if (!key) return false;
+      const isMap = (v) =>
+        v && typeof v === 'object' &&
+        typeof v.project === 'function' && typeof v.jumpTo === 'function';
+      for (let f = el[key], d = 0; f && d < 60; d++, f = f.return) {
+        for (let h = f.memoizedState, i = 0; h && i < 80; i++, h = h.next) {
+          const s = h.memoizedState;
+          if (s && typeof s === 'object' && 'current' in s && isMap(s.current)) {
+            s.current.jumpTo({ center: [lon, lat], zoom, pitch: 0, bearing: 0 });
+            window.__verifyMap = s.current;
+            return true;
+          }
+        }
+      }
+      return false;
+    },
+    [lon, lat, zoom],
+  );
+  if (!reached) throw new Error('could not reach the MapLibre instance — the fiber walk needs updating');
+  await sleep(6000);
+  return page.evaluate(
+    ([lon, lat]) => {
+      const p = window.__verifyMap.project([lon, lat]);
+      const r = window.__verifyMap.getCanvas().getBoundingClientRect();
+      return { x: Math.round(r.left + p.x), y: Math.round(r.top + p.y) };
+    },
+    [lon, lat],
+  );
+}
+
 // --- On the map ------------------------------------------------------------
 
 await page.goto('http://localhost:3111/map', { waitUntil: 'domcontentloaded' });
@@ -91,6 +140,71 @@ check('Escape does not also close the space popup', (await popupOpen()) > 0);
 // Clicking the map behind it closes the popup, as it always did.
 await page.mouse.click(box.x + 40, box.y + box.height - 40);
 await sleep(800);
+
+// --- On a station ----------------------------------------------------------
+
+await page.getByRole('button', { name: 'Show transit stops and walk times' }).click();
+await sleep(2000);
+
+const { stops } = await (
+  await fetch('http://localhost:3111/api/transit?bbox=-73.985,40.746,-73.968,40.758')
+).json();
+
+/** Opens a stop's popup and returns the text of one of its source popovers. */
+async function stationSource(stop, marker) {
+  const at = await aimAt(stop.lon, stop.lat);
+  await page.mouse.click(at.x, at.y);
+  await sleep(900);
+  const button = page.getByRole('button', { name: marker });
+  if ((await button.count()) === 0) return null;
+  await button.first().click();
+  await sleep(700);
+  return ((await popovers().first().textContent()) ?? '').trim();
+}
+
+// The MTA publishes the subway. Aimed at the shelter under the name plate,
+// which is where anyone would click — the sign pylon beside it is 1.1m square
+// and sub-pixel below about zoom 17, so for a while nothing on a station was
+// clickable at all.
+const subway = stops.find((s) => s.mode === 'subway');
+const subwayText = subway ? await stationSource(subway, 'Where this station came from') : null;
+check('a station opens from the map and names its source', subwayText !== null);
+check('the subway credits the MTA', /MTA open data/i.test(subwayText ?? ''), (subwayText ?? '').slice(0, 60));
+await page.screenshot({ path: join(outdir, 'sources-transit.png') });
+await page.keyboard.press('Escape');
+await sleep(400);
+
+// Its routes and the walk time are different questions with different answers.
+const routes = await page.getByRole('button', { name: 'Where these routes came from' }).count();
+check('the route bullets are marked too', routes > 0);
+const walkBtn = page.getByRole('button', { name: 'Where this walk time came from' });
+if ((await walkBtn.count()) > 0) {
+  await walkBtn.first().click();
+  await sleep(600);
+  const walkText = ((await popovers().first().textContent()) ?? '').toLowerCase();
+  check('the walk time admits it is an estimate', walkText.includes('estimate'), walkText.slice(0, 60));
+  await page.keyboard.press('Escape');
+  await sleep(400);
+}
+
+// Ferry landings and PATH have no maintained open dataset, so they are a
+// hand-kept table in transit.ts and must not claim the MTA published them.
+const handKept = stops.find((s) => s.mode === 'rail' || s.mode === 'path' || s.mode === 'ferry');
+if (handKept) {
+  const text = await stationSource(handKept, 'Where this station came from');
+  check(
+    `${handKept.mode} does not claim to be MTA data`,
+    text !== null && !/MTA open data/i.test(text),
+    (text ?? 'no popup').slice(0, 60),
+  );
+  check(
+    `${handKept.mode} says it is hand-kept`,
+    /hand/i.test(text ?? ''),
+    (text ?? '').slice(0, 60),
+  );
+  await page.keyboard.press('Escape');
+  await sleep(400);
+}
 
 // --- On the building page --------------------------------------------------
 

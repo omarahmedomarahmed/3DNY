@@ -195,6 +195,22 @@ export function buildStationLayers(opts: StationLayerOptions): Layer[] {
       roundels.push({ position: signAt, color });
     }
 
+    /**
+     * Every piece of the station answers to a click, not just the sign.
+     *
+     * The pylon used to be the only pickable part, on the reasoning that it is
+     * what a pointer goes for. It is also 1.1m square and stands 5.7m off to
+     * one side of the entrance — which means that below about zoom 17 it is
+     * smaller than a pixel, and that it is not where the name plate is
+     * pointing. The obvious target, the shelter itself under the label, did
+     * nothing at all. In practice a station could not be opened.
+     *
+     * The kiosk is 8.5 × 5.2m and the canopy oversails it: both are still
+     * several pixels across at the zoom the stations first appear, and both
+     * sit exactly under the name. `data` here is built one entry per station
+     * in `modelled` order, the same as the pylons, so the index maps straight
+     * back to the stop.
+     */
     const piece = (id: string, data: StationPiece[]) =>
       new PolygonLayer<StationPiece>({
         id,
@@ -204,7 +220,14 @@ export function buildStationLayers(opts: StationLayerOptions): Layer[] {
         filled: true,
         stroked: false,
         wireframe: false,
-        pickable: false,
+        pickable: true,
+        onClick: (info: PickingInfo<StationPiece>) => {
+          if (info.index < 0 || !onClick) return false;
+          const stop = modelled[info.index];
+          if (!stop) return false;
+          onClick(stop, { x: info.x, y: info.y });
+          return true;
+        },
         material: STATION_MATERIAL,
         getPolygon: (d) =>
           d.ring.map(([lon, lat]) => [lon, lat, d.baseM] as [number, number, number]),
@@ -219,8 +242,9 @@ export function buildStationLayers(opts: StationLayerOptions): Layer[] {
 
     layers.push(piece('station-kiosks', kiosks), piece('station-canopies', canopies));
 
-    // The pylon is the click target: it is the tallest part, it carries the
-    // mode colour, and it is what a pointer naturally goes for.
+    // The pylon answers too — it is the tallest part and carries the mode
+    // colour, so a pointer does go for it — but it is no longer the only
+    // thing that does. See the note on `piece` above.
     layers.push(
       new PolygonLayer<StationPiece>({
         id: 'station-pylons',
