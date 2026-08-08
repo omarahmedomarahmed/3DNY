@@ -200,3 +200,34 @@ export function computeFloorLines(building: Building): FloorLine[] {
   }
   return lines;
 }
+
+/**
+ * A soft pool on the pavement where a building meets it.
+ *
+ * With cast shadows off — deck.gl's shadow pass corrupted picking and striped
+ * every facade — buildings had nothing anchoring them to the ground and read
+ * as floating. This is the trick every architectural render uses instead:
+ * concentric rings around the footprint, each slightly larger and fainter, so
+ * the darkness falls off with distance. Three rings is enough to read as a
+ * gradient and cheap enough to draw for every building on screen.
+ *
+ * Scaled with height, because a sixty-storey tower occludes far more sky at
+ * its base than a six-storey loft does.
+ */
+export function contactShadowRings(
+  building: Building,
+): { ring: [number, number][]; opacity: number }[] {
+  const ring = buildingRing(building);
+  if (!ring) return [];
+
+  const heightFt = buildingHeightFt(building);
+  // A tall building gets a wider pool, clamped so a spire does not flood the
+  // block and a low-rise still gets something.
+  const spread = Math.min(0.075, Math.max(0.022, heightFt / 14_000));
+
+  return [
+    { ring: insetRing(ring, 1 + spread * 0.35), opacity: 1 },
+    { ring: insetRing(ring, 1 + spread * 0.75), opacity: 0.55 },
+    { ring: insetRing(ring, 1 + spread), opacity: 0.25 },
+  ];
+}

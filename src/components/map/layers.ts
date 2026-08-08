@@ -7,6 +7,7 @@ import {
   buildingRing,
   computeFloorBands,
   computeFloorLines,
+  contactShadowRings,
 } from '@/lib/floor-bands';
 import type { BuildingWithSpaces, ColorMode, FloorBand } from '@/types';
 import type { ContextBuilding } from '@/lib/city-context';
@@ -289,6 +290,33 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
 
   // --- Matching buildings, coloured by the active mode.
   const active = filtered.filter((b) => buildingRing(b) !== null);
+
+  // --- Contact shadows. Drawn flat on the street, under the massing, before
+  // anything that stands on it. Without these the towers float: real cast
+  // shadows are off because deck.gl's shadow pass corrupted picking and
+  // striped every facade, and this is what renderers use in their place.
+  const pools: { ring: [number, number][]; opacity: number }[] = [];
+  for (const building of active) pools.push(...contactShadowRings(building));
+  if (!photoreal && pools.length > 0) {
+    layers.push(
+      new PolygonLayer<{ ring: [number, number][]; opacity: number }>({
+        id: 'contact-shadows',
+        data: pools,
+        extruded: false,
+        filled: true,
+        stroked: false,
+        pickable: false,
+        getPolygon: (d) => d.ring,
+        getFillColor: (d) => [
+          palette.contactShadow[0],
+          palette.contactShadow[1],
+          palette.contactShadow[2],
+          Math.round(palette.contactShadow[3] * d.opacity),
+        ],
+        updateTriggers: { getFillColor: [theme] },
+      }),
+    );
+  }
 
   layers.push(
     new PolygonLayer<BuildingWithSpaces>({

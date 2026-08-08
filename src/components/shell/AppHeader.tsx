@@ -9,6 +9,7 @@ const NAV: { href: string; label: string; icon: IconName }[] = [
   { href: '/map', label: 'Map', icon: 'map-pin' },
   { href: '/import', label: 'Import', icon: 'upload' },
   { href: '/landlords', label: 'Landlords', icon: 'building' },
+  { href: '/admin', label: 'Data', icon: 'edit' },
   { href: '/setup', label: 'Setup', icon: 'filter' },
 ];
 

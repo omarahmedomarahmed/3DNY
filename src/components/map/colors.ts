@@ -257,6 +257,8 @@ export interface ThemeColors {
   floorLine: RGBA;
   /** The post a transit marker stands on. */
   transitMast: RGBA;
+  /** Soft darkening where a building meets the street. */
+  contactShadow: RGBA;
   labelText: RGBA;
   labelBg: RGBA;
   labelBorder: RGBA;
@@ -273,6 +275,7 @@ const LIGHT_THEME: ThemeColors = {
   // between plates, not a highlight.
   floorLine: rgba('#0A1428', 42),
   transitMast: rgba('#48546C', 255),
+  contactShadow: rgba('#0A1A3A', 30),
   labelText: rgba(BRAND.midnight, 255),
   labelBg: rgba(SURFACE.white, 242),
   labelBorder: rgba(SURFACE.hairlineStrong, 255),
@@ -294,6 +297,7 @@ const DARK_THEME: ThemeColors = {
   // lit slot between floor plates.
   floorLine: rgba('#9FB4D8', 46),
   transitMast: rgba('#8698BA', 255),
+  contactShadow: rgba('#000308', 74),
   labelText: rgba('#F4F7FC', 255),
   labelBg: rgba('#0B1220', 232),
   labelBorder: rgba('#46536E', 255),
