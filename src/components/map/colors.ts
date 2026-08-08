@@ -367,7 +367,9 @@ const LIGHT_THEME: ThemeColors = {
  */
 const DARK_THEME: ThemeColors = {
   dimmed: rgba('#2A3345', 170),
-  cityContext: rgba('#39435A', 255),
+  // Lifted enough that the surrounding city still reads as buildings once the
+  // facade's vertical shading darkens their bases.
+  cityContext: rgba('#47526C', 255),
   // Night ground: near-black blocks, streets a shade lighter — the street
   // grid reads as the lit network it is at night, kerbs as lit stone edges.
   ground: rgba('#0A0E17', 255),

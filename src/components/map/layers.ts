@@ -21,7 +21,12 @@ import {
   type TransitStop,
   type WalkLabel,
 } from '@/lib/transit';
-import { MULLIONS_DARK, MULLIONS_LIGHT } from './mullions';
+import {
+  FACADE_CONTEXT_DARK,
+  FACADE_CONTEXT_LIGHT,
+  FACADE_DARK,
+  FACADE_LIGHT,
+} from './facade';
 import { ATMOSPHERE, DEFAULT_TIME, hazeFor, type AtmospherePreset } from './atmosphere';
 import { buildGroundLayers, cachedRoadIndex, GROUND_TOP_Z, type ViewportBounds } from './ground';
 import { buildRoofLayers, CONTEXT_ROOF_LIMIT, CONTEXT_ROOF_ZOOM } from './roofs';
@@ -224,24 +229,53 @@ function labelText(b: BuildingWithSpaces): string {
  * layer rebuild would also defeat the roofscape cache downstream — which is
  * keyed on object identity. Both caches have to hold for either to help.
  */
-const contextRoofCache = new WeakMap<ContextBuilding[], Building[]>();
+const contextRoofCache = new WeakMap<ContextBuilding[], Map<string, Building[]>>();
 
 function contextRoofSources(
   cityContext: ContextBuilding[] | undefined,
   buildings: BuildingWithSpaces[],
   zoom: number,
+  view: ViewportBounds | null,
 ): Building[] {
   if (!cityContext || cityContext.length === 0 || zoom < CONTEXT_ROOF_ZOOM) return [];
 
-  const cached = contextRoofCache.get(cityContext);
+  // Keyed on the payload AND the view, because which buildings are on screen
+  // decides which ones are worth a roof.
+  const viewKey = view
+    ? `${view.west.toFixed(3)},${view.south.toFixed(3)},${view.east.toFixed(3)},${view.north.toFixed(3)}`
+    : 'all';
+  let byView = contextRoofCache.get(cityContext);
+  if (!byView) {
+    byView = new Map();
+    contextRoofCache.set(cityContext, byView);
+  }
+  const cached = byView.get(viewKey);
   if (cached) return cached;
+
+  /** A generous margin, since the map is pitched and rotated. */
+  const inView = (c: ContextBuilding): boolean => {
+    if (!view) return true;
+    const padX = (view.east - view.west) * 0.6;
+    const padY = (view.north - view.south) * 0.6;
+    for (const [lon, lat] of c.r) {
+      if (
+        lon >= view.west - padX &&
+        lon <= view.east + padX &&
+        lat >= view.south - padY &&
+        lat <= view.north + padY
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
 
   const ownBins = new Set(
     buildings.map((b) => b.bin).filter((bin): bin is string => Boolean(bin)),
   );
 
   const sources = cityContext
-    .filter((c) => (!c.b || !ownBins.has(c.b)) && c.h >= 80 && c.r.length >= 4)
+    .filter((c) => (!c.b || !ownBins.has(c.b)) && c.h >= 80 && c.r.length >= 4 && inView(c))
     .sort((a, b) => b.h - a.h)
     .slice(0, CONTEXT_ROOF_LIMIT)
     .map((c, i) => {
@@ -263,7 +297,11 @@ function contextRoofSources(
       } as unknown as Building;
     });
 
-  contextRoofCache.set(cityContext, sources);
+  byView.set(viewKey, sources);
+  // The camera moves; without a bound this grows for the life of the page.
+  if (byView.size > 24) {
+    for (const k of [...byView.keys()].slice(0, 12)) byView.delete(k);
+  }
   return sources;
 }
 
@@ -346,7 +384,12 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         new PolygonLayer<ContextBuilding>({
           id: 'city-context',
           data: scenery,
-          extensions: [sceneryHaze],
+          // The grey city used to be blank massing: correct silhouettes with
+          // nothing on them, which is what made it read as packaging foam
+          // rather than as buildings. It now carries the same curtain wall at
+          // a lower strength — built, but never detailed enough to compete
+          // with the towers that carry data.
+          extensions: [theme === 'dark' ? FACADE_CONTEXT_DARK : FACADE_CONTEXT_LIGHT, sceneryHaze],
           extruded: true,
           filled: true,
           stroked: false,
@@ -487,7 +530,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       // footprint is a flat plate with no side faces to draw them on. The
       // haze rides alongside at reduced strength — a building carrying data
       // sits in the air but is never softened out of the conversation.
-      extensions: photoreal ? [] : [theme === 'dark' ? MULLIONS_DARK : MULLIONS_LIGHT, subjectHaze],
+      extensions: photoreal ? [] : [theme === 'dark' ? FACADE_DARK : FACADE_LIGHT, subjectHaze],
       // Tuned for a real sun rather than a flat ambient wash: enough diffuse
       // that the lit and shaded walls of a tower differ plainly as the camera
       // orbits, and a small specular term so the highlight travels across the
@@ -524,7 +567,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       ...buildRoofLayers({
         buildings: active,
         colorFor: (b) => buildingFill(b as BuildingWithSpaces),
-        context: showContext ? contextRoofSources(cityContext, buildings, zoom) : [],
+        context: showContext ? contextRoofSources(cityContext, buildings, zoom, view) : [],
         theme,
         zoom,
         haze: sceneryHaze,

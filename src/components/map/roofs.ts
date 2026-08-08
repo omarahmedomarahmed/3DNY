@@ -26,15 +26,31 @@ import { themeColors, type MapTheme, type RGBA } from './colors';
  */
 export const ROOF_ZOOM = 14.6;
 
-/** The surrounding grey city gets roofs later — there are thousands of them. */
-export const CONTEXT_ROOF_ZOOM = 16.2;
+/**
+ * The surrounding grey city gets roofs at the same zoom our own buildings do.
+ *
+ * It used to wait until 16.2, which meant that at every zoom a broker actually
+ * presents from, our towers had parapets, plant and water tanks and the entire
+ * city behind them ended in flat lids — so instead of a skyline, the map had a
+ * handful of finished buildings standing in a field of blanks. The whole point
+ * of roof furniture is silhouette, and silhouette is a property of the skyline,
+ * not of one building.
+ */
+export const CONTEXT_ROOF_ZOOM = 14.6;
 
 /**
- * How many context buildings get roof furniture. Tallest first, so the ones
- * that define the skyline are the ones that get it, and the frame budget is
- * spent where it shows.
+ * How many context buildings get roof furniture, per viewport.
+ *
+ * Applied AFTER culling to what is on screen, so at close zoom this is more
+ * than everything visible and the whole skyline is finished, while at wide
+ * zoom it caps the cost — tallest first, so the ones that define a skyline are
+ * the ones that keep their tops.
+ *
+ * Raising it much beyond this is not free even with the caches: it was tried
+ * at 900 across the whole fetched payload and the main thread stalled long
+ * enough that clicks stopped landing.
  */
-export const CONTEXT_ROOF_LIMIT = 260;
+export const CONTEXT_ROOF_LIMIT = 420;
 
 /**
  * Roof furniture has to be lit by the SAME material as the massing it stands
