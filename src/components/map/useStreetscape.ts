@@ -21,6 +21,7 @@ const EMPTY: StreetscapeResult = {
   water: [],
   parks: [],
   trees: [],
+  entrances: [],
   truncated: false,
   bbox: [0, 0, 0, 0],
 };

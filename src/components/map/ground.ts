@@ -2,12 +2,16 @@ import { ColumnLayer, PathLayer, PolygonLayer, TextLayer } from '@deck.gl/layers
 import type { Layer, LayerExtension } from '@deck.gl/core';
 import { FT_TO_M, insetRing } from '@/lib/floor-bands';
 import {
+  buildRoadIndex,
   layoutStreetNames,
+  nearestRoadAngle,
   type ParkPolygon,
   type RoadSegment,
   type StreetscapeResult,
   type StreetNameLabel,
+  type EntranceKind,
   type StreetTree,
+  type SubwayEntrance,
   type WaterPolygon,
 } from '@/lib/streetscape';
 import { themeColors, type MapTheme } from './colors';
@@ -39,6 +43,12 @@ export const GROUND_LOD = {
   names: 15.0,
   /** Painted names on the narrowest streets. */
   allNames: 15.8,
+  /**
+   * Subway entrances. A stair head is about 4.6m long, which at zoom 16 is
+   * two pixels — drawn, paid for, and indistinguishable from grit. They only
+   * start to read as objects around here.
+   */
+  entrances: 16.6,
 } as const;
 
 /**
@@ -168,6 +178,76 @@ const KERB_M = 0.8;
 
 /** Painted name glyph height in metres, by road tier. */
 const NAME_SIZE_M: Record<number, number> = { 0: 10, 1: 10, 2: 7.5, 3: 6 };
+
+/**
+ * Manhattan's street grid runs about 29° east of true north, which is 61°
+ * measured CCW from east. Used only when an entrance has no street near enough
+ * to take an orientation from — a plausible angle beats an arbitrary one.
+ */
+const MANHATTAN_GRID_ANGLE = 61;
+
+/** Height of the post the entrance globe sits on, in metres. */
+const GLOBE_POST_M = 2.4;
+
+/** One entrance enclosure, ready to extrude. */
+interface EntranceBox {
+  ring: [number, number][];
+  heightM: number;
+  kind: EntranceKind;
+}
+
+/**
+ * What each kind of entrance looks like. Dimensions are close to the real
+ * thing: a stair head enclosure is about four metres along the pavement and
+ * waist-high; an elevator headhouse is a genuine little building.
+ */
+const ENTRANCE_SPEC: Record<
+  EntranceKind,
+  { lengthM: number; widthM: number; heightM: number; globe: boolean }
+> = {
+  0: { lengthM: 4.6, widthM: 2.4, heightM: 1.15, globe: true },
+  1: { lengthM: 2.6, widthM: 2.6, heightM: 3.2, globe: false },
+  2: { lengthM: 4.2, widthM: 2.2, heightM: 1.15, globe: true },
+  // Doors, ramps and easements through building lobbies: no street furniture
+  // of their own, so a low kerb-height marker and nothing more.
+  3: { lengthM: 2.2, widthM: 1.6, heightM: 0.5, globe: false },
+};
+
+const ENTRANCE_MATERIAL = {
+  ambient: 0.6,
+  diffuse: 0.55,
+  shininess: 10,
+  specularColor: [30, 36, 48] as [number, number, number],
+};
+
+/**
+ * A rectangle centred on a point, `lengthM` along `angleDeg` and `widthM`
+ * across it. Angles are CCW from east, matching `segmentAngle`.
+ */
+export function orientedRect(
+  center: [number, number],
+  lengthM: number,
+  widthM: number,
+  angleDeg: number,
+): [number, number][] {
+  const [lon, lat] = center;
+  const mLon = 111_320 * Math.cos((lat * Math.PI) / 180);
+  const rad = (angleDeg * Math.PI) / 180;
+  // Along-street and across-street unit vectors, in metres.
+  const ax = Math.cos(rad);
+  const ay = Math.sin(rad);
+  const halfL = lengthM / 2;
+  const halfW = widthM / 2;
+
+  const corner = (sl: number, sw: number): [number, number] => {
+    const dx = ax * halfL * sl - ay * halfW * sw;
+    const dy = ay * halfL * sl + ax * halfW * sw;
+    return [lon + dx / mLon, lat + dy / 111_320];
+  };
+
+  const a = corner(-1, -1);
+  return [a, corner(1, -1), corner(1, 1), corner(-1, 1), a];
+}
 
 export interface GroundLayerOptions {
   streetscape: StreetscapeResult;
@@ -362,6 +442,92 @@ export function buildGroundLayers(opts: GroundLayerOptions): Layer[] {
           getFillColor: palette.canopy,
           material: FOLIAGE_MATERIAL,
           updateTriggers: { getFillColor: [theme] },
+        }),
+      );
+    }
+  }
+
+  // --- Subway entrances. The actual holes in the pavement from the MTA's own
+  // inventory, not a station centroid: a station is eight stair heads spread
+  // over two blocks, and which corner you surface on is a real part of whether
+  // a building is a five-minute walk or a nine-minute one.
+  //
+  // Each stair is a low enclosure squared to the street it stands on, with the
+  // green globe lamp beside it that has meant "open" in New York since the
+  // eighties. Elevators get a taller headhouse and no globe.
+  if (zoom >= GROUND_LOD.entrances && streetscape.entrances.length > 0) {
+    const index = buildRoadIndex(streetscape.roads);
+    const enclosures: EntranceBox[] = [];
+    const globes: SubwayEntrance[] = [];
+
+    for (const entrance of streetscape.entrances) {
+      // No nearby street means no plausible orientation; the grid's own
+      // prevailing angle is a better guess than an arbitrary one.
+      const angle = nearestRoadAngle(entrance.p, index) ?? MANHATTAN_GRID_ANGLE;
+      const spec = ENTRANCE_SPEC[entrance.k];
+      enclosures.push({
+        ring: orientedRect(entrance.p, spec.lengthM, spec.widthM, angle),
+        heightM: spec.heightM,
+        kind: entrance.k,
+      });
+      if (spec.globe) globes.push(entrance);
+    }
+
+    layers.push(
+      new PolygonLayer<EntranceBox>({
+        id: 'ground-subway-entrances',
+        ...fade,
+        data: enclosures,
+        extruded: true,
+        filled: true,
+        stroked: false,
+        wireframe: false,
+        pickable: false,
+        material: ENTRANCE_MATERIAL,
+        getPolygon: (d) => atZ(d.ring, GROUND_TOP_Z),
+        getElevation: (d) => d.heightM,
+        getFillColor: (d) => (d.kind === 1 ? palette.entranceElevator : palette.entranceStair),
+        updateTriggers: {
+          getFillColor: [theme, enclosures.length],
+          getPolygon: [enclosures.length],
+          getElevation: [enclosures.length],
+        },
+      }),
+    );
+
+    if (globes.length > 0) {
+      layers.push(
+        new ColumnLayer<SubwayEntrance>({
+          id: 'ground-entrance-posts',
+          ...fade,
+          data: globes,
+          pickable: false,
+          diskResolution: 6,
+          extruded: true,
+          radiusUnits: 'meters',
+          radius: 0.16,
+          getPosition: (d) => [d.p[0], d.p[1], GROUND_TOP_Z],
+          getElevation: GLOBE_POST_M,
+          getFillColor: palette.entranceStair,
+          material: ENTRANCE_MATERIAL,
+          updateTriggers: { getFillColor: [theme], getPosition: [globes.length] },
+        }),
+        new ColumnLayer<SubwayEntrance>({
+          id: 'ground-entrance-globes',
+          // The globe deliberately does NOT take distance haze. It is small,
+          // and the point of it is that you can find the subway across a
+          // frame; fading it into the air removes the only thing it does.
+          data: globes,
+          pickable: false,
+          diskResolution: 8,
+          extruded: true,
+          radiusUnits: 'meters',
+          radius: 0.42,
+          getPosition: (d) => [d.p[0], d.p[1], GROUND_TOP_Z + GLOBE_POST_M],
+          getElevation: 0.8,
+          getFillColor: palette.entranceGlobe,
+          material: ENTRANCE_MATERIAL,
+          updateTriggers: { getFillColor: [theme], getPosition: [globes.length] },
         }),
       );
     }

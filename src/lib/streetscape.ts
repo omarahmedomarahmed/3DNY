@@ -25,6 +25,8 @@ const CENTERLINE = 'https://data.cityofnewyork.us/resource/inkn-q76z.json';
 const HYDROGRAPHY = 'https://data.cityofnewyork.us/resource/pjs3-c3z5.json';
 const PARKS = 'https://data.cityofnewyork.us/resource/enfh-gkve.json';
 const STREET_TREES = 'https://data.cityofnewyork.us/resource/uvpi-gqnh.json';
+/** MTA's own entrance inventory, on the state portal rather than the city's. */
+const SUBWAY_ENTRANCES = 'https://data.ny.gov/resource/i9wp-a4ja.json';
 
 /** Trees are the long tail of the payload; past this they stop being worth it. */
 export const TREE_LIMIT = 4000;
@@ -78,11 +80,28 @@ export interface StreetTree {
   d: number;
 }
 
+/**
+ * How you get in: 0 = stair, 1 = elevator, 2 = escalator, 3 = everything else
+ * (doors, ramps, easements through building lobbies).
+ */
+export type EntranceKind = 0 | 1 | 2 | 3;
+
+export interface SubwayEntrance {
+  /** [lon, lat], rounded to ~11cm. */
+  p: [number, number];
+  k: EntranceKind;
+  /** Station name, for the popup. */
+  n: string;
+  /** Route letters and numbers serving it. */
+  r: string[];
+}
+
 export interface StreetscapeResult {
   roads: RoadSegment[];
   water: WaterPolygon[];
   parks: ParkPolygon[];
   trees: StreetTree[];
+  entrances: SubwayEntrance[];
   truncated: boolean;
   bbox: [number, number, number, number];
 }
@@ -376,6 +395,62 @@ async function fetchTrees(
   return trees;
 }
 
+export function entranceKind(entranceType: string): EntranceKind {
+  const t = entranceType.trim().toLowerCase();
+  if (t.includes('stair')) return 0;
+  if (t.includes('elevator')) return 1;
+  if (t.includes('escalator')) return 2;
+  return 3;
+}
+
+/**
+ * Subway entrances — the actual holes in the pavement, from the MTA's own
+ * 2024 inventory rather than a station centroid.
+ *
+ * This is what makes transit read as part of the street rather than as a pin
+ * dropped near it: a station is not a point, it is eight stair heads spread
+ * over two blocks, and which corner you come up on is a real part of whether a
+ * building is a five-minute walk or a nine-minute one.
+ */
+async function fetchEntrances(
+  bbox: [number, number, number, number],
+): Promise<SubwayEntrance[]> {
+  const [w, s, e, n] = bbox;
+  // This dataset exposes latitude and longitude as plain columns, so the
+  // filter is a bounds test rather than an intersects().
+  const url =
+    `${SUBWAY_ENTRANCES}?$select=entrance_latitude,entrance_longitude,entrance_type,` +
+    `stop_name,daytime_routes` +
+    `&$where=entrance_latitude between ${s} and ${n}` +
+    ` AND entrance_longitude between ${w} and ${e}` +
+    ` AND entry_allowed='YES'` +
+    `&$limit=1200`;
+
+  const res = await fetch(encodeURI(url), {
+    headers: headers(),
+    next: { revalidate: 604800 },
+  });
+  if (!res.ok) throw new Error(`MTA subway entrances returned ${res.status}.`);
+
+  const records = (await res.json()) as any[];
+  const entrances: SubwayEntrance[] = [];
+  for (const rec of records) {
+    const lat = num(rec.entrance_latitude);
+    const lon = num(rec.entrance_longitude);
+    if (lat === null || lon === null) continue;
+    entrances.push({
+      p: [round6(lon), round6(lat)],
+      k: entranceKind(String(rec.entrance_type ?? '')),
+      n: typeof rec.stop_name === 'string' ? rec.stop_name : '',
+      r: String(rec.daytime_routes ?? '')
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 8),
+    });
+  }
+  return entrances;
+}
+
 export async function fetchStreetscape(
   rawBbox: [number, number, number, number],
 ): Promise<StreetscapeResult> {
@@ -386,12 +461,14 @@ export async function fetchStreetscape(
   // One source failing must not take the others down with it: a ground plane
   // with streets but no trees is still far better than no ground plane. Only
   // the streets are load-bearing, because without them there is no city.
-  const [roadsResult, waterResult, parksResult, treesResult] = await Promise.allSettled([
-    fetchRoads(polygon),
-    fetchWater(polygon, bbox),
-    fetchParks(polygon, bbox),
-    fetchTrees(bbox),
-  ]);
+  const [roadsResult, waterResult, parksResult, treesResult, entrancesResult] =
+    await Promise.allSettled([
+      fetchRoads(polygon),
+      fetchWater(polygon, bbox),
+      fetchParks(polygon, bbox),
+      fetchTrees(bbox),
+      fetchEntrances(bbox),
+    ]);
 
   if (roadsResult.status === 'rejected') {
     throw new Error(String((roadsResult.reason as Error).message));
@@ -402,6 +479,7 @@ export async function fetchStreetscape(
     water: waterResult.status === 'fulfilled' ? waterResult.value : [],
     parks: parksResult.status === 'fulfilled' ? parksResult.value : [],
     trees: treesResult.status === 'fulfilled' ? treesResult.value : [],
+    entrances: entrancesResult.status === 'fulfilled' ? entrancesResult.value : [],
     truncated: roadsResult.value.truncated,
     bbox,
   };
@@ -468,6 +546,103 @@ export function segmentAngle(a: [number, number], b: [number, number]): number {
   if (deg > 90) deg -= 180;
   if (deg <= -90) deg += 180;
   return deg;
+}
+
+/**
+ * A grid-hashed index of road segments, for "which street is this next to".
+ *
+ * Built once per streetscape payload and queried per entrance. Pairwise would
+ * be a few thousand entrances against a few thousand segments every render;
+ * this is a hash lookup over a 3×3 neighbourhood.
+ */
+export interface RoadIndex {
+  cell: number;
+  buckets: Map<string, { a: [number, number]; b: [number, number] }[]>;
+}
+
+/** ~110m cells: comfortably wider than a Manhattan block is deep. */
+const ROAD_INDEX_CELL = 0.001;
+
+export function buildRoadIndex(roads: RoadSegment[]): RoadIndex {
+  const buckets = new Map<string, { a: [number, number]; b: [number, number] }[]>();
+  const put = (key: string, seg: { a: [number, number]; b: [number, number] }) => {
+    const list = buckets.get(key);
+    if (list) list.push(seg);
+    else buckets.set(key, [seg]);
+  };
+
+  for (const road of roads) {
+    for (let i = 1; i < road.p.length; i++) {
+      const a = road.p[i - 1];
+      const b = road.p[i];
+      const seg = { a, b };
+      // A segment can span cells, so both endpoints index it. Manhattan's
+      // blocks are short enough that a segment rarely crosses more than two.
+      for (const [x, y] of [a, b]) {
+        put(`${Math.floor(x / ROAD_INDEX_CELL)},${Math.floor(y / ROAD_INDEX_CELL)}`, seg);
+      }
+    }
+  }
+  return { cell: ROAD_INDEX_CELL, buckets };
+}
+
+/**
+ * The bearing of the street nearest a point, in degrees CCW from east.
+ *
+ * Subway entrances have no orientation in the MTA's data, and a stair head
+ * sitting at a random angle to the pavement is worse than no stair head at
+ * all — it reads as litter. Every entrance is on a sidewalk, so the street it
+ * is beside gives it the only orientation it could plausibly have.
+ *
+ * Returns null when there is no road nearby, so the caller can decide rather
+ * than being handed a confident wrong answer.
+ */
+export function nearestRoadAngle(
+  point: [number, number],
+  index: RoadIndex,
+): number | null {
+  const cx = Math.floor(point[0] / index.cell);
+  const cy = Math.floor(point[1] / index.cell);
+
+  let best: number | null = null;
+  let bestDist = Infinity;
+
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      const segs = index.buckets.get(`${cx + dx},${cy + dy}`);
+      if (!segs) continue;
+      for (const seg of segs) {
+        const d = pointToSegmentMeters(point, seg.a, seg.b);
+        if (d < bestDist) {
+          bestDist = d;
+          best = segmentAngle(seg.a, seg.b);
+        }
+      }
+    }
+  }
+  return best;
+}
+
+/** Perpendicular distance from a point to a segment, in metres. */
+export function pointToSegmentMeters(
+  p: [number, number],
+  a: [number, number],
+  b: [number, number],
+): number {
+  // Work in a local metric frame so the projection is not skewed by latitude.
+  const mLon = 111_320 * Math.cos((p[1] * Math.PI) / 180);
+  const px = (p[0] - a[0]) * mLon;
+  const py = (p[1] - a[1]) * 111_320;
+  const bx = (b[0] - a[0]) * mLon;
+  const by = (b[1] - a[1]) * 111_320;
+
+  const lenSq = bx * bx + by * by;
+  if (lenSq === 0) return Math.hypot(px, py);
+  // Clamped, so a point beyond either end measures to that end, not to the
+  // infinite line — which would put an entrance beside a street it is nowhere
+  // near just because that street's line passes close.
+  const t = Math.max(0, Math.min(1, (px * bx + py * by) / lenSq));
+  return Math.hypot(px - bx * t, py - by * t);
 }
 
 /** Which tier wins a contested spot, low first. Highways come last. */

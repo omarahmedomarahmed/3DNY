@@ -278,6 +278,12 @@ export interface ThemeColors {
    * rather than as grey objects placed on top of it.
    */
   waterTank: RGBA;
+  /** The railing enclosure around a subway stair. */
+  entranceStair: RGBA;
+  /** An elevator headhouse, which is a small building rather than a railing. */
+  entranceElevator: RGBA;
+  /** The globe lamp that has meant "this entrance is open" since the eighties. */
+  entranceGlobe: RGBA;
   /** The pavement band flanking every roadbed. */
   sidewalk: RGBA;
   /** The kerb line between sidewalk and asphalt. */
@@ -323,6 +329,12 @@ const LIGHT_THEME: ThemeColors = {
   canopy: rgba('#A6C39C', 255),
   trunk: rgba('#9AA0A2', 255),
   waterTank: rgba('#8C7B6B', 255),
+  entranceStair: rgba('#5A6473', 255),
+  entranceElevator: rgba('#7C8797', 255),
+  // The real globes are a green so desaturated it reads almost grey by day.
+  // Kept that way on purpose: a saturated green dot at every corner would be
+  // a second thing competing for the eye with the availability bands.
+  entranceGlobe: rgba('#4E7A55', 255),
   sidewalk: rgba('#EDF1F7', 255),
   roadCasing: rgba('#BFC7D6', 255),
   roadFill: rgba('#FFFFFF', 255),
@@ -364,6 +376,11 @@ const DARK_THEME: ThemeColors = {
   canopy: rgba('#1E3325', 255),
   trunk: rgba('#20262E', 255),
   waterTank: rgba('#4C4238', 255),
+  entranceStair: rgba('#3B4557', 255),
+  entranceElevator: rgba('#46516A', 255),
+  // At night the globe is genuinely lit, so it is the one thing down here
+  // allowed to glow — but green, and small, so it never reads as Goldenrod.
+  entranceGlobe: rgba('#57A268', 255),
   sidewalk: rgba('#151C2B', 255),
   roadCasing: rgba('#2C3750', 255),
   roadFill: rgba('#1D2637', 255),
