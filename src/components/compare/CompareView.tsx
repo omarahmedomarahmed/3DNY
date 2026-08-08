@@ -418,7 +418,31 @@ function allIdentical(columns: Column[], row: Row): boolean {
   return columns.every((c) => row.compareKey(c) === first);
 }
 
-export default function CompareView({ onClose }: { onClose?: () => void }) {
+/**
+ * Two shells around identical content.
+ *
+ * `modal` is the page takeover, still used from the building profile where
+ * there is no map to float over. `panel` is a floating card on the map, which
+ * is where a broker actually works: the comparison sits beside the towers it
+ * describes rather than replacing them, and dismissing it puts you straight
+ * back on the map with nothing lost.
+ *
+ * The rows, the best-in-row accents and every lookup are shared — a comparison
+ * that said different things in the two places would be worse than having only
+ * one of them.
+ */
+export type CompareVariant = 'modal' | 'panel';
+
+export default function CompareView({
+  onClose,
+  variant = 'modal',
+  panelRef,
+}: {
+  onClose?: () => void;
+  variant?: CompareVariant;
+  /** Lets the map tell a click apart from a click inside the panel. */
+  panelRef?: React.Ref<HTMLDivElement>;
+}) {
   const details = useCompareDetails();
   const buildings = useApp((s) => s.buildings);
   const compare = useApp((s) => s.compare);
@@ -620,33 +644,51 @@ export default function CompareView({ onClose }: { onClose?: () => void }) {
     );
   }
 
-  return (
+  const isPanel = variant === 'panel';
+
+  const card = (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-midnight/60 p-4 sm:p-6"
-      onMouseDown={(e) => {
-        // Scrim click only — a drag that starts inside the panel must not close it.
-        if (e.target === e.currentTarget) close();
-      }}
-      role="presentation"
+      ref={panelRef}
+      role="dialog"
+      // Only the modal traps the page. The panel deliberately does not: the
+      // map behind it stays live, and clicking a tower is how you dismiss it.
+      aria-modal={isPanel ? undefined : 'true'}
+      aria-label="Space comparison"
+      className={clsx(
+        'flex flex-col overflow-hidden rounded-card bg-white',
+        isPanel
+          ? // Sized so the map stays the larger thing on screen. A panel that
+            // fills the frame is the page takeover this was moved away from.
+            'pointer-events-auto max-h-[48vh] w-full max-w-4xl border border-hairline-strong shadow-float'
+          : 'max-h-[92vh] w-full max-w-[min(96rem,95vw)] shadow-float',
+      )}
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Space comparison"
-        className="flex max-h-[92vh] w-full max-w-[min(96rem,95vw)] flex-col overflow-hidden rounded-card bg-white shadow-float"
-      >
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-hairline px-6 py-4">
+        <header
+          className={clsx(
+            'flex flex-wrap items-center justify-between gap-3 border-b border-hairline',
+            isPanel ? 'px-4 py-2.5' : 'px-6 py-4',
+          )}
+        >
           <div>
-            <h2 className="text-xl font-semibold tracking-tight text-ink">
+            <h2
+              className={clsx(
+                'font-semibold tracking-tight text-ink',
+                isPanel ? 'text-base' : 'text-xl',
+              )}
+            >
               Comparison{' '}
               <span className="font-medium tabular text-muted">
                 ({columns.length} {columns.length === 1 ? 'space' : 'spaces'})
               </span>
             </h2>
-            <p className="mt-1 text-[13px] font-medium leading-5 text-muted">
-              Best value in each numeric row is highlighted; values identical across every column are
-              dimmed.
-            </p>
+            {/* The panel is short, and every line of explanation is a row of
+                the table the broker cannot see. */}
+            {!isPanel && (
+              <p className="mt-1 text-[13px] font-medium leading-5 text-muted">
+                Best value in each numeric row is highlighted; values identical across every column
+                are dimmed.
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {copied && <span className="text-sm font-medium text-ok">{copied}</span>}
@@ -743,7 +785,24 @@ export default function CompareView({ onClose }: { onClose?: () => void }) {
             </table>
           </div>
         )}
-      </div>
+    </div>
+  );
+
+  // The panel has no shell of its own: whoever mounts it decides where it
+  // floats and owns the click-outside rule, because on the map that rule is
+  // "clicking a building", not "clicking a scrim".
+  if (isPanel) return card;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-midnight/60 p-4 sm:p-6"
+      onMouseDown={(e) => {
+        // Scrim click only — a drag that starts inside the panel must not close it.
+        if (e.target === e.currentTarget) close();
+      }}
+      role="presentation"
+    >
+      {card}
     </div>
   );
 }
