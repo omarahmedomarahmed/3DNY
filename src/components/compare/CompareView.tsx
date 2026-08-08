@@ -633,9 +633,11 @@ export default function CompareView({
       className={clsx(
         'flex flex-col overflow-hidden rounded-card bg-white',
         isPanel
-          ? // Sized so the map stays the larger thing on screen. A panel that
-            // fills the frame is the page takeover this was moved away from.
-            'pointer-events-auto max-h-[48vh] w-full max-w-4xl border border-hairline-strong shadow-float'
+          ? // Fills the region its container gives it, which is most of the
+            // map minus the right-hand control rail. A comparison is a table,
+            // and a table squeezed into a strip cannot be read across a
+            // conference table.
+            'pointer-events-auto h-full w-full border border-hairline-strong shadow-float'
           : 'max-h-[92vh] w-full max-w-[min(96rem,95vw)] shadow-float',
       )}
     >
@@ -657,14 +659,10 @@ export default function CompareView({
                 ({columns.length} {columns.length === 1 ? 'space' : 'spaces'})
               </span>
             </h2>
-            {/* The panel is short, and every line of explanation is a row of
-                the table the broker cannot see. */}
-            {!isPanel && (
-              <p className="mt-1 text-[13px] font-medium leading-5 text-muted">
-                Best value in each numeric row is highlighted; values identical across every column
-                are dimmed.
-              </p>
-            )}
+            <p className="mt-1 text-[13px] font-medium leading-5 text-muted">
+              Best value in each numeric row is highlighted; values identical across every column
+              are dimmed.
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {copied && <span className="text-sm font-medium text-ok">{copied}</span>}
@@ -683,14 +681,41 @@ export default function CompareView({
             >
               Clear all
             </button>
+            {/* On the map this MINIMISES — the comparison keeps every space
+                in it and comes back with the chip. Calling it "close" made a
+                non-destructive action read as a destructive one, which is
+                exactly the confusion this feature is built to avoid. The
+                modal, which has a scrim and no chip to return from, still
+                closes. */}
             <button
               type="button"
               onClick={close}
-              aria-label="Close comparison"
-              title="Close comparison"
-              className="rounded-full border border-hairline-strong bg-white p-2 text-muted transition-colors hover:border-midnight hover:text-ink"
+              aria-label={isPanel ? 'Minimise comparison' : 'Close comparison'}
+              title={
+                isPanel
+                  ? 'Minimise — the spaces stay in the comparison'
+                  : 'Close comparison'
+              }
+              className="flex items-center gap-1.5 rounded-full border border-hairline-strong bg-white py-2 pl-3 pr-3 text-sm font-medium text-muted transition-colors hover:border-midnight hover:text-ink"
             >
-              <CloseIcon />
+              {isPanel ? (
+                <>
+                  <svg
+                    viewBox="0 0 16 16"
+                    className="h-3.5 w-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M3 12h10" />
+                  </svg>
+                  Minimise
+                </>
+              ) : (
+                <CloseIcon />
+              )}
             </button>
           </div>
         </header>

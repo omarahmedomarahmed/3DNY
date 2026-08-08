@@ -61,8 +61,15 @@ await page.screenshot({ path: join(outdir, 'compare-open.png') });
 
 // --- The rule that matters: clicking the map closes it WITHOUT emptying it.
 const canvas = await page.locator('.maplibregl-map canvas').first().boundingBox();
-/** A point on the map well clear of the panel, which floats near the bottom. */
-const mapPoint = [canvas.x + canvas.width * 0.3, canvas.y + canvas.height * 0.12];
+/**
+ * A point on the map clear of the expanded panel.
+ *
+ * The panel deliberately leaves a band along the top and the control rail down
+ * the right, so that "click the map to dismiss" has somewhere to happen. This
+ * clicks that band — which also means the test fails if that gap is ever
+ * closed up, which is the point.
+ */
+const mapPoint = [canvas.x + canvas.width * 0.3, canvas.y + 24];
 await page.mouse.click(mapPoint[0], mapPoint[1]);
 await sleep(900);
 check('clicking the map closes the panel', !(await panelVisible()));
@@ -85,6 +92,42 @@ check('Escape closes the panel', !(await panelVisible()));
 await page.getByRole('button', { name: /^Compare/ }).click();
 await sleep(900);
 check('the set survived Escape too', (await panelCount()) === 2);
+
+// --- The panel has to be big, has to leave the map controls reachable, and
+// has to sit above every other popup rather than under them.
+{
+  const panel = await page.locator(PANEL).boundingBox();
+  const area = (panel.width * panel.height) / (canvas.width * canvas.height);
+  check(
+    'the panel is a large portion of the map, not a strip',
+    area > 0.45,
+    `${Math.round(area * 100)}% of the map`,
+  );
+
+  // The zoom button stands for the whole right-hand control rail.
+  const zoom = await page.getByRole('button', { name: 'Zoom in' }).boundingBox();
+  check(
+    'the right-hand map controls are not covered by the panel',
+    zoom.x > panel.x + panel.width,
+    `controls at x=${Math.round(zoom.x)}, panel ends at x=${Math.round(panel.x + panel.width)}`,
+  );
+
+  // Opening a space popup and then the comparison must leave the comparison
+  // on top. This is the ordering that was wrong: the popup is z-50 and the
+  // panel was z-40, so cards floated over the table.
+  const popupZ = await page
+    .locator('[role="dialog"][aria-label$="details"]')
+    .evaluate((el) => Number(getComputedStyle(el).zIndex))
+    .catch(() => 0);
+  const panelZ = await page
+    .locator(PANEL)
+    .evaluate((el) => Number(getComputedStyle(el.parentElement).zIndex));
+  check(
+    'the comparison sits above the space popup',
+    panelZ > popupZ,
+    `panel z=${panelZ}, popup z=${popupZ || 'none open'}`,
+  );
+}
 
 // --- Sharing must still work, and a shared link must rehydrate.
 await page.getByRole('button', { name: 'Copy shareable link' }).click();

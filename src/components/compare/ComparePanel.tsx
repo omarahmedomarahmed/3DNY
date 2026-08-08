@@ -130,21 +130,38 @@ export default function ComparePanel() {
 
   return (
     <>
-      {/* The launcher sits bottom-right of the map, clear of the legend at
-          bottom-left and the control stack at top-right. */}
-      <div
-        data-compare-launcher
-        className="pointer-events-none absolute bottom-4 right-4 z-40 flex justify-end"
-      >
-        <CompareChip
-          count={compare.length}
-          open={compareOpen}
-          onOpen={() => setCompareOpen(!compareOpen)}
-        />
-      </div>
+      {/* Minimised, Compare is a chip at the top left — the one corner of the
+          map with no chrome in it. The control stack and the transit filters
+          are top right, the legend is bottom left, the radius control bottom
+          right. */}
+      {!compareOpen && (
+        <div
+          data-compare-launcher
+          className="pointer-events-none absolute left-4 top-4 z-[60] flex"
+        >
+          <CompareChip count={compare.length} open={false} onOpen={() => setCompareOpen(true)} />
+        </div>
+      )}
 
+      {/* Expanded, it takes most of the map — a comparison is a table, and a
+          table squeezed into a strip is unreadable across a conference table.
+
+          Two deliberate gaps, both of which it needs:
+
+          The right rail is left clear so zoom, rotate, pitch, theme and the
+          rest stay reachable. This is a panel over the map, and the map has to
+          keep working underneath it.
+
+          The band along the top is left clear so there is still somewhere to
+          click. "Click the map to dismiss" needs a piece of map; a panel that
+          reaches every edge has nowhere to click and strands the user on the
+          Minimise button.
+
+          z-[60] puts it above the space popup (z-50) and the transit popup
+          (z-40). Those used to render ON TOP of the comparison, which is what
+          made the panel feel like the thing in the background. */}
       {compareOpen && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-16 z-40 flex justify-center px-4">
+        <div className="pointer-events-none absolute bottom-4 left-4 right-16 top-16 z-[60] flex">
           <CompareView variant="panel" panelRef={cardRef} onClose={() => setCompareOpen(false)} />
         </div>
       )}

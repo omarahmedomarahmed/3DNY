@@ -1172,6 +1172,21 @@ export default function MapView() {
     setTransitPopup(null);
   }, [selectedBuildingId, showTransit]);
 
+  // --- One panel at a time.
+  //
+  // Compare is the only thing on this map big enough to be worth reading on
+  // its own, and a space card or a station card floating over it is noise
+  // rather than context. Opening the comparison dismisses whatever else was
+  // open; while it stays open, nothing else takes its place — the click that
+  // would open a space card closes the comparison first, which is the same
+  // click-elsewhere rule every popup here already follows.
+  const compareOpen = useApp((s) => s.compareOpen);
+  useEffect(() => {
+    if (!compareOpen) return;
+    setPopup(null);
+    setTransitPopup(null);
+  }, [compareOpen]);
+
   const closePopup = useCallback(() => setPopup(null), []);
 
   return (
@@ -1229,7 +1244,10 @@ export default function MapView() {
       )}
 
       <div className="pointer-events-none absolute inset-0 z-10">
-        <MapLegend />
+        {/* The expanded comparison covers the bottom-left corner entirely, so
+            a legend underneath it is not hidden, it is half-hidden — which
+            looks like a bug. It comes back when the panel is minimised. */}
+        {!compareOpen && <MapLegend />}
         <RadiusControl />
         <MapControls
           map={map}
