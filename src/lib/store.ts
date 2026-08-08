@@ -42,6 +42,10 @@ interface AppState {
   mapTheme: 'dark' | 'light';
   /** Draw subway, bus, ferry and rail stops, with walk lines from the selection. */
   showTransit: boolean;
+  /** Which transit modes are drawn. Empty means all of them. */
+  transitModes: string[];
+  /** Hide every building except the selection, or those inside the radius. */
+  isolateSelection: boolean;
 
   selectedBuildingId: string | null;
   selectedSpaceId: string | null;
@@ -66,6 +70,8 @@ interface AppState {
   setShowContext: (on: boolean) => void;
   setMapTheme: (t: 'dark' | 'light') => void;
   setShowTransit: (on: boolean) => void;
+  toggleTransitMode: (mode: string) => void;
+  setIsolateSelection: (on: boolean) => void;
 
   selectBuilding: (id: string | null) => void;
   selectSpace: (id: string | null) => void;
@@ -92,6 +98,8 @@ export const useApp = create<AppState>((set, get) => ({
   showContext: false,
   mapTheme: 'dark',
   showTransit: false,
+  transitModes: [],
+  isolateSelection: false,
 
   selectedBuildingId: null,
   selectedSpaceId: null,
@@ -159,6 +167,25 @@ export const useApp = create<AppState>((set, get) => ({
 
   setShowTransit(showTransit) {
     set({ showTransit });
+  },
+
+  toggleTransitMode(mode) {
+    // Empty means "all modes", which is the state the map starts in. Clicking
+    // a chip from there has to mean "turn this one OFF" — the chips all read
+    // as on, so anything else is the opposite of what was pressed. So the
+    // implicit set is expanded to an explicit one on the first click.
+    const ALL = ['subway', 'bus', 'rail', 'path', 'ferry', 'tram'];
+    const current = get().transitModes.length === 0 ? ALL : get().transitModes;
+    const next = current.includes(mode)
+      ? current.filter((m) => m !== mode)
+      : [...current, mode];
+    // Back to the implicit "all" when everything is on, so the map does not
+    // sit on a filter that filters nothing.
+    set({ transitModes: next.length === ALL.length ? [] : next });
+  },
+
+  setIsolateSelection(isolateSelection) {
+    set({ isolateSelection });
   },
 
   selectBuilding(selectedBuildingId) {

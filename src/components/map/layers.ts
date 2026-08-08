@@ -1,4 +1,4 @@
-import { PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers';
+import { ColumnLayer, PathLayer, PolygonLayer, TextLayer } from '@deck.gl/layers';
 import type { Layer, PickingInfo } from '@deck.gl/core';
 import { circle as turfCircle } from '@turf/turf';
 import {
@@ -12,8 +12,11 @@ import type { BuildingWithSpaces, ColorMode, FloorBand } from '@/types';
 import type { ContextBuilding } from '@/lib/city-context';
 import {
   MODE_LABEL,
+  dashPath,
   layoutWalkLabels,
   nearestStops,
+  walkRoute,
+  type TransitMode,
   type TransitStop,
   type WalkLabel,
 } from '@/lib/transit';
@@ -499,33 +502,81 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
   // then the minutes — each above the last so a number is never covered by the
   // dot it belongs to.
   if (transitStops && transitStops.length > 0) {
-    layers.push(
-      new ScatterplotLayer<TransitStop>({
-        id: 'transit-stops',
-        data: transitStops,
-        pickable: true,
-        radiusUnits: 'pixels',
-        // Bus stops are twenty times as numerous as everything else, so they
-        // are drawn small enough to read as texture until you look for them.
-        getRadius: (d) => (d.mode === 'bus' ? 3.4 : 6.5),
-        radiusMinPixels: 3,
-        stroked: true,
-        lineWidthUnits: 'pixels',
-        getLineWidth: 1.4,
-        getLineColor: palette.labelBg,
-        getPosition: (d) => [d.lon, d.lat],
-        getFillColor: (d) => TRANSIT_COLORS[d.mode] ?? TRANSIT_COLORS.bus,
-        // Sits flat on the ground plane, under the towers rather than through
-        // them, which is where a station actually is.
-        parameters: { depthCompare: 'always' },
-        onClick: (info: PickingInfo<TransitStop>) => {
-          if (!info.object || !onTransitClick) return false;
-          onTransitClick(info.object, { x: info.x, y: info.y });
-          return true;
-        },
-        updateTriggers: { getLineColor: [theme] },
-      }),
-    );
+    // A flat dot reads as a pin dropped on a picture. These are little
+    // stanchions standing on the street: a post you can see behind a tower,
+    // with a coloured head whose height and width say which mode it is —
+    // subway tallest and widest because it is the one that decides a lease,
+    // bus lowest so four hundred of them stay texture rather than clutter.
+    // ColumnLayer takes one radius for the whole layer, so the markers are
+    // grouped by size rather than sized per feature. Two groups is all this
+    // needs: the modes that decide a lease, and bus.
+    const GROUPS: { key: string; modes: TransitMode[]; radius: number; height: number }[] = [
+      {
+        key: 'major',
+        modes: ['subway', 'rail', 'path', 'ferry', 'tram'],
+        radius: 15,
+        height: 36,
+      },
+      { key: 'bus', modes: ['bus'], radius: 7, height: 15 },
+    ];
+
+    for (const group of GROUPS) {
+      const data = transitStops.filter((s) => group.modes.includes(s.mode));
+      if (data.length === 0) continue;
+
+      // The mast: a thin dark post, so the head reads as standing off the
+      // street rather than painted on it, and stays visible past a tower.
+      layers.push(
+        new ColumnLayer<TransitStop>({
+          id: `transit-masts-${group.key}`,
+          data,
+          pickable: false,
+          diskResolution: 8,
+          extruded: true,
+          radiusUnits: 'meters',
+          radius: Math.max(2, group.radius * 0.22),
+          getPosition: (d) => [d.lon, d.lat],
+          getElevation: group.height,
+          getFillColor: palette.transitMast,
+          material: {
+            ambient: 0.7,
+            diffuse: 0.5,
+            shininess: 1,
+            specularColor: [255, 255, 255],
+          },
+          updateTriggers: { getFillColor: [theme] },
+        }),
+      );
+
+      // The head, on top of the mast, carrying the mode colour. Lit like the
+      // towers so the whole scene reads as one model rather than as icons
+      // pasted over it.
+      layers.push(
+        new ColumnLayer<TransitStop>({
+          id: `transit-stops-${group.key}`,
+          data,
+          pickable: true,
+          diskResolution: group.key === 'bus' ? 6 : 14,
+          extruded: true,
+          radiusUnits: 'meters',
+          radius: group.radius,
+          getPosition: (d) => [d.lon, d.lat, group.height],
+          getElevation: Math.max(3, group.height * 0.22),
+          getFillColor: (d) => TRANSIT_COLORS[d.mode] ?? TRANSIT_COLORS.bus,
+          material: {
+            ambient: 0.58,
+            diffuse: 0.62,
+            shininess: 8,
+            specularColor: [60, 68, 86],
+          },
+          onClick: (info: PickingInfo<TransitStop>) => {
+            if (!info.object || !onTransitClick) return false;
+            onTransitClick(info.object, { x: info.x, y: info.y });
+            return true;
+          },
+        }),
+      );
+    }
 
     if (transitOrigin) {
       const nearby = nearestStops(transitOrigin, transitStops, {
@@ -534,25 +585,15 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         perMode: 2,
       });
 
-      // deck.gl has no dashed path without the style extension, so the dash is
-      // the geometry: each line is cut into alternating drawn and skipped
-      // pieces, sized in metres so the rhythm holds at any zoom.
+      // Routes follow the street grid rather than cutting through the block,
+      // and are cut into dashes sized in metres so the rhythm holds at any
+      // zoom. The label positions still use the straight line to the stop,
+      // because a pill belongs on the sightline to its destination, not
+      // halfway round a corner.
       const dashes: { path: [number, number][] }[] = [];
       for (const stop of nearby) {
-        const from = transitOrigin;
-        const to: [number, number] = [stop.lon, stop.lat];
-        const meters = Math.max(1, stop.meters);
-        const dashM = 26;
-        const steps = Math.max(2, Math.round(meters / dashM));
-        for (let i = 0; i < steps; i += 2) {
-          const t0 = i / steps;
-          const t1 = Math.min(1, (i + 1) / steps);
-          dashes.push({
-            path: [
-              [from[0] + (to[0] - from[0]) * t0, from[1] + (to[1] - from[1]) * t0],
-              [from[0] + (to[0] - from[0]) * t1, from[1] + (to[1] - from[1]) * t1],
-            ],
-          });
+        for (const piece of dashPath(walkRoute(transitOrigin, [stop.lon, stop.lat]))) {
+          dashes.push({ path: piece });
         }
       }
 

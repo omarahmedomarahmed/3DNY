@@ -255,6 +255,8 @@ export interface ThemeColors {
   cityContext: RGBA;
   /** Floor plate lines drawn up every facade. */
   floorLine: RGBA;
+  /** The post a transit marker stands on. */
+  transitMast: RGBA;
   labelText: RGBA;
   labelBg: RGBA;
   labelBorder: RGBA;
@@ -270,6 +272,7 @@ const LIGHT_THEME: ThemeColors = {
   // Darker than the facade on a light map: a floor line is a shadow gap
   // between plates, not a highlight.
   floorLine: rgba('#0A1428', 42),
+  transitMast: rgba('#48546C', 255),
   labelText: rgba(BRAND.midnight, 255),
   labelBg: rgba(SURFACE.white, 242),
   labelBorder: rgba(SURFACE.hairlineStrong, 255),
@@ -290,6 +293,7 @@ const DARK_THEME: ThemeColors = {
   // Lighter than the facade on a dark map — the same reading inverted, as a
   // lit slot between floor plates.
   floorLine: rgba('#9FB4D8', 46),
+  transitMast: rgba('#8698BA', 255),
   labelText: rgba('#F4F7FC', 255),
   labelBg: rgba('#0B1220', 232),
   labelBorder: rgba('#46536E', 255),

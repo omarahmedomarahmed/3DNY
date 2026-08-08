@@ -341,6 +341,64 @@ async function fetchLandlord(id: string): Promise<Landlord | null> {
   }
 }
 
+/**
+ * Enlarges the basemap's street names.
+ *
+ * CARTO's styles are drawn for a map you look at, not one you present from:
+ * road labels top out around 12px, which is unreadable across a conference
+ * room and invisible once a building fills the frame. Every symbol layer whose
+ * text comes from a road name is re-scaled, and given a heavier halo so it
+ * survives being drawn over a tower.
+ *
+ * Applied by walking the loaded style rather than by forking it — the style is
+ * fetched from CARTO at runtime, and a local copy would drift from theirs.
+ */
+function enlargeStreetLabels(map: maplibregl.Map, theme: 'dark' | 'light') {
+  let style: maplibregl.StyleSpecification;
+  try {
+    style = map.getStyle();
+  } catch {
+    return;
+  }
+  if (!style?.layers) return;
+
+  for (const layer of style.layers) {
+    if (layer.type !== 'symbol') continue;
+    // Road labels are the ones whose source layer is a road/transportation
+    // layer. Place names are left alone: they are already sized for reading
+    // and enlarging them buries the map.
+    const sourceLayer = (layer as { 'source-layer'?: string })['source-layer'] ?? '';
+    if (!/road|transportation|street/i.test(sourceLayer + layer.id)) continue;
+
+    try {
+      map.setLayoutProperty(layer.id, 'text-size', [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        12, 12,
+        14, 15,
+        16, 20,
+        18, 26,
+      ]);
+      map.setLayoutProperty(layer.id, 'text-letter-spacing', 0.02);
+      map.setLayoutProperty(layer.id, 'symbol-placement', 'line');
+      map.setPaintProperty(
+        layer.id,
+        'text-halo-color',
+        theme === 'dark' ? '#05080F' : '#FFFFFF',
+      );
+      map.setPaintProperty(layer.id, 'text-halo-width', 2);
+      map.setPaintProperty(
+        layer.id,
+        'text-color',
+        theme === 'dark' ? '#D7E0F2' : '#2A3550',
+      );
+    } catch {
+      // A layer that will not take one of these properties keeps its own.
+    }
+  }
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -415,20 +473,55 @@ export default function MapView() {
   const showContext = useApp((s) => s.showContext);
   const mapTheme = useApp((s) => s.mapTheme);
   const showTransit = useApp((s) => s.showTransit);
+  const transitModes = useApp((s) => s.transitModes);
+  const isolateSelection = useApp((s) => s.isolateSelection);
   const loading = useApp((s) => s.loading);
   const error = useApp((s) => s.error);
 
-  const filtered = useMemo(
+  const allFiltered = useMemo(
     () => applyFilters(buildings, filters),
     [buildings, filters],
   );
+
+  /**
+   * "Isolate" narrows the map to what is being discussed: the buildings inside
+   * the radius if one is drawn, otherwise just the selected building. The
+   * sidebar keeps listing everything, so nothing is lost — this is about what
+   * is on screen when a client is looking at it.
+   */
+  const filtered = useMemo(() => {
+    if (!isolateSelection) return allFiltered;
+    if (radius) {
+      return allFiltered.filter((b) => {
+        if (b.lon === null || b.lat === null) return false;
+        return (
+          metersBetween([radius.lon, radius.lat], [b.lon, b.lat]) <=
+          radius.miles * 1609.34
+        );
+      });
+    }
+    if (selectedBuildingId) {
+      return allFiltered.filter((b) => b.id === selectedBuildingId);
+    }
+    return allFiltered;
+  }, [allFiltered, isolateSelection, radius, selectedBuildingId]);
 
   useVisibleBuildings(map, filtered);
 
   // The surrounding city, so the towers that carry data stand in Manhattan
   // rather than in an empty plane.
   const cityContext = useCityContext(map, zoom, showContext);
-  const { stops: transitStops, error: transitError } = useTransit(map, zoom, showTransit);
+  const { stops: allTransitStops, error: transitError } = useTransit(map, zoom, showTransit);
+
+  // An empty mode list means "all of them", so the map is useful before
+  // anyone touches a filter.
+  const transitStops = useMemo(
+    () =>
+      transitModes.length === 0
+        ? allTransitStops
+        : allTransitStops.filter((s) => transitModes.includes(s.mode)),
+    [allTransitStops, transitModes],
+  );
 
   // Walk lines start at the selected building, so they appear the moment a
   // building is clicked and vanish when it is dismissed.
@@ -479,6 +572,7 @@ export default function MapView() {
     let downgraded = false;
     const onStyleLoad = () => {
       styleLoaded = true;
+      enlargeStreetLabels(instance, useApp.getState().mapTheme);
     };
     const onError = () => {
       if (styleLoaded || downgraded) return;
@@ -620,6 +714,9 @@ export default function MapView() {
     try {
       instance.setStyle(resolveBasemap(mapTheme).style);
       overlayRef.current?.setProps({ effects: [buildLighting(mapTheme)] });
+      // A style swap replaces every layer, so the label sizing has to be
+      // reapplied once the new one has loaded.
+      instance.once('style.load', () => enlargeStreetLabels(instance, mapTheme));
     } catch {
       // A failed style swap leaves the previous basemap up, which is fine.
     }
@@ -829,6 +926,16 @@ export default function MapView() {
     };
 
     overlay.setProps({
+      // A click that hits nothing dismisses whatever is open. deck.gl calls
+      // this for every click, including ones a layer already handled, so the
+      // absence of a picked object is what distinguishes "clicked the map"
+      // from "clicked a building".
+      onClick: (info: PickingInfo) => {
+        if (info.object) return;
+        setPopup(null);
+        setTransitPopup(null);
+        useApp.getState().selectBuilding(null);
+      },
       layers: buildLayers({
         buildings,
         filtered,

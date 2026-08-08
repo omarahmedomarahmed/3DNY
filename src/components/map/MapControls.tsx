@@ -23,6 +23,15 @@ const PITCH_STEP = 10;
 /** MapLibre's own ceiling. Past this the horizon fills the frame. */
 const MAX_PITCH = 85;
 
+/** Modes offered as filters, in the order they matter to a tenant. */
+const TRANSIT_FILTERS: { mode: string; label: string; color: string }[] = [
+  { mode: 'subway', label: 'Subway', color: '#0056DA' },
+  { mode: 'bus', label: 'Bus', color: '#7A879E' },
+  { mode: 'rail', label: 'Rail', color: '#001E5A' },
+  { mode: 'path', label: 'PATH', color: '#243E8C' },
+  { mode: 'ferry', label: 'Ferry', color: '#0E7C86' },
+];
+
 interface MapControlsProps {
   map: maplibregl.Map | null;
   /** Frames every loaded building. Disabled when there is nothing to frame. */
@@ -104,8 +113,40 @@ export default function MapControls({
   const setMapTheme = useApp((s) => s.setMapTheme);
   const showTransit = useApp((s) => s.showTransit);
   const setShowTransit = useApp((s) => s.setShowTransit);
+  const transitModes = useApp((s) => s.transitModes);
+  const toggleTransitMode = useApp((s) => s.toggleTransitMode);
+  const isolateSelection = useApp((s) => s.isolateSelection);
+  const setIsolateSelection = useApp((s) => s.setIsolateSelection);
 
   return (
+    <>
+      {showTransit && (
+        <div className="pointer-events-auto absolute right-16 top-4 z-20 flex flex-col gap-1 rounded-card border border-hairline bg-white p-1.5 shadow-raised">
+          {TRANSIT_FILTERS.map((f) => {
+            // No selection means everything is shown, so every chip reads as on.
+            const on = transitModes.length === 0 || transitModes.includes(f.mode);
+            return (
+              <button
+                key={f.mode}
+                type="button"
+                onClick={() => toggleTransitMode(f.mode)}
+                aria-pressed={on}
+                className={
+                  'flex items-center gap-2 rounded px-2 py-1 text-xs font-semibold transition-colors ' +
+                  (on ? 'bg-midnight text-white' : 'text-muted hover:bg-surface-alt')
+                }
+              >
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ background: f.color }}
+                />
+                {f.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
     <div className="pointer-events-auto absolute right-4 top-4 z-20 flex flex-col overflow-hidden rounded-card border border-hairline bg-white shadow-raised">
       <ControlButton label="Zoom in" disabled={!map} onClick={() => map?.zoomIn()}>
         <Icon>
@@ -227,6 +268,28 @@ export default function MapControls({
         </Icon>
       </ControlButton>
 
+      {/* Isolate. With a radius drawn it keeps only what is inside it;
+          otherwise only the selected building. The sidebar still lists
+          everything — this is about what a client is looking at. */}
+      <ControlButton
+        label={
+          isolateSelection
+            ? 'Show all buildings again'
+            : 'Show only the selection, or what is inside the radius'
+        }
+        active={isolateSelection}
+        disabled={!map}
+        onClick={() => setIsolateSelection(!isolateSelection)}
+      >
+        {/* A single block picked out of a row. */}
+        <Icon>
+          <path d="M3.5 20h17" />
+          <path d="M4.5 20v-5h3v5" opacity="0.45" />
+          <path d="M9.8 20V7h4.4v13" />
+          <path d="M16.5 20v-6h3v6" opacity="0.45" />
+        </Icon>
+      </ControlButton>
+
       {/* Stack Snapshot. Acts on the selected building: frames it, captures the
           stack, and writes a PNG with every available floor and the landlord
           beside it. Holding Shift borrows Google's imagery for the capture
@@ -308,5 +371,6 @@ export default function MapControls({
         </ControlButton>
       )}
     </div>
+    </>
   );
 }

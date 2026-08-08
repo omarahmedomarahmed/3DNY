@@ -444,3 +444,120 @@ export function layoutWalkLabels(
   }
   return kept;
 }
+
+// ---------------------------------------------------------------------------
+// Walking routes
+// ---------------------------------------------------------------------------
+
+/**
+ * Manhattan's street grid runs about 29 degrees east of north, so an avenue is
+ * not "up" and a street is not "across". Every route below is built in that
+ * rotated frame and rotated back.
+ */
+export const GRID_BEARING_RAD = (29 * Math.PI) / 180;
+
+/**
+ * A walking route that follows the grid rather than cutting through blocks.
+ *
+ * True street routing needs a routing engine — the free public ones are either
+ * car-only or too unreliable to put in front of a client. But Manhattan is the
+ * one city where you barely need one: you walk along an avenue and along a
+ * street, and the only real choice is which you do first. So the route is an
+ * L in the grid's own frame, with the long leg taken first because that is
+ * what people actually do, plus a mid-block dogleg so it reads as a walk
+ * rather than as a right angle drawn on a map.
+ *
+ * It is an approximation and the walk time still comes from `walkMinutes`.
+ * What it buys is a line that lies along streets instead of through buildings.
+ */
+export function walkRoute(
+  from: [number, number],
+  to: [number, number],
+): [number, number][] {
+  const midLat = ((from[1] + to[1]) / 2) * (Math.PI / 180);
+  const mPerLon = 111_320 * Math.cos(midLat);
+  const mPerLat = 111_320;
+
+  // Into metres, then into the grid's frame.
+  const dxM = (to[0] - from[0]) * mPerLon;
+  const dyM = (to[1] - from[1]) * mPerLat;
+  const cos = Math.cos(-GRID_BEARING_RAD);
+  const sin = Math.sin(-GRID_BEARING_RAD);
+  const alongAve = dxM * cos - dyM * sin;
+  const alongSt = dxM * sin + dyM * cos;
+
+  // Back out of the grid frame, into degrees.
+  const toLngLat = (a: number, b: number): [number, number] => {
+    const x = a * Math.cos(GRID_BEARING_RAD) - b * Math.sin(GRID_BEARING_RAD);
+    const y = a * Math.sin(GRID_BEARING_RAD) + b * Math.cos(GRID_BEARING_RAD);
+    return [from[0] + x / mPerLon, from[1] + y / mPerLat];
+  };
+
+  // Long leg first, and the turn placed at 55% rather than at the corner, so
+  // the path looks walked rather than drafted.
+  const aveFirst = Math.abs(alongAve) >= Math.abs(alongSt);
+  const turn = 0.55;
+
+  const points: [number, number][] = [from];
+  if (aveFirst) {
+    points.push(toLngLat(alongAve * turn, 0));
+    points.push(toLngLat(alongAve * turn, alongSt));
+    points.push(toLngLat(alongAve, alongSt));
+  } else {
+    points.push(toLngLat(0, alongSt * turn));
+    points.push(toLngLat(alongAve, alongSt * turn));
+    points.push(toLngLat(alongAve, alongSt));
+  }
+  return points;
+}
+
+/** Total length of a polyline, in metres. */
+export function routeLength(path: [number, number][]): number {
+  let total = 0;
+  for (let i = 1; i < path.length; i++) total += metersBetween(path[i - 1], path[i]);
+  return total;
+}
+
+/**
+ * Cuts a polyline into dashes of a fixed length in metres.
+ *
+ * deck.gl has no dashed path without the style extension, so the dash is the
+ * geometry. Sizing in metres rather than pixels keeps the rhythm even as the
+ * camera moves.
+ */
+export function dashPath(
+  path: [number, number][],
+  dashMeters = 26,
+): [number, number][][] {
+  const out: [number, number][][] = [];
+  let carry = 0;
+  let drawing = true;
+
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1];
+    const b = path[i];
+    const segment = metersBetween(a, b);
+    if (segment === 0) continue;
+
+    let travelled = 0;
+    while (travelled < segment) {
+      const remaining = dashMeters - carry;
+      const step = Math.min(remaining, segment - travelled);
+      const t0 = travelled / segment;
+      const t1 = (travelled + step) / segment;
+      if (drawing) {
+        out.push([
+          [a[0] + (b[0] - a[0]) * t0, a[1] + (b[1] - a[1]) * t0],
+          [a[0] + (b[0] - a[0]) * t1, a[1] + (b[1] - a[1]) * t1],
+        ]);
+      }
+      travelled += step;
+      carry += step;
+      if (carry >= dashMeters) {
+        carry = 0;
+        drawing = !drawing;
+      }
+    }
+  }
+  return out;
+}
