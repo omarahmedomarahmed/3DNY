@@ -147,16 +147,43 @@ export interface SpaceImage {
   uploaded_at: string;
 }
 
+/**
+ * What this company is to us.
+ *
+ * Not a status on a deal — a relationship to a tenancy. The distinction that
+ * matters on the map is between space we are simply aware of, space we are
+ * chasing, and space we put a client into; the last of those is the one a
+ * broker points at in a meeting.
+ */
+export type TenantRelationship = 'occupier' | 'prospect' | 'client';
+
 export interface Tenant {
   id: string;
   building_id: string;
   company_name: string;
+  /** As written — "12-14", "Ground, 2". The record, not the derivation. */
   floors: string | null;
+  /**
+   * Parsed from `floors`, so the tenancy can be drawn on the tower. Empty when
+   * the floors could not be read, which is common and not an error: "Ground"
+   * and "Penthouse" are real answers that are not floor numbers.
+   */
+  floor_numbers: number[];
+  suite: string | null;
   sf: number | null;
+  lease_start: string | null;
   lease_expiration: string | null;
   industry: string | null;
   notes: string | null;
+  relationship: TenantRelationship;
   source: TenantSource;
+  /** Set when the row came from Salesforce, so a re-sync updates in place. */
+  salesforce_id: string | null;
+  salesforce_url: string | null;
+  source_import_id: string | null;
+  import_filename?: string | null;
+  last_synced_at: string | null;
+  field_sources?: FieldSources;
   updated_at: string;
 }
 
@@ -253,18 +280,47 @@ export interface BuildingWithSpaces extends Building {
   spaceCount: number;
 }
 
-/** A vertical band drawn on a tower for one available floor. */
+/**
+ * What a band on a tower represents.
+ *
+ * Three things now live on the same facade, and the order here is the order of
+ * loudness they are allowed: available space is the subject of this map and
+ * everything else defers to it.
+ */
+export type OccupancyKind =
+  /** Space on the market. Goldenrod. The loudest thing on screen. */
+  | 'available'
+  /** A CRESA client's space — ours to point at, and quieter than availability. */
+  | 'client'
+  /** Somebody is in it: market intelligence, or a Salesforce prospect. */
+  | 'occupied';
+
+/** A vertical band drawn on a tower for one floor. */
 export interface FloorBand {
-  spaceId: string;
+  /**
+   * The record this band stands for: a space id when `kind` is 'available',
+   * a tenant id otherwise. Paired with `kind` it says which table to look in,
+   * which is what the click handler needs and all it needs.
+   */
+  recordId: string;
+  kind: OccupancyKind;
   buildingId: string;
+  /** Lowest floor of the band. */
   floorNumber: number;
+  /** How many consecutive floors it covers — a block tenancy is one band. */
+  floors: number;
   portion: FloorPortion;
   /** Feet above ground for the bottom and top of the band. */
   baseFt: number;
   topFt: number;
   polygon: [number, number][];
   approximate: boolean;
+  /** Company name, for a tenancy. Null for available space. */
+  label: string | null;
 }
+
+/** The three kinds, as the map filter and legend offer them. */
+export const OCCUPANCY_KINDS: OccupancyKind[] = ['available', 'client', 'occupied'];
 
 export type ColorMode = 'rent' | 'availability' | 'class' | 'sf';
 

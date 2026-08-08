@@ -1,0 +1,8 @@
+Account Name,Billing Street,Floor(s),Suite,RSF,Lease Commencement,Lease Expiration Date,Industry,Type,Account 18 Digit ID,Record URL,Description
+Example Law Partners LLP,100 Park Avenue,7-14,,"291,000",04/01/2022,03/31/2032,Legal,Occupier,001Ax000001AAAAAAA,https://example.my.salesforce.com/001Ax000001AAAAAAA,Example row — replace with a real export.
+Northbridge Consumer Brands,100 Park Avenue,15-18,,"88,400",07/01/2018,Jun 2028,Consumer Goods,Prospect,001Ax000001BBBBBBB,https://example.my.salesforce.com/001Ax000001BBBBBBB,Example row. Type drives the band colour.
+Harlan Media Group,200 Park Avenue,32-34,,"120,000",01/01/2020,12/31/2029,Advertising,Client,001Ax000001CCCCCCC,https://example.my.salesforce.com/001Ax000001CCCCCCC,Example row. A Client is drawn in teal.
+Vance Kerr Realty,777 Third Avenue,4,410,"22,150",10/01/2017,Sep 2027,Real Estate,Occupier,001Ax000001DDDDDDD,https://example.my.salesforce.com/001Ax000001DDDDDDD,Example row. A suite makes the band a partial floor.
+Ridgeline Health Marketing,102 Madison Avenue,8-10,,"46,900",09/01/2021,08/31/2026,Healthcare Marketing,Prospect,001Ax000001EEEEEEE,https://example.my.salesforce.com/001Ax000001EEEEEEE,Example row. Expiration inside twelve months.
+Fetch Supply Co,118 W 22nd Street,"9, 10",,"31,200",03/01/2023,Feb 2028,Consumer Products,Occupier,001Ax000001FFFFFFF,https://example.my.salesforce.com/001Ax000001FFFFFFF,"Example row. Commas inside a cell require quoting."
+Meridian Ground Floor Retail,485 Lexington Avenue,Ground,,"8,400",06/01/2024,May 2034,Retail,Occupier,001Ax000001GGGGGGG,https://example.my.salesforce.com/001Ax000001GGGGGGG,Example row. A named level is recorded but never drawn on a floor.

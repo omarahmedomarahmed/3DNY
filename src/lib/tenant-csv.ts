@@ -1,4 +1,5 @@
 import Papa from 'papaparse';
+import type { TenantRelationship } from '@/types';
 
 /**
  * Parses the hand-authored tenant sheet — who is currently in a building.
@@ -15,15 +16,59 @@ export interface TenantRow {
   address: string;
   companyName: string;
   floors: string | null;
+  suite: string | null;
   sf: number | null;
+  leaseStart: string | null;
   leaseExpiration: string | null;
   industry: string | null;
   notes: string | null;
+  relationship: TenantRelationship;
+  /** Present on a Salesforce export, so a re-import updates in place. */
+  salesforceId: string | null;
+  salesforceUrl: string | null;
 }
 
 export interface TenantParseResult {
   rows: TenantRow[];
   errors: string[];
+  /** True when the sheet carried Salesforce record ids. */
+  fromSalesforce: boolean;
+}
+
+/**
+ * What the sheet is, which decides what its rows are to us.
+ *
+ * A CRESA client roster and a Salesforce account export are the same shape of
+ * data — a company, a building, some floors — and differ only in what the rows
+ * mean. Rather than two parsers that drift apart, there is one parser and the
+ * caller says which sheet it is holding.
+ */
+export type TenantSheetKind = 'roster' | 'clients';
+
+const DEFAULT_RELATIONSHIP: Record<TenantSheetKind, TenantRelationship> = {
+  roster: 'occupier',
+  clients: 'client',
+};
+
+/**
+ * Reads a relationship out of whatever the CRM called it.
+ *
+ * Salesforce type and stage names are configured per org, so this matches on
+ * intent rather than on an exact vocabulary, and falls back to the sheet's own
+ * default rather than guessing. Getting this wrong in the "client" direction
+ * would put a teal band on a tower for a company that is not our client, which
+ * is the one error here worth being conservative about.
+ */
+export function parseRelationship(
+  raw: string,
+  fallback: TenantRelationship,
+): TenantRelationship {
+  const value = clean(raw).toLowerCase();
+  if (!value) return fallback;
+  if (/\b(client|customer|won|active\s*client|represented)\b/.test(value)) return 'client';
+  if (/\b(prospect|lead|opportunity|target|pipeline|qualified)\b/.test(value)) return 'prospect';
+  if (/\b(occupier|tenant|occupant|incumbent|competitor)\b/.test(value)) return 'occupier';
+  return fallback;
 }
 
 const MONTHS: Record<string, number> = {
@@ -99,20 +144,51 @@ export function parseLeaseExpiration(raw: string): string | null {
   return null;
 }
 
+/**
+ * Every header either sheet is known to use.
+ *
+ * The Salesforce spellings sit alongside ours rather than in a second table:
+ * an export is a CSV somebody edited on the way here as often as not, and a
+ * single list means a file with a mix of both still reads.
+ */
 const COLUMNS = {
-  address: ['Address', 'Building', 'Building Address'],
-  companyName: ['Company', 'Company Name', 'Tenant', 'Tenant Name'],
-  floors: ['Floors', 'Floor'],
-  sf: ['SF', 'Square Feet', 'Size'],
-  leaseExpiration: ['Lease Expiration', 'Lease Expiry', 'Expiration', 'Expiry'],
+  address: [
+    'Address', 'Building', 'Building Address', 'Billing Street', 'Shipping Street',
+    'Property Address', 'Site Address',
+  ],
+  companyName: [
+    'Company', 'Company Name', 'Tenant', 'Tenant Name', 'Account Name', 'Account',
+    'Client', 'Client Name', 'Name',
+  ],
+  floors: ['Floors', 'Floor', 'Floor(s)', 'Premises', 'Space'],
+  suite: ['Suite', 'Unit', 'Suite Number'],
+  sf: ['SF', 'Square Feet', 'Size', 'RSF', 'Rentable SF', 'Square Footage'],
+  leaseStart: ['Lease Start', 'Commencement', 'Lease Commencement', 'Start Date'],
+  leaseExpiration: [
+    'Lease Expiration', 'Lease Expiry', 'Expiration', 'Expiry', 'Lease End',
+    'Expiration Date', 'Lease Expiration Date',
+  ],
   industry: ['Industry', 'Sector'],
-  notes: ['Notes', 'Note', 'Comments'],
+  notes: ['Notes', 'Note', 'Comments', 'Description'],
+  relationship: [
+    'Relationship', 'Type', 'Account Type', 'Status', 'Stage', 'Record Type',
+    'Client Status',
+  ],
+  salesforceId: [
+    'Salesforce ID', 'Account ID', 'Record ID', 'Id', 'ID', '18 Digit ID',
+    'Account 18 Digit ID',
+  ],
+  salesforceUrl: ['Salesforce URL', 'Link', 'Record URL', 'URL'],
 } as const;
 
 type ColumnKey = keyof typeof COLUMNS;
 
-export function parseTenantCsv(text: string): TenantParseResult {
+export function parseTenantCsv(
+  text: string,
+  kind: TenantSheetKind = 'roster',
+): TenantParseResult {
   const errors: string[] = [];
+  const fallbackRelationship = DEFAULT_RELATIONSHIP[kind];
 
   const parsed = Papa.parse<Record<string, string>>(text, {
     header: true,
@@ -124,6 +200,7 @@ export function parseTenantCsv(text: string): TenantParseResult {
   if (fields.length === 0) {
     return {
       rows: [],
+      fromSalesforce: false,
       errors: ['The file has no header row. Expected a header starting with "Address".'],
     };
   }
@@ -139,6 +216,7 @@ export function parseTenantCsv(text: string): TenantParseResult {
   if (missing.length > 0) {
     return {
       rows: [],
+      fromSalesforce: false,
       errors: [
         'Missing required column(s): ' +
           missing.map((k) => COLUMNS[k][0]).join(', ') +
@@ -182,22 +260,38 @@ export function parseTenantCsv(text: string): TenantParseResult {
       );
     }
 
-    // Same company on the same floors of the same building is one tenancy.
-    const key = `${address.toLowerCase()}|${companyName.toLowerCase()}|${floors.toLowerCase()}`;
+    const salesforceId = orNull(get(record, 'salesforceId'));
+
+    // A Salesforce id identifies the tenancy on its own. Without one, the same
+    // company on the same floors of the same building is one tenancy.
+    const key = salesforceId
+      ? `sf:${salesforceId}`
+      : `${address.toLowerCase()}|${companyName.toLowerCase()}|${floors.toLowerCase()}`;
     if (seen.has(key)) {
       errors.push(`Row ${rowNumber}: duplicate of an earlier row — skipped.`);
       return;
     }
     seen.add(key);
 
+    const startRaw = get(record, 'leaseStart');
+    const leaseStart = parseLeaseExpiration(startRaw);
+    if (startRaw && leaseStart === null) {
+      errors.push(`Row ${rowNumber}: could not read lease start "${startRaw}".`);
+    }
+
     rows.push({
       address,
       companyName,
       floors: orNull(floors),
+      suite: orNull(get(record, 'suite')),
       sf: parseTenantSf(get(record, 'sf')),
+      leaseStart,
       leaseExpiration,
       industry: orNull(get(record, 'industry')),
       notes: orNull(get(record, 'notes')),
+      relationship: parseRelationship(get(record, 'relationship'), fallbackRelationship),
+      salesforceId,
+      salesforceUrl: orNull(get(record, 'salesforceUrl')),
     });
   });
 
@@ -205,5 +299,5 @@ export function parseTenantCsv(text: string): TenantParseResult {
     errors.push('No tenant rows found below the header.');
   }
 
-  return { rows, errors };
+  return { rows, errors, fromSalesforce: rows.some((r) => r.salesforceId !== null) };
 }

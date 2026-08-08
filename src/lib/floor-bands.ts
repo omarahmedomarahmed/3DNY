@@ -1,4 +1,11 @@
-import type { Building, FloorBand, Space } from '@/types';
+import type {
+  Building,
+  FloorBand,
+  FloorPortion,
+  OccupancyKind,
+  Space,
+  Tenant,
+} from '@/types';
 
 /**
  * Turns "the 45th floor is available" into a coloured band on the tower.
@@ -99,30 +106,95 @@ export function buildingHeightFt(building: Building): number {
 }
 
 /**
- * One band per available floor. Partial floors are rendered slightly narrower
- * so "Partial 11th" and "Entire 11th" are distinguishable at a glance.
+ * How far each kind of band stands proud of the facade.
+ *
+ * They are different radii rather than different z, because they can share a
+ * floor: a client on 14 and an availability on 14 are two true statements
+ * about the same band of wall, and coplanar surfaces at the same radius
+ * z-fight into a flickering mess. Availability sits furthest out, which is
+ * both the loudest position and the one that wins any overlap.
  */
-export function computeFloorBands(
-  building: Building,
-  spaces: Space[],
-): FloorBand[] {
+const BAND_RADIUS: Record<OccupancyKind, { entire: number; partial: number }> = {
+  available: { entire: 1.035, partial: 1.02 },
+  client: { entire: 1.05, partial: 1.05 },
+  occupied: { entire: 1.012, partial: 1.012 },
+};
+
+/** One occupancy, before it knows where on the tower it sits. */
+export interface FloorClaim {
+  recordId: string;
+  kind: OccupancyKind;
+  /** Lowest floor of the run. */
+  floorNumber: number;
+  /** How many consecutive floors it covers. One unless merged. */
+  floors: number;
+  portion: FloorPortion;
+  label: string | null;
+}
+
+/**
+ * Collapses consecutive floors of one tenancy into a single band.
+ *
+ * A firm on 7 through 14 is one tenancy, and drawing it as eight separate
+ * stripes says the opposite — it reads as eight facts, and stacked up the
+ * facade it becomes indistinguishable from the building's own floor lines. On
+ * a tower with two block tenants the middle of the building turned into a
+ * hatch pattern that out-shouted the one Goldenrod band underneath it.
+ *
+ * One block per tenancy is both quieter and truer.
+ */
+export function mergeRuns(claims: FloorClaim[]): FloorClaim[] {
+  const byRecord = new Map<string, FloorClaim[]>();
+  for (const claim of claims) {
+    const list = byRecord.get(claim.recordId) ?? [];
+    list.push(claim);
+    byRecord.set(claim.recordId, list);
+  }
+
+  const out: FloorClaim[] = [];
+  for (const list of byRecord.values()) {
+    const sorted = [...list].sort((a, b) => a.floorNumber - b.floorNumber);
+    let run = { ...sorted[0] };
+    for (let i = 1; i < sorted.length; i++) {
+      const next = sorted[i];
+      if (next.floorNumber === run.floorNumber + run.floors) {
+        run.floors += next.floors;
+        continue;
+      }
+      out.push(run);
+      run = { ...next };
+    }
+    out.push(run);
+  }
+  return out;
+}
+
+/**
+ * Bands for any set of floor claims on one building.
+ *
+ * Availability, a client's space and a tenancy are the same geometry problem —
+ * put a collar round floor N — and differ only in what they are called and how
+ * far out they sit. Keeping one implementation means a floor height fix
+ * reaches all three, and it is the floor height that is the estimate here.
+ */
+export function computeBands(building: Building, claims: FloorClaim[]): FloorBand[] {
   const ring = buildingRing(building);
   if (!ring) return [];
 
   const { height, derived } = floorHeightFt(building);
   const roof = buildingHeightFt(building);
 
-  return spaces
-    .filter((s) => s.is_active && s.floor_number !== null && s.floor_number > 0)
-    .map((s) => {
-      const floor = s.floor_number as number;
-      let base = (floor - 1) * height;
-      let top = base + height;
+  return claims
+    .filter((c) => c.floorNumber > 0)
+    .map((c) => {
+      const span = Math.max(1, c.floors);
+      let base = (c.floorNumber - 1) * height;
+      let top = base + height * span;
 
       // A floor number beyond the building's known height still has to render
       // somewhere sensible — pin it just below the roof rather than floating.
       if (base > roof) {
-        base = Math.max(0, roof - height);
+        base = Math.max(0, roof - height * span);
         top = roof;
       }
 
@@ -131,13 +203,17 @@ export function computeFloorBands(
       // view and only appeared with photorealistic mode on, where depth
       // testing is off. Scaling about the centroid keeps the band the exact
       // shape of the building's footprint.
-      const factor = s.floor_portion === 'partial' ? 1.02 : 1.035;
+      const radius = BAND_RADIUS[c.kind];
+      const factor = c.portion === 'partial' ? radius.partial : radius.entire;
 
       return {
-        spaceId: s.id,
+        recordId: c.recordId,
+        kind: c.kind,
         buildingId: building.id,
-        floorNumber: floor,
-        portion: s.floor_portion,
+        floorNumber: c.floorNumber,
+        floors: span,
+        portion: c.portion,
+        label: c.label,
         baseFt: base,
         topFt: top,
         polygon: insetRing(ring, factor),
@@ -145,6 +221,54 @@ export function computeFloorBands(
       } satisfies FloorBand;
     })
     .sort((a, b) => a.floorNumber - b.floorNumber);
+}
+
+/** Available space as floor claims. */
+export function spaceClaims(spaces: Space[]): FloorClaim[] {
+  return spaces
+    .filter((s) => s.is_active && s.floor_number !== null && s.floor_number > 0)
+    .map((s) => ({
+      recordId: s.id,
+      kind: 'available' as const,
+      floorNumber: s.floor_number as number,
+      floors: 1,
+      portion: s.floor_portion,
+      label: null,
+    }));
+}
+
+/**
+ * Tenancies as floor claims — one per floor a company holds.
+ *
+ * A tenancy with no readable floor number yields nothing. That is the common
+ * case for ground-floor retail and it is deliberately not a guess: the row
+ * still exists and still shows in the building's tenant table, it simply is
+ * not drawn on a floor nobody stated.
+ */
+export function tenantClaims(tenants: Tenant[]): FloorClaim[] {
+  const out: FloorClaim[] = [];
+  for (const t of tenants) {
+    const kind: OccupancyKind = t.relationship === 'client' ? 'client' : 'occupied';
+    for (const floor of t.floor_numbers ?? []) {
+      out.push({
+        recordId: t.id,
+        kind,
+        floorNumber: floor,
+        floors: 1,
+        // A tenancy is the whole floor unless a suite says otherwise, and a
+        // suite is the one signal in the data that says it is not.
+        portion: t.suite ? 'partial' : 'entire',
+        label: t.company_name,
+      });
+    }
+  }
+  // A firm holding 7 through 14 is one tenancy and gets one band.
+  return mergeRuns(out);
+}
+
+/** Every band on one building: what is available, and who is in the rest. */
+export function computeFloorBands(building: Building, spaces: Space[]): FloorBand[] {
+  return computeBands(building, spaceClaims(spaces));
 }
 
 /** Feet → metres, which is what deck.gl's elevation units expect. */

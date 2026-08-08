@@ -1,0 +1,5 @@
+Client Name,Address,Floors,Suite,SF,Lease Start,Lease Expiration,Industry,Notes
+Aldergate Capital,60 E 42nd Street,45,,"18,900",05/01/2023,04/30/2033,Financial Services,Example row — replace with your own clients. Every row here is drawn as a Cresa client.
+Pallas Robotics,509 Fifth Avenue,3-4,,"12,400",09/01/2024,08/31/2031,Technology,Example row. A range covers both floors.
+Brightwater Foundation,9 E 40th Street,8,802,"5,400",01/01/2022,12/31/2027,Non-profit,Example row. A suite makes the band a partial floor.
+Kestrel Analytics,100 Park Avenue,22,,"9,100",11/01/2025,10/31/2035,Data & Analytics,Example row. Sits in the same tower as available space.

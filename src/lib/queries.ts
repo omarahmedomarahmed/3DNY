@@ -1,5 +1,6 @@
 import { sql, normalizeAddress } from '@/lib/db';
 import { fieldSourceAssignment } from '@/lib/field-stamp';
+import { parseFloorList } from '@/lib/floor-list';
 import type {
   Building,
   BuildingWithSpaces,
@@ -8,6 +9,7 @@ import type {
   MatchedRow,
   Space,
   Tenant,
+  TenantRelationship,
 } from '@/types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -74,6 +76,33 @@ function toFieldSources(value: unknown): FieldSources {
   return out;
 }
 
+function toTenant(r: any): Tenant {
+  return {
+    id: r.id,
+    building_id: r.building_id,
+    company_name: r.company_name,
+    floors: r.floors ?? null,
+    // Postgres hands an integer[] back as an array; a row written before the
+    // column existed has null. Either way the map needs a list it can loop.
+    floor_numbers: Array.isArray(r.floor_numbers) ? r.floor_numbers.map(Number) : [],
+    suite: r.suite ?? null,
+    sf: r.sf === null || r.sf === undefined ? null : Number(r.sf),
+    lease_start: r.lease_start ?? null,
+    lease_expiration: r.lease_expiration ?? null,
+    industry: r.industry ?? null,
+    notes: r.notes ?? null,
+    relationship: r.relationship ?? 'occupier',
+    source: r.source ?? 'manual',
+    salesforce_id: r.salesforce_id ?? null,
+    salesforce_url: r.salesforce_url ?? null,
+    source_import_id: r.source_import_id ?? null,
+    import_filename: r.import_filename ?? null,
+    last_synced_at: r.last_synced_at ?? null,
+    field_sources: toFieldSources(r.field_sources),
+    updated_at: r.updated_at,
+  };
+}
+
 function toSpace(r: any): Space {
   return {
     id: r.id,
@@ -133,7 +162,12 @@ export async function getBuildingsWithSpaces(): Promise<BuildingWithSpaces[]> {
     db(`SELECT s.*, i.filename AS import_filename, i.uploaded_at AS import_uploaded_at
         FROM spaces s LEFT JOIN imports i ON i.id = s.source_import_id
         WHERE s.is_active ORDER BY s.floor_number NULLS LAST`),
-    db(`SELECT * FROM tenants ORDER BY company_name`),
+    // The roster is joined in for the same reason the availability sheet is:
+    // a tenancy on the map has to be able to say where it came from without a
+    // second request.
+    db(`SELECT t.*, i.filename AS import_filename
+        FROM tenants t LEFT JOIN imports i ON i.id = t.source_import_id
+        ORDER BY t.company_name`),
   ]);
 
   const spacesByBuilding = new Map<string, Space[]>();
@@ -147,7 +181,7 @@ export async function getBuildingsWithSpaces(): Promise<BuildingWithSpaces[]> {
   const tenantsByBuilding = new Map<string, Tenant[]>();
   for (const row of tenantRows as any[]) {
     const list = tenantsByBuilding.get(row.building_id) ?? [];
-    list.push(row as Tenant);
+    list.push(toTenant(row));
     tenantsByBuilding.set(row.building_id, list);
   }
 
@@ -569,7 +603,8 @@ const BUILDING_EDITABLE = new Set([
 ]);
 
 const TENANT_EDITABLE = new Set([
-  'company_name', 'floors', 'sf', 'lease_expiration', 'industry', 'notes', 'source',
+  'company_name', 'floors', 'suite', 'sf', 'lease_start', 'lease_expiration',
+  'industry', 'notes', 'relationship', 'source',
 ]);
 
 const LANDLORD_EDITABLE = new Set([
@@ -608,8 +643,30 @@ export const updateSpace = (id: string, patch: Record<string, unknown>, kind?: s
 export const updateBuilding = (id: string, patch: Record<string, unknown>, kind?: string) =>
   patchRow('buildings', BUILDING_EDITABLE, id, patch, kind);
 
-export const updateTenant = (id: string, patch: Record<string, unknown>) =>
-  patchRow('tenants', TENANT_EDITABLE, id, patch);
+/**
+ * `floor_numbers` is derived, never sent. Editing the floors text has to move
+ * the band on the tower, and leaving that to the caller means one caller
+ * eventually forgets and a tenancy silently stops being drawn where it is.
+ */
+export async function updateTenant(id: string, patch: Record<string, unknown>) {
+  const next = { ...patch };
+  if ('floors' in next) {
+    const floors = typeof next.floors === 'string' ? next.floors : null;
+    delete next.floors;
+    const db = sql();
+    await db(`UPDATE tenants SET floors = $2, floor_numbers = $3 WHERE id = $1`, [
+      id,
+      floors,
+      parseFloorList(floors),
+    ]);
+    if (Object.keys(next).length === 0) {
+      const rows = (await db(`SELECT * FROM tenants WHERE id = $1`, [id])) as any[];
+      return rows[0] ? toTenant(rows[0]) : null;
+    }
+  }
+  const row = await patchRow('tenants', TENANT_EDITABLE, id, next);
+  return row ? toTenant(row) : null;
+}
 
 export const updateLandlord = (id: string, patch: Record<string, unknown>) =>
   patchRow('landlords', LANDLORD_EDITABLE, id, patch);
@@ -618,28 +675,52 @@ export async function createTenant(input: {
   building_id: string;
   company_name: string;
   floors?: string | null;
+  suite?: string | null;
   sf?: number | null;
+  lease_start?: string | null;
   lease_expiration?: string | null;
   industry?: string | null;
   notes?: string | null;
+  relationship?: TenantRelationship;
   source?: string;
+  salesforce_id?: string | null;
+  salesforce_url?: string | null;
+  source_import_id?: string | null;
+  last_synced_at?: string | null;
 }): Promise<Tenant> {
   const db = sql();
   const rows = (await db(
-    `INSERT INTO tenants (building_id, company_name, floors, sf, lease_expiration, industry, notes, source)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+    `INSERT INTO tenants (
+       building_id, company_name, floors, floor_numbers, suite, sf,
+       lease_start, lease_expiration, industry, notes, relationship, source,
+       salesforce_id, salesforce_url, source_import_id, last_synced_at
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+     RETURNING *`,
     [
       input.building_id,
       input.company_name,
       input.floors ?? null,
+      // Derived here rather than by the caller, so every path that creates a
+      // tenancy — importer, CRM sync, the add-by-hand form — produces a row
+      // the map can draw. A tenancy that exists but cannot be drawn because
+      // one caller forgot to parse its floors is the failure worth designing
+      // out.
+      parseFloorList(input.floors),
+      input.suite ?? null,
       input.sf ?? null,
+      input.lease_start ?? null,
       input.lease_expiration ?? null,
       input.industry ?? null,
       input.notes ?? null,
+      input.relationship ?? 'occupier',
       input.source ?? 'manual',
+      input.salesforce_id ?? null,
+      input.salesforce_url ?? null,
+      input.source_import_id ?? null,
+      input.last_synced_at ?? null,
     ],
   )) as any[];
-  return rows[0] as Tenant;
+  return toTenant(rows[0]);
 }
 
 export async function deleteRow(table: 'spaces' | 'tenants' | 'space_images', id: string) {

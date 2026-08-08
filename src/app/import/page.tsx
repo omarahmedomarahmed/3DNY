@@ -5,6 +5,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { useApp } from '@/lib/store';
 import type { MatchedRow } from '@/types';
 import AppHeader from '@/components/shell/AppHeader';
+import TenantImport from '@/components/import/TenantImport';
 import { DotMotif } from '@/components/brand/Logo';
 import DropZone, { type ImportCounts, type ParseResponse } from '@/components/import/DropZone';
 import ImportPreview from '@/components/import/ImportPreview';
@@ -446,6 +447,12 @@ export default function ImportPage() {
             </div>
           </div>
         )}
+
+        {/* Tenants are a separate operation on the same buildings, so they get
+            their own block rather than another stage in the availability
+            wizard — nobody importing a weekly sheet should have to walk past
+            a CRM sync to finish it. */}
+        <TenantImport />
       </div>
     </main>
   );

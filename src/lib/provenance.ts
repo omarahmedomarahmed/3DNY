@@ -502,18 +502,28 @@ export function landlordSource(landlord: Landlord, field: LandlordField): Source
  * `source` column on the row already answers that; this turns it into a
  * sentence.
  */
-export function tenantSource(source: string): SourceNote {
+export function tenantSource(
+  source: string,
+  /** The roster it was imported from, when it was. */
+  filename?: string | null,
+  /** When Salesforce last wrote it. */
+  syncedAt?: string | null,
+): SourceNote {
   if (source === 'salesforce') {
+    const when = formatSourceDate(syncedAt);
     return {
       kind: 'salesforce',
-      label: SOURCES.salesforce.name,
-      detail: 'Synced from the CRM record for this building.',
+      label: when ? `Salesforce, synced ${when}` : SOURCES.salesforce.name,
+      detail:
+        'Synced from the CRM. It is as current as the last sync and as accurate as the record — ' +
+        'a tenancy nobody updated in Salesforce is a tenancy nobody has updated here.',
+      at: syncedAt ?? undefined,
     };
   }
   if (source === 'csv') {
     return {
       kind: 'sheet',
-      label: 'Imported tenant sheet',
+      label: filename ? `${filename}` : 'Imported tenant sheet',
       detail:
         'Read from a tenant roster uploaded to this app. Tenancies are not public record, so this ' +
         'is as current as the sheet that carried it.',

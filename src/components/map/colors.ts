@@ -80,6 +80,66 @@ export const FLOOR_BAND_PARTIAL_COLOR: RGBA = rgba(BRAND.goldenrod, 155);
 export const SELECTED_COLOR: RGBA = rgba(BRAND.warmOrange, 255);
 
 /**
+ * The three things that can be true of a floor, and how loudly each says so.
+ *
+ * The whole map is built around one rule: a Goldenrod band on the 14th floor
+ * is the loudest thing on screen. Adding two more kinds of band to the same
+ * facade is the most direct threat that rule has faced, because the new ones
+ * are more numerous — a tower has one availability and forty tenants.
+ *
+ * So the hierarchy is enforced three ways at once, not just by hue:
+ *
+ *   available  Goldenrod, full opacity, thickest stripe, furthest out.
+ *   client     Teal. Ours to point at, so it has to be findable — but a
+ *              thinner stripe than availability and a colour that does not
+ *              sit next to gold on the wheel.
+ *   occupied   Deliberately recessive. It is context: the answer to "what
+ *              about the rest of the building", not something to look at. On
+ *              a busy frame these should read as tone on the facade rather
+ *              than as marks competing for a glance.
+ *
+ * Teal is chosen against the rest of the map rather than in isolation: the
+ * massing runs Midnight through blue to gold with the rent ramp, the parks are
+ * a desaturated sage, and none of those is a saturated blue-green.
+ */
+export const OCCUPANCY_COLORS: Record<
+  string,
+  { entire: RGBA; partial: RGBA; legend: string }
+> = {
+  available: {
+    entire: rgba(BRAND.goldenrod, 240),
+    partial: rgba(BRAND.goldenrod, 155),
+    legend: BRAND.goldenrod,
+  },
+  client: {
+    entire: rgba('#00A38C', 235),
+    partial: rgba('#00A38C', 160),
+    legend: '#00A38C',
+  },
+  occupied: {
+    // Translucent on purpose. A block tenancy can cover twelve floors, and at
+    // full opacity twelve floors of grey is a slab that replaces the tower
+    // rather than annotating it. Letting the facade through keeps it reading
+    // as a tint on the building — context, which is what it is.
+    entire: rgba('#94A2BC', 112),
+    partial: rgba('#94A2BC', 88),
+    legend: '#94A2BC',
+  },
+};
+
+/** On the dark map the occupied tone has to lift, not darken, to read at all. */
+export const OCCUPIED_DARK: { entire: RGBA; partial: RGBA; legend: string } = {
+  entire: rgba('#8494B5', 122),
+  partial: rgba('#8494B5', 96),
+  legend: '#8494B5',
+};
+
+export function occupancyColors(kind: string, theme: MapTheme) {
+  if (kind === 'occupied' && theme === 'dark') return OCCUPIED_DARK;
+  return OCCUPANCY_COLORS[kind] ?? OCCUPANCY_COLORS.available;
+}
+
+/**
  * Filtered-out massing. On a LIGHT basemap the dimmed state must be LIGHTER
  * than the highlighted state — a warm gray that sits behind everything.
  */

@@ -63,6 +63,61 @@ Two things are derived rather than surveyed, because nobody publishes them:
 - **Where a floor sits vertically.** Height ÷ floor count, as before. See
   [Accuracy](#accuracy).
 
+### Three kinds of band, and where tenants come from
+
+The map's subject is space on the market. It now also carries who is in the
+rest of the building, because "what else is in that tower, and when does it
+roll" is the question that follows every availability.
+
+| Band | What it is | Where it comes from |
+|---|---|---|
+| **Available** | Space on the market | Your weekly availability sheet |
+| **Cresa clients** | Our clients and the space they hold | The client CSV, or a Salesforce record typed as a client |
+| **Occupied** | Everyone else in the building, and prospects | A tenant roster, a Salesforce export, or the API sync |
+
+All three are one `tenants` table with a `relationship` column, not three
+tables, because they are the same fact about the world — this company is on
+these floors — differing only in our relationship to it. A prospect becomes a
+client without moving.
+
+**Availability cannot be switched off.** The other two are toggled from the
+legend and default to off. A tower has one availability and forty tenants, so
+the hierarchy is enforced four ways at once rather than by colour alone:
+Goldenrod at full opacity in the thickest stripe standing furthest off the
+facade, teal for a client in a thinner one, and a translucent tint for
+everyone else that reads as tone on the building rather than as a mark. A
+tenancy across floors 7–14 is drawn as **one** block, not eight stripes — it is
+one tenancy, and eight stripes stacked up a facade become indistinguishable
+from the building's own floor lines.
+
+A tenancy whose floors cannot be read as numbers — "Ground", "PH", "Entire
+building" — is imported, listed on the building profile, and **not drawn**.
+Guessing that "Ground" means 1 would put a band on a floor on the strength of
+a guess.
+
+Three ways in, in order of how much setup they need:
+
+| | |
+|---|---|
+| **Client CSV** | `data/samples/cresa-clients-template.csv`. Every row is a client. |
+| **Tenant roster / Salesforce export** | `data/samples/salesforce-tenants-template.csv`. A `Type` column decides occupier / prospect / client; Salesforce record ids make a re-import an update rather than a duplicate. |
+| **Salesforce API** | Three environment variables and a sync button. |
+
+The API sync is a convenience, not the product: it converges on the same rows
+the CSV importer produces, so both share one address matcher, one floor parser
+and one upsert, and neither can drift into being the better-behaved path. Set
+`SALESFORCE_INSTANCE_URL`, `SALESFORCE_CLIENT_ID` and `SALESFORCE_CLIENT_SECRET`
+(a connected app with the client-credentials flow and a run-as user). Because
+every org names its property fields differently, `SALESFORCE_SOQL` replaces the
+query outright and `SALESFORCE_FIELD_MAP` remaps our names to yours. **Run
+"Check without writing" first** — it runs the query and the mapping and reports
+what it would write, which is much better than finding out afterwards that
+every row mapped to "no address".
+
+One rule the sync will not bend: an unrecognised account type maps to
+*occupier*, never to *client*. A teal band tells a room that a company is ours,
+and being wrong in that direction is the expensive mistake.
+
 ### Where every number comes from
 
 A building profile shows "Class A · 1962 · 41 floors · $88/SF" in one strip, in
@@ -134,7 +189,7 @@ for the same reason and with a test to hold it.
 | Plan | Complete — [PLAN.md](./PLAN.md) |
 | Build | Complete and deployable |
 | Production build | Passing |
-| Tests | 254 passing — parser against both real sheets, plus transit, photoreal gating, streetscape and label layout, roofscape geometry, atmosphere and both shaders' picking guards, entrance placement, street-network routing, station deduplication, the fallback geocoder's address normalisation, the compare set's lifecycle, the source resolver's field-by-field answers, and two guards that hold rules a comment cannot: that no UI file references a named agent, and that every dismiss-on-outside-click surface exempts the source popover |
+| Tests | 337 passing — parser against both real sheets, plus transit, photoreal gating, streetscape and label layout, roofscape geometry, atmosphere and both shaders' picking guards, entrance placement, street-network routing, station deduplication, the fallback geocoder's address normalisation, the compare set's lifecycle, the source resolver's field-by-field answers, how people write floors, the occupancy bands' hierarchy, the Salesforce field mapping, and two guards that hold rules a comment cannot: that no UI file references a named agent, and that every dismiss-on-outside-click surface exempts the source popover |
 | Coverage | Midtown + Midtown South |
 
 ### Verifying it by looking at it
@@ -152,6 +207,7 @@ against the live database, and every assertion is on the thing itself:
 | `node scripts/shoot.mjs <dir> <tag>` | Both themes, wide and close, with and without transit. |
 | `node scripts/shoot-ground.mjs`, `shoot-atmosphere.mjs`, `shoot-stations.mjs` | The ground plane, the four hours, and the subway entrances. |
 | `node scripts/verify-snapshot.mjs <dir>` | Stack Snapshot is produced for real and the PNG inspected: composed at 2x, and no blank filler band. |
+| `node scripts/verify-occupancy.mjs <dir>` | The three band kinds are listed, filterable and clickable on the real map; availability cannot be switched off; and an unconfigured Salesforce fails with a remedy rather than just a failure. |
 | `node scripts/verify-sources.mjs <dir>` | The source markers are reachable on the map, on a station, on the building page and in compare; opening one does **not** close the card it sits on; only one opens at a time; and the sheet, the city and the hand-kept transit table give different answers where they should. |
 
 Clicking a subway station in a headless browser needs the station's real screen
@@ -336,6 +392,9 @@ src/components/map/stations.ts    Modelled stations and their name plates
 src/lib/walk-network.ts   Walking routes along the real street network
 src/lib/nyc-addresses.ts  Fallback geocoder for when Geosearch is down
 src/lib/provenance.ts     Where every value on screen came from — one resolver, no guessing
+src/lib/floor-list.ts     "12-14", "Ground", "Suite 402" → the floors a band can be drawn on
+src/lib/tenant-import.ts  Puts a roster of tenancies onto buildings, creating any it has not seen
+src/lib/salesforce.ts     The CRM sync, converging on the same rows the CSV importer makes
 src/components/ui/SourceInfo.tsx  The circled "i", and the helper every dismissible surface must call
 scripts/verify-*.mjs      Behaviour checks that assert on the thing itself
 scripts/shoot-*.mjs       Screenshot harnesses for visual verification
