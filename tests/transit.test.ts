@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DASH_M,
+  MODE_REACH_M,
+  dashPath,
   layoutWalkLabels,
   metersBetween,
   nearestStops,
@@ -8,6 +11,8 @@ import {
   type NearbyStop,
   type TransitStop,
 } from '../src/lib/transit';
+import { WALK_DARK, WALK_LIGHT } from '../src/components/map/colors';
+import { BRAND, rgba } from '../src/lib/brand';
 
 const GCT: [number, number] = [-73.9772, 40.7527];
 
@@ -57,6 +62,123 @@ describe('nearestStops', () => {
     expect(near.some((s) => s.mode === 'subway')).toBe(true);
     expect(near.filter((s) => s.mode === 'bus')).toHaveLength(2);
   });
+});
+
+describe('how far each mode is worth walking', () => {
+  /**
+   * One radius for every mode had a specific, visible cost: under a flat
+   * 1200m, Grand Central disappeared from every building in Midtown South,
+   * and Compare's rail row filled up with PATH instead — which is a different
+   * commute, answered in a row labelled for another one.
+   */
+  const FAR: TransitStop[] = [
+    // ~1.7km north: beyond a bus's reach, well inside a terminal's.
+    { id: 'terminal', lon: -73.9772, lat: 40.7680, name: 'Grand Central Terminal', mode: 'rail', routes: ['Metro-North'] },
+    { id: 'farbus', lon: -73.9772, lat: 40.7620, name: 'Far bus', mode: 'bus', routes: ['M1'] },
+  ];
+
+  it('keeps a rail terminal that a bus stop would be dropped for', () => {
+    const near = nearestStops(GCT, FAR, { limit: 10 });
+    expect(near.map((s) => s.id)).toContain('terminal');
+    expect(near.map((s) => s.id)).not.toContain('farbus');
+  });
+
+  it('ranks the reaches the way a tenant would', () => {
+    expect(MODE_REACH_M.rail).toBeGreaterThan(MODE_REACH_M.subway);
+    expect(MODE_REACH_M.subway).toBeGreaterThan(MODE_REACH_M.bus);
+  });
+
+  it('still lets an explicit radius win, for the lines the map draws', () => {
+    // The walk lines want one tight radius for every mode: those are drawn,
+    // not read, and a 2.4km dashed line across the island is noise.
+    const near = nearestStops(GCT, FAR, { limit: 10, maxMeters: 500 });
+    expect(near).toHaveLength(0);
+  });
+
+  it('covers every mode, so none silently falls back', () => {
+    for (const mode of ['subway', 'bus', 'ferry', 'rail', 'path', 'tram'] as const) {
+      expect(MODE_REACH_M[mode], mode).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('the walk line reads as a route', () => {
+  /** A straight 1km run north, as one segment. */
+  const LEG: [number, number][] = [GCT, [GCT[0], GCT[1] + 0.009]];
+
+  const lengthOf = (path: [number, number][]) => metersBetween(path[0], path[1]);
+
+  it('lays more ink than gap, so it is a dashed line and not a dotted one', () => {
+    const dashes = dashPath(LEG);
+    const ink = dashes.reduce((sum, d) => sum + lengthOf(d), 0);
+    const total = metersBetween(LEG[0], LEG[1]);
+    // Equal on and off reads as texture. At the zoom this is used at, the
+    // dashes dissolved into scattered ticks and the route stopped being one.
+    expect(ink / total).toBeGreaterThan(0.6);
+  });
+
+  it('keeps the rhythm even, so it does not read as a broken line', () => {
+    const dashes = dashPath(LEG);
+    expect(dashes.length).toBeGreaterThan(5);
+    // Every dash but the last one, which the end of the leg cuts short.
+    for (const d of dashes.slice(0, -1)) {
+      expect(lengthOf(d)).toBeCloseTo(DASH_M, 0);
+    }
+  });
+
+  it('carries the rhythm across a corner rather than restarting it', () => {
+    // A route along the grid turns; a dash that restarts at every vertex puts
+    // a joint at every corner and the eye reads it as a series of segments.
+    const corner: [number, number][] = [GCT, [GCT[0], GCT[1] + 0.0005], [GCT[0] + 0.0006, GCT[1] + 0.0005]];
+    const dashes = dashPath(corner);
+    const straight = dashPath([GCT, [GCT[0], GCT[1] + 0.0011]]);
+    expect(Math.abs(dashes.length - straight.length)).toBeLessThanOrEqual(1);
+  });
+
+  it('takes a dash and a gap independently', () => {
+    // Same period, opposite duty cycle: the count is identical and the ink is
+    // not, which is the whole reason the two lengths had to be separated.
+    const ink = (path: [number, number][][]) =>
+      path.reduce((sum, d) => sum + lengthOf(d), 0);
+    const sparse = dashPath(LEG, 10, 40);
+    const dense = dashPath(LEG, 40, 10);
+    expect(ink(dense)).toBeGreaterThan(ink(sparse) * 3);
+    expect(lengthOf(dense[0])).toBeCloseTo(40, 0);
+    expect(lengthOf(sparse[0])).toBeCloseTo(10, 0);
+  });
+
+  it('handles a degenerate path without looping', () => {
+    expect(dashPath([])).toEqual([]);
+    expect(dashPath([GCT])).toEqual([]);
+    expect(dashPath([GCT, GCT])).toEqual([]);
+  });
+});
+
+describe('the walk line is never Goldenrod', () => {
+  /**
+   * It was, and that was a breach of the one rule this map serves: Goldenrod
+   * means available space and nothing else. Five gold dashes on the pavement
+   * beside one tower with gold bands on it out-shouted the thing they exist to
+   * give context to.
+   */
+  const gold = rgba(BRAND.goldenrod);
+
+  for (const [name, colors] of [['light', WALK_LIGHT], ['dark', WALK_DARK]] as const) {
+    it(`on the ${name} map`, () => {
+      for (const key of ['line', 'casing', 'labelBg'] as const) {
+        const [r, g, b] = colors[key];
+        const distance = Math.abs(r - gold[0]) + Math.abs(g - gold[1]) + Math.abs(b - gold[2]);
+        expect(distance, `${name}.${key}`).toBeGreaterThan(120);
+      }
+    });
+
+    it(`has a casing that contrasts with its own dash on the ${name} map`, () => {
+      // The casing exists to make the route continuous where a dash is only a
+      // few pixels. A casing the same tone as the dash does nothing at all.
+      const lum = ([r, g, b]: readonly number[]) => 0.299 * r + 0.587 * g + 0.114 * b;
+      expect(Math.abs(lum(colors.line) - lum(colors.casing))).toBeGreaterThan(90);
+    });
+  }
 });
 
 describe('layoutWalkLabels', () => {

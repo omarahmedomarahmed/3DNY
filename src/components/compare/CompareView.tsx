@@ -292,25 +292,38 @@ const TRANSIT_ROWS: Row[] = [
     render: (c) => stopCell(bestOfMode(c, 'subway'), c.transit === null),
     tall: true,
   },
+  /**
+   * Rail and PATH get a row each, and this is not a cosmetic split.
+   *
+   * They shared one row, showing whichever was nearer. In Midtown South that
+   * is almost always PATH — 33rd Street is a block off Sixth Avenue — so the
+   * row read "3 min · 33rd Street · PATH" for a building four blocks from
+   * Penn Station, and Penn never appeared at all. A tenant deciding between
+   * two buildings is asking which one is near Penn or Grand Central; PATH to
+   * Hoboken is a different question with a different answer, and answering the
+   * second one in a row labelled for the first is worse than leaving it blank.
+   *
+   * The terminal also reaches further than anything else on this table — see
+   * MODE_REACH_M. Twenty minutes to Grand Central is a real answer.
+   */
   {
     key: 'transit_rail',
-    label: 'Nearest rail / PATH',
+    label: 'Nearest rail terminal',
     best: 'min',
-    numeric: (c) => {
-      const rail = bestOfMode(c, 'rail');
-      const path = bestOfMode(c, 'path');
-      const best = [rail, path].filter(Boolean) as NearbyStop[];
-      return best.length ? Math.min(...best.map((s) => s.minutes)) : null;
-    },
-    compareKey: (c) => (bestOfMode(c, 'rail') ?? bestOfMode(c, 'path'))?.name ?? '',
+    numeric: (c) => bestOfMode(c, 'rail')?.minutes ?? null,
+    compareKey: (c) => bestOfMode(c, 'rail')?.name ?? '',
     source: () => transitSource('walk_time'),
-    render: (c) => {
-      const rail = bestOfMode(c, 'rail');
-      const path = bestOfMode(c, 'path');
-      const best =
-        rail && path ? (rail.minutes <= path.minutes ? rail : path) : (rail ?? path);
-      return stopCell(best, c.transit === null);
-    },
+    render: (c) => stopCell(bestOfMode(c, 'rail'), c.transit === null),
+    tall: true,
+  },
+  {
+    key: 'transit_path',
+    label: 'Nearest PATH',
+    best: 'min',
+    numeric: (c) => bestOfMode(c, 'path')?.minutes ?? null,
+    compareKey: (c) => bestOfMode(c, 'path')?.name ?? '',
+    source: () => transitSource('walk_time'),
+    render: (c) => stopCell(bestOfMode(c, 'path'), c.transit === null),
     tall: true,
   },
   {
@@ -553,8 +566,12 @@ export default function CompareView({
       south = Math.min(south, lat);
       north = Math.max(north, lat);
     }
-    // A margin wide enough that a station just outside the group still counts.
-    const pad = 0.012;
+    // Wide enough to reach the furthest thing any row will look for. Rail
+    // terminals count out to 2.4km (MODE_REACH_M), which is about 0.022
+    // degrees of latitude — at the old 0.012 the terminal was excluded from
+    // the fetch itself, so widening the row's reach alone would have changed
+    // nothing.
+    const pad = 0.025;
     const bbox = [west - pad, south - pad, east + pad, north + pad];
     // Two compared buildings can be a mile apart; past the API's own limit the
     // lookup is skipped rather than failed.
@@ -597,9 +614,14 @@ export default function CompareView({
         transit:
           transitStops === null || building.lon === null || building.lat === null
             ? null
+            // No maxMeters: each mode gets its own reach, so a rail terminal
+            // twenty minutes away still answers the row it belongs to instead
+            // of being cut off at the radius a bus stop deserves. The limit is
+            // high enough that every mode's quota can actually be filled —
+            // sorted by distance, a tight limit drops the far terminal first,
+            // which is the exact row this is here to fill.
             : nearestStops([building.lon, building.lat], transitStops, {
-                limit: 12,
-                maxMeters: 1200,
+                limit: 24,
                 perMode: 4,
               }),
         photo: photos[space.id] ?? null,

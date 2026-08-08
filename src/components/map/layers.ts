@@ -42,9 +42,7 @@ import {
   HOVER_COLOR,
   SELECTED_COLOR,
   TRANSIT_COLORS,
-  WALK_LABEL_BG,
-  WALK_LABEL_TEXT,
-  WALK_LINE_COLOR,
+  walkColors,
   colorForBuilding,
   themeColors,
 } from './colors';
@@ -765,29 +763,55 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       const graph =
         streetscape && streetscape.roads.length > 0 ? walkGraphFor(streetscape.roads) : null;
 
+      const walk = walkColors(theme);
+      const routes: { path: [number, number][] }[] = [];
       const dashes: { path: [number, number][] }[] = [];
       for (const stop of nearby) {
         const destination: [number, number] = [stop.lon, stop.lat];
         const route =
           (graph ? routeOnStreets(graph, transitOrigin, destination) : null) ??
           walkRoute(transitOrigin, destination);
+        routes.push({ path: route });
         for (const piece of dashPath(route)) {
           dashes.push({ path: piece });
         }
       }
 
       if (dashes.length > 0) {
+        // The casing: the whole route, undashed, wider and soft, underneath.
+        //
+        // Without it the route only exists where a dash happens to be, so at
+        // any distance it breaks into ticks and the eye has to reassemble it.
+        // With it the path is continuous and the dashes ride on top as
+        // texture — which is also what makes the line survive crossing a pale
+        // pavement, a dark roadway and a green park in the space of one block.
+        layers.push(
+          new PathLayer<{ path: [number, number][] }>({
+            id: 'transit-walk-casing',
+            data: routes,
+            pickable: false,
+            widthUnits: 'pixels',
+            getWidth: 6,
+            widthMinPixels: 5,
+            capRounded: true,
+            jointRounded: true,
+            getPath: (d) => d.path,
+            getColor: walk.casing,
+            parameters: { depthCompare: 'always' },
+          }),
+        );
+
         layers.push(
           new PathLayer<{ path: [number, number][] }>({
             id: 'transit-walk-lines',
             data: dashes,
             pickable: false,
             widthUnits: 'pixels',
-            getWidth: 2.4,
+            getWidth: 2.6,
             widthMinPixels: 2,
             capRounded: true,
             getPath: (d) => d.path,
-            getColor: WALK_LINE_COLOR,
+            getColor: walk.line,
             parameters: { depthCompare: 'always' },
           }),
         );
@@ -826,8 +850,8 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
             fontFamily:
               'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
             fontWeight: 700,
-            getColor: WALK_LABEL_TEXT,
-            getBackgroundColor: WALK_LABEL_BG,
+            getColor: walk.labelText,
+            getBackgroundColor: walk.labelBg,
             backgroundPadding: [7, 3, 7, 3],
             getTextAnchor: 'middle',
             getAlignmentBaseline: 'center',

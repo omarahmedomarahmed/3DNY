@@ -432,7 +432,47 @@ export const TRANSIT_COLORS: Record<string, RGBA> = {
   bus: rgba('#7A879E', 235),
 };
 
-/** The dashed walk line, and the pill carrying its minutes. */
-export const WALK_LINE_COLOR: RGBA = rgba(BRAND.goldenrod, 245);
-export const WALK_LABEL_BG: RGBA = rgba(BRAND.midnight, 240);
-export const WALK_LABEL_TEXT: RGBA = rgba('#FFFFFF', 255);
+/**
+ * The dashed walk line, and the pill carrying its minutes.
+ *
+ * These used to be Goldenrod, which was a straight breach of the one rule this
+ * map is built around. Goldenrod means available space and nothing else — and
+ * a gold dash lying on the pavement beside a tower with gold bands on it reads
+ * as a floor plate that fell off. Worse, there are five walk lines and one
+ * building, so the routes were quietly out-shouting the thing they exist to
+ * give context to.
+ *
+ * What replaces it is how a route is drawn on paper: a pale casing under a
+ * dark dashed line, so the path reads as continuous even where an individual
+ * dash is only a few pixels, and stays legible whether it crosses roadway,
+ * pavement or a park. The dash takes the same ink as the minutes pill at the
+ * end of it, because the route and its time are one object.
+ */
+export interface WalkColors {
+  /** The dash itself. */
+  line: RGBA;
+  /** The wider, softer line under it that keeps the route continuous. */
+  casing: RGBA;
+  labelBg: RGBA;
+  labelText: RGBA;
+}
+
+export const WALK_LIGHT: WalkColors = {
+  line: rgba(BRAND.midnight, 250),
+  casing: rgba('#FFFFFF', 215),
+  labelBg: rgba(BRAND.midnight, 240),
+  labelText: rgba('#FFFFFF', 255),
+};
+
+export const WALK_DARK: WalkColors = {
+  // Pale ink on the dark map, for the same reason the light map uses dark ink:
+  // the line has to beat the surface it crosses, not match it.
+  line: rgba('#E8EDF7', 245),
+  casing: rgba('#0A1330', 210),
+  labelBg: rgba('#E8EDF7', 240),
+  labelText: rgba(BRAND.midnight, 255),
+};
+
+export function walkColors(theme: MapTheme): WalkColors {
+  return theme === 'dark' ? WALK_DARK : WALK_LIGHT;
+}
