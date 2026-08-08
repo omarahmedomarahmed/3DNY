@@ -12,10 +12,10 @@ import type { BuildingWithSpaces, ColorMode, FloorBand } from '@/types';
 import type { ContextBuilding } from '@/lib/city-context';
 import {
   MODE_LABEL,
-  metersBetween,
+  layoutWalkLabels,
   nearestStops,
-  type NearbyStop,
   type TransitStop,
+  type WalkLabel,
 } from '@/lib/transit';
 import { MULLIONS_DARK, MULLIONS_LIGHT } from './mullions';
 import {
@@ -529,7 +529,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
 
     if (transitOrigin) {
       const nearby = nearestStops(transitOrigin, transitStops, {
-        limit: 6,
+        limit: 5,
         maxMeters: 1000,
         perMode: 2,
       });
@@ -573,24 +573,33 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         );
 
         layers.push(
-          new TextLayer<NearbyStop>({
+          new TextLayer<WalkLabel>({
             id: 'transit-walk-minutes',
-            data: nearby,
+            data: layoutWalkLabels(transitOrigin, nearby),
             pickable: false,
             billboard: true,
             background: true,
-            // Staggered along each line rather than all at the same radius.
-            // Every walk line starts at the same building, so a fixed fraction
-            // puts every pill on the same small circle and they pile up.
-            getPosition: (d, info) => {
-              const t = 0.46 + ((info?.index ?? 0) % 4) * 0.13;
-              return [
-                transitOrigin[0] + (d.lon - transitOrigin[0]) * t,
-                transitOrigin[1] + (d.lat - transitOrigin[1]) * t,
-              ];
+            // Positions are solved in layoutWalkLabels, which slides each pill
+            // along its own line until none of them overlap.
+            getPosition: (d) => d.position,
+            // Short on purpose. A pill is a fixed pixel width whatever the
+            // zoom, so when the nearby stops sit close together no arrangement
+            // along their own lines can fit six wide labels — the only real
+            // fix is a narrower label. Rail-type routes are short and worth
+            // carrying ("4 5 6"); a bus stop's route list is not, and lives on
+            // the card you get by clicking the stop.
+            getText: ({ stop }) => {
+              // Only subway and PATH: their routes are single letters and
+              // numbers. Rail routes are words — "Metro-North LIRR" is wider
+              // than the pill it has to fit in, and it is the mode label that
+              // matters there anyway.
+              const carriesRoutes = stop.mode === 'subway' || stop.mode === 'path';
+              const tag =
+                carriesRoutes && stop.routes.length
+                  ? stop.routes.slice(0, 3).join(' ')
+                  : MODE_LABEL[stop.mode];
+              return `${stop.minutes} min · ${tag}`;
             },
-            getText: (d) =>
-              `${d.minutes} min  ·  ${d.routes.length ? d.routes.slice(0, 3).join(' ') : MODE_LABEL[d.mode]}`,
             getSize: 12,
             sizeUnits: 'pixels',
             characterSet: 'auto',
