@@ -235,7 +235,7 @@ export default function FilterRail() {
             type="search"
             value={filters.search}
             onChange={(e) => setFilters({ search: e.target.value })}
-            placeholder="Address, building, landlord, agent…"
+            placeholder="Address, building, landlord, broker…"
             aria-label="Search listings"
             className="w-full min-w-0 bg-transparent text-sm font-medium text-ink outline-none placeholder:font-normal placeholder:text-muted"
           />

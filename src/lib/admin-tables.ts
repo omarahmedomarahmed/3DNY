@@ -103,8 +103,6 @@ export const ADMIN_TABLES: AdminTable[] = [
       { name: 'term_raw', label: 'Term (raw)', kind: 'text' },
       { name: 'occupancy_raw', label: 'Occupancy (raw)', kind: 'text' },
       { name: 'leasing_company', label: 'Leasing company', kind: 'text' },
-      { name: 'agent_name', label: 'Agent', kind: 'text' },
-      { name: 'agent_email', label: 'Agent email', kind: 'text' },
       { name: 'date_added', label: 'Date added', kind: 'date' },
       { name: 'is_active', label: 'Active', kind: 'boolean', inGrid: true },
       { name: 'notes', label: 'Notes', kind: 'text' },

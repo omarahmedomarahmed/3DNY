@@ -53,29 +53,16 @@ function formatDate(value: string | null): string {
   return d.toLocaleDateString(undefined, { month: 'short', year: 'numeric', day: 'numeric' });
 }
 
-function AgentCell({ row }: { row: MatchedRow }) {
-  if (!row.agentName && !row.agentEmail) return <span className="text-subtle">—</span>;
-  return (
-    <div className="leading-tight">
-      <div className="text-body">{row.agentName ?? '—'}</div>
-      {row.agentEmail && (
-        <div
-          title={
-            row.agentEmailSuspect
-              ? 'Looks truncated in the source sheet — verify before sending.'
-              : undefined
-          }
-          className={
-            row.agentEmailSuspect
-              ? 'cursor-help text-xs font-medium text-warmorange line-through decoration-warmorange'
-              : 'text-xs text-muted'
-          }
-        >
-          {row.agentEmail}
-        </div>
-      )}
-    </div>
-  );
+/**
+ * The listing firm, never the named agent.
+ *
+ * Agent names and email addresses are imported and stored — they are in the
+ * source sheet — but this product never displays them. See the note in
+ * types/index.ts.
+ */
+function BrokerCell({ row }: { row: MatchedRow }) {
+  if (!row.leasingCompany) return <span className="text-subtle">—</span>;
+  return <span className="text-body">{row.leasingCompany}</span>;
 }
 
 function WarningIcon({ warnings }: { warnings: string[] }) {
@@ -110,7 +97,7 @@ export default function ImportPreview({ rows, skipped }: ImportPreviewProps) {
             <th className={TH}>Available</th>
             <th className={TH}>Expires</th>
             <th className={TH}>Class</th>
-            <th className={TH}>Agent</th>
+            <th className={TH}>Listing broker</th>
             <th className={TH}>Match</th>
           </tr>
         </thead>
@@ -151,7 +138,7 @@ export default function ImportPreview({ rows, skipped }: ImportPreviewProps) {
                 </td>
                 <td className={TD}>{row.buildingClass ?? '—'}</td>
                 <td className={TD}>
-                  <AgentCell row={row} />
+                  <BrokerCell row={row} />
                 </td>
                 <td className={TD}>
                   <MatchBadge

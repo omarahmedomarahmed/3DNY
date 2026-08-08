@@ -137,7 +137,7 @@ export default function SpaceTable({
               <th className={TH}>Type</th>
               <th className={clsx(TH, 'text-right')}>Available</th>
               <th className={TH}>Expires</th>
-              <th className={TH}>Agent</th>
+              <th className={TH}>Listing broker</th>
               <th className={clsx(TH, 'text-right')}>Actions</th>
             </tr>
           </thead>
@@ -196,19 +196,16 @@ export default function SpaceTable({
                     </div>
                   </td>
                   <td className={clsx(TD, 'font-medium text-body')}>
-                    <span
-                      className="block max-w-[180px] truncate"
-                      title={space.agent_name ?? undefined}
-                    >
-                      {space.agent_name ?? '—'}
-                    </span>
-                    {space.leasing_company && (
+                    {/* The firm, never the named agent. */}
+                    {space.leasing_company ? (
                       <span
-                        className="block max-w-[180px] truncate text-[11px] text-muted"
+                        className="block max-w-[180px] truncate"
                         title={space.leasing_company}
                       >
                         {space.leasing_company}
                       </span>
+                    ) : (
+                      <span className="text-subtle">—</span>
                     )}
                   </td>
                   <td className={clsx(TD, 'text-right')} onClick={(e) => e.stopPropagation()}>

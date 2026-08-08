@@ -75,7 +75,23 @@ export interface Space {
   available_from: string | null;
   term_raw: string | null;
   term_expires: string | null;
+  /** The firm marketing the space. This IS shown, as "Listing broker". */
   leasing_company: string | null;
+  /**
+   * NEVER DISPLAYED.
+   *
+   * The weekly sheet carries the named agent and their email, so both are
+   * parsed and stored — throwing away a column of the source would make the
+   * import lossy and irreversible. But this product is used by a leasing firm,
+   * live, in front of a client. Putting a competitor's named broker and their
+   * inbox on that screen is not something to do by accident, and it is exactly
+   * what happens if a field is available and someone adds it to a table.
+   *
+   * So the rule is: these two fields have no UI anywhere. Not in the space
+   * popup, the building profile, the compare table, the import preview, the
+   * admin editor, the stack snapshot, or free-text search. If you are about to
+   * render one, that is the thing to question.
+   */
   agent_name: string | null;
   agent_email: string | null;
   /** True when the source sheet truncated the email mid-address. */

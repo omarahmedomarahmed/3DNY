@@ -248,15 +248,11 @@ export default function SpacePopup({
           </div>
 
           <div className="border-t border-hairline pt-2.5">
-            <Row label="Leasing">
+            {/* The firm marketing the space, never the named agent. */}
+            <Row label="Listing broker">
               <span className="block truncate" title={space.leasing_company ?? ''}>
                 {space.leasing_company || <span className="text-subtle">Unknown</span>}
               </span>
-              {space.agent_name ? (
-                <span className="mt-0.5 block truncate text-sm font-normal text-muted">
-                  {space.agent_name}
-                </span>
-              ) : null}
             </Row>
           </div>
         </div>

@@ -108,7 +108,6 @@ export default function SpaceDetail({
     radius.miles === COMPS_RADIUS_MILES;
 
   const annual = annualRent(space.asking_rent_psf, space.sf, space.asking_rent_withheld);
-  const emailUsable = Boolean(space.agent_email) && !space.agent_email_suspect;
 
   const errors = validateDraft(draft);
   const invalid = Object.keys(errors).length > 0;
@@ -406,44 +405,23 @@ export default function SpaceDetail({
           <PhotoGallery spaceId={space.id} />
         </div>
 
+        {/* The listing broker, not the person.
+            Individual agent names and email addresses are deliberately never
+            displayed anywhere in this product — see the note in types/index.ts.
+            The firm marketing the space is genuine market context; the
+            competitor's named broker and their inbox are not ours to put on a
+            screen in front of a client. */}
         <aside className="space-y-3 self-start rounded-card border border-hairline bg-surface-alt p-4">
           <h4 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-            Leasing contact
+            Listing broker
           </h4>
-          <div className="space-y-0.5">
-            <p className="text-sm font-semibold text-ink">{space.agent_name ?? 'Unnamed agent'}</p>
-            {space.leasing_company && (
-              <p className="flex items-center gap-1.5 text-sm font-medium text-muted">
-                <Icon name="building" size={13} />
-                {space.leasing_company}
-              </p>
-            )}
-          </div>
-
-          {space.agent_email ? (
-            emailUsable ? (
-              <a
-                href={`mailto:${space.agent_email}?subject=${encodeURIComponent(
-                  `${building.address_display} — ${space.floor_label}`,
-                )}`}
-                className="flex items-start gap-1.5 break-all text-sm font-medium text-info hover:underline"
-              >
-                <Icon name="mail" size={14} className="mt-0.5" />
-                {space.agent_email}
-              </a>
-            ) : (
-              <div className="space-y-1.5">
-                <p className="break-all text-sm font-medium text-body">{space.agent_email}</p>
-                <p className="flex items-start gap-1.5 rounded border-l-2 border-warmorange bg-warn-surface px-2.5 py-2 text-[11px] font-medium leading-4 text-warmorange">
-                  <Icon name="warning" size={14} />
-                  <span>
-                    This email looks truncated in the source sheet — verify before sending.
-                  </span>
-                </p>
-              </div>
-            )
+          {space.leasing_company ? (
+            <p className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+              <Icon name="building" size={13} />
+              {space.leasing_company}
+            </p>
           ) : (
-            <p className="text-sm font-medium text-muted">No email on file.</p>
+            <p className="text-sm font-medium text-muted">Not stated on the sheet.</p>
           )}
         </aside>
       </div>

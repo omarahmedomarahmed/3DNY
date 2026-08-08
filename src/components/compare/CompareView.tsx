@@ -197,36 +197,12 @@ const SPACE_ROWS: Row[] = [
   },
   {
     key: 'leasing_company',
-    label: 'Leasing Company',
+    label: 'Listing broker',
     compareKey: (c) => c.space.leasing_company ?? '',
     render: (c) => text(c.space.leasing_company),
   },
-  {
-    key: 'agent',
-    label: 'Agent',
-    compareKey: (c) => c.space.agent_name ?? '',
-    render: (c) => (
-      <div>
-        <p>{c.space.agent_name ?? DASH}</p>
-        {c.space.agent_email &&
-          (c.space.agent_email_suspect ? (
-            <p
-              className="break-all text-[13px] font-medium text-warmorange"
-              title="Email looks truncated in the source sheet"
-            >
-              {c.space.agent_email} (verify)
-            </p>
-          ) : (
-            <a
-              href={`mailto:${c.space.agent_email}`}
-              className="block break-all text-[13px] font-medium text-info hover:underline"
-            >
-              {c.space.agent_email}
-            </a>
-          ))}
-      </div>
-    ),
-  },
+  // There is deliberately no Agent row. Named agents and their email
+  // addresses are never displayed anywhere in this product.
 ];
 
 /** The best stop of a given mode, or null when there is none within range. */
