@@ -1,5 +1,5 @@
 import { ColumnLayer, PolygonLayer } from '@deck.gl/layers';
-import type { Layer } from '@deck.gl/core';
+import type { Layer, LayerExtension } from '@deck.gl/core';
 import { FT_TO_M } from '@/lib/floor-bands';
 import {
   computeRoofscape,
@@ -53,12 +53,12 @@ const ROOF_MATERIAL = {
   specularColor: [38, 44, 58] as [number, number, number],
 };
 
-/** Matches the `city-context` massing material exactly. */
+/** Matches the `city-context` massing material exactly. Keep them in step. */
 const CONTEXT_ROOF_MATERIAL = {
   ambient: 0.62,
   diffuse: 0.55,
-  shininess: 1,
-  specularColor: [255, 255, 255] as [number, number, number],
+  shininess: 4,
+  specularColor: [58, 66, 84] as [number, number, number],
 };
 
 /** ColumnLayer takes one radius per layer, so cylinders are grouped by size. */
@@ -157,6 +157,10 @@ export interface RoofLayerOptions {
   context?: Building[];
   theme: MapTheme;
   zoom: number;
+  /** Distance haze, so roofs recede with the towers they stand on. */
+  haze?: LayerExtension<unknown>;
+  /** The reduced haze the data-carrying buildings take. */
+  subjectHaze?: LayerExtension<unknown>;
 }
 
 function cylinderLayers(
@@ -165,6 +169,7 @@ function cylinderLayers(
   theme: MapTheme,
   sides: number,
   material: typeof ROOF_MATERIAL,
+  fade: object,
 ): Layer[] {
   const layers: Layer[] = [];
   CYLINDER_BUCKETS.forEach((bucket, i) => {
@@ -176,6 +181,7 @@ function cylinderLayers(
     layers.push(
       new ColumnLayer<Tinted<RoofCylinder>>({
         id: `${idPrefix}-${bucket.key}`,
+        ...fade,
         data: group,
         pickable: false,
         diskResolution: sides,
@@ -198,6 +204,7 @@ function pieceLayers(
   pieces: RoofPieces,
   theme: MapTheme,
   material: typeof ROOF_MATERIAL,
+  fade: object,
 ): Layer[] {
   const layers: Layer[] = [];
 
@@ -205,6 +212,7 @@ function pieceLayers(
     layers.push(
       new PolygonLayer<Tinted<ParapetBand>>({
         id: `${idPrefix}-parapets`,
+        ...fade,
         data: pieces.parapets,
         extruded: true,
         filled: true,
@@ -233,6 +241,7 @@ function pieceLayers(
     layers.push(
       new PolygonLayer<Tinted<RoofBox>>({
         id: `${idPrefix}-bulkheads`,
+        ...fade,
         data: pieces.boxes,
         extruded: true,
         filled: true,
@@ -256,15 +265,15 @@ function pieceLayers(
   // Frames and masts before the tanks they carry, so a tank always draws over
   // the legs underneath it.
   layers.push(
-    ...cylinderLayers(`${idPrefix}-posts`, pieces.posts, theme, 6, material),
-    ...cylinderLayers(`${idPrefix}-tanks`, pieces.tanks, theme, 10, material),
+    ...cylinderLayers(`${idPrefix}-posts`, pieces.posts, theme, 6, material, fade),
+    ...cylinderLayers(`${idPrefix}-tanks`, pieces.tanks, theme, 10, material, fade),
   );
 
   return layers;
 }
 
 export function buildRoofLayers(opts: RoofLayerOptions): Layer[] {
-  const { buildings, colorFor, context = [], theme, zoom } = opts;
+  const { buildings, colorFor, context = [], theme, zoom, haze, subjectHaze } = opts;
   if (zoom < ROOF_ZOOM) return [];
 
   const palette = themeColors(theme);
@@ -277,6 +286,7 @@ export function buildRoofLayers(opts: RoofLayerOptions): Layer[] {
         collectRoofPieces(buildings, colorFor, palette.waterTank),
         theme,
         ROOF_MATERIAL,
+        subjectHaze ? { extensions: [subjectHaze] } : {},
       ),
     );
   }
@@ -288,6 +298,7 @@ export function buildRoofLayers(opts: RoofLayerOptions): Layer[] {
         collectRoofPieces(context, () => palette.cityContext, palette.cityContext),
         theme,
         CONTEXT_ROOF_MATERIAL,
+        haze ? { extensions: [haze] } : {},
       ),
     );
   }

@@ -1,5 +1,5 @@
 import { ColumnLayer, PathLayer, PolygonLayer, TextLayer } from '@deck.gl/layers';
-import type { Layer } from '@deck.gl/core';
+import type { Layer, LayerExtension } from '@deck.gl/core';
 import { FT_TO_M, insetRing } from '@/lib/floor-bands';
 import {
   layoutStreetNames,
@@ -173,10 +173,17 @@ export interface GroundLayerOptions {
   streetscape: StreetscapeResult;
   theme: MapTheme;
   zoom: number;
+  /**
+   * Distance haze. The ground takes it at full strength: a street grid running
+   * to a hard edge at the horizon is the single thing that most gives away
+   * that a city model is a model.
+   */
+  haze?: LayerExtension<unknown>;
 }
 
 export function buildGroundLayers(opts: GroundLayerOptions): Layer[] {
-  const { streetscape, theme, zoom } = opts;
+  const { streetscape, theme, zoom, haze } = opts;
+  const fade = haze ? { extensions: [haze] } : {};
   const palette = themeColors(theme);
   const layers: Layer[] = [];
 
@@ -194,6 +201,7 @@ export function buildGroundLayers(opts: GroundLayerOptions): Layer[] {
   layers.push(
     new PolygonLayer<{ ring: [number, number][] }>({
       id: 'ground-plane',
+          ...fade,
       data: [{ ring: groundQuad(streetscape.bbox) }],
       extruded: false,
       filled: true,
@@ -219,6 +227,7 @@ export function buildGroundLayers(opts: GroundLayerOptions): Layer[] {
       layers.push(
         new PolygonLayer<WaterPolygon>({
           id: `ground-water-${band.tone}`,
+          ...fade,
           data: streetscape.water,
           extruded: false,
           filled: true,
@@ -243,6 +252,7 @@ export function buildGroundLayers(opts: GroundLayerOptions): Layer[] {
     layers.push(
       new PolygonLayer<ParkPolygon>({
         id: 'ground-parks',
+          ...fade,
         data: streetscape.parks,
         extruded: false,
         filled: true,
@@ -263,6 +273,7 @@ export function buildGroundLayers(opts: GroundLayerOptions): Layer[] {
     layers.push(
       new PathLayer<RoadSegment>({
         id: 'ground-sidewalks',
+          ...fade,
         data: roads,
         pickable: false,
         widthUnits: 'meters',
@@ -279,6 +290,7 @@ export function buildGroundLayers(opts: GroundLayerOptions): Layer[] {
   layers.push(
     new PathLayer<RoadSegment>({
       id: 'ground-road-casing',
+          ...fade,
       data: roads,
       pickable: false,
       widthUnits: 'meters',
@@ -292,6 +304,7 @@ export function buildGroundLayers(opts: GroundLayerOptions): Layer[] {
     }),
     new PathLayer<RoadSegment>({
       id: 'ground-roads',
+          ...fade,
       data: roads,
       pickable: false,
       widthUnits: 'meters',
@@ -320,6 +333,7 @@ export function buildGroundLayers(opts: GroundLayerOptions): Layer[] {
       layers.push(
         new ColumnLayer<StreetTree>({
           id: `ground-tree-trunks-${bucket.key}`,
+          ...fade,
           data,
           pickable: false,
           diskResolution: 5,
@@ -334,6 +348,7 @@ export function buildGroundLayers(opts: GroundLayerOptions): Layer[] {
         }),
         new ColumnLayer<StreetTree>({
           id: `ground-tree-canopies-${bucket.key}`,
+          ...fade,
           data,
           pickable: false,
           // Few enough sides to read as foliage rather than as a machined
@@ -364,6 +379,7 @@ export function buildGroundLayers(opts: GroundLayerOptions): Layer[] {
       layers.push(
         new TextLayer<StreetNameLabel>({
           id: 'ground-street-names',
+          ...fade,
           data: labels,
           pickable: false,
           billboard: false,

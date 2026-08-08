@@ -22,6 +22,7 @@ import {
   type WalkLabel,
 } from '@/lib/transit';
 import { MULLIONS_DARK, MULLIONS_LIGHT } from './mullions';
+import { ATMOSPHERE, DEFAULT_TIME, hazeFor, type AtmospherePreset } from './atmosphere';
 import { buildGroundLayers, GROUND_TOP_Z } from './ground';
 import { buildRoofLayers, CONTEXT_ROOF_LIMIT, CONTEXT_ROOF_ZOOM } from './roofs';
 import type { StreetscapeResult } from '@/lib/streetscape';
@@ -98,6 +99,8 @@ export interface BuildLayersOptions {
   showContext?: boolean;
   /** Dark or light basemap. Only the recessive colours change with it. */
   theme?: MapTheme;
+  /** The hour the city is lit at, which drives sun, sky and distance haze. */
+  atmosphere?: AtmospherePreset;
   /**
    * Our own ground plane: streets, kerbs, sidewalks, water. When present it
    * covers the basemap entirely — the default map draws every pixel itself.
@@ -260,6 +263,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
     photorealLayer = null,
     showContext = false,
     theme = 'dark',
+    atmosphere = ATMOSPHERE[DEFAULT_TIME[theme]],
     streetscape = null,
     transitStops,
     transitOrigin = null,
@@ -273,6 +277,27 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
   const palette = themeColors(theme);
   const layers: Layer[] = [];
 
+  /**
+   * Distance haze, applied by how much a surface is allowed to recede.
+   *
+   * The scenery — the grey city, the filtered-out massing — takes the full
+   * effect, because that is exactly what it is for: fading into the air is how
+   * a background says it is a background.
+   *
+   * The buildings that carry data take a fraction of it, so a tower six blocks
+   * away still sits in the same air as its neighbours without being softened
+   * out of the conversation.
+   *
+   * And the availability bands take NONE. That is the whole hierarchy rule
+   * expressed in one number: whatever else the atmosphere does to this scene,
+   * a Goldenrod band on the 14th floor is at full strength at any distance,
+   * and every other surface yields to it. Haze is the classic way an
+   * atmosphere pass quietly eats legibility, and this is where that is
+   * refused.
+   */
+  const sceneryHaze = hazeFor(atmosphere, 1);
+  const subjectHaze = hazeFor(atmosphere, 0.42);
+
   // The photoreal mesh is the ground itself — first in, so everything with
   // data draws over it.
   if (photorealLayer) layers.push(photorealLayer);
@@ -281,7 +306,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
   // other layer so the whole city stands on it. Photoreal imagery carries its
   // own ground, so the two never draw together.
   if (!photoreal && streetscape) {
-    layers.push(...buildGroundLayers({ streetscape, theme, zoom }));
+    layers.push(...buildGroundLayers({ streetscape, theme, zoom, haze: sceneryHaze }));
   }
 
   // --- The city itself. Drawn first so everything with data sits on top of it,
@@ -301,6 +326,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         new PolygonLayer<ContextBuilding>({
           id: 'city-context',
           data: scenery,
+          extensions: [sceneryHaze],
           extruded: true,
           filled: true,
           stroked: false,
@@ -310,11 +336,17 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
           // no face shading is a fog bank. The separation between lit and
           // shaded walls is what makes it read as buildings, and the fill is
           // desaturated enough that it still cannot be mistaken for data.
+          // A white specular at shininess 1 is a lobe broad enough to wash the
+          // whole surface, and it was lifting this massing far above the
+          // colour it is declared in — at a low sun the nearest towers clipped
+          // to pure white, which is a brighter object than any availability
+          // band. Restrained specular keeps the face separation that makes it
+          // read as buildings without the blowout.
           material: {
             ambient: 0.62,
             diffuse: 0.55,
-            shininess: 1,
-            specularColor: [255, 255, 255],
+            shininess: 4,
+            specularColor: [58, 66, 84],
           },
           getPolygon: (c) => c.r,
           getElevation: (c) => c.h * FT_TO_M,
@@ -336,6 +368,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       new PolygonLayer<BuildingWithSpaces>({
         id: 'buildings-context',
         data: context,
+        extensions: [sceneryHaze],
         extruded: true,
         filled: true,
         stroked: false,
@@ -431,8 +464,10 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       pickable: true,
       autoHighlight: false,
       // Walls only, and only while they are walls: in photorealistic mode the
-      // footprint is a flat plate with no side faces to draw them on.
-      extensions: photoreal ? [] : [theme === 'dark' ? MULLIONS_DARK : MULLIONS_LIGHT],
+      // footprint is a flat plate with no side faces to draw them on. The
+      // haze rides alongside at reduced strength — a building carrying data
+      // sits in the air but is never softened out of the conversation.
+      extensions: photoreal ? [] : [theme === 'dark' ? MULLIONS_DARK : MULLIONS_LIGHT, subjectHaze],
       // Tuned for a real sun rather than a flat ambient wash: enough diffuse
       // that the lit and shaded walls of a tower differ plainly as the camera
       // orbits, and a small specular term so the highlight travels across the
@@ -472,6 +507,8 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         context: showContext ? contextRoofSources(cityContext, buildings, zoom) : [],
         theme,
         zoom,
+        haze: sceneryHaze,
+        subjectHaze,
       }),
     );
   }

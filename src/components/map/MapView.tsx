@@ -19,6 +19,12 @@ import { applyFilters } from '@/lib/filters';
 import type { BuildingWithSpaces } from '@/types';
 import { BAND_ZOOM_THRESHOLD, buildLayers, type MapPoint } from './layers';
 import { useCityContext } from './useCityContext';
+import {
+  ATMOSPHERE,
+  DEFAULT_TIME,
+  skySpec,
+  type AtmospherePreset,
+} from './atmosphere';
 import { useStreetscape } from './useStreetscape';
 import { useTransit } from './useTransit';
 import { buildingHeightFt, buildingRing } from '@/lib/floor-bands';
@@ -232,7 +238,7 @@ function resolveBasemap(theme: 'dark' | 'light'): {
 }
 
 /**
- * A real sun over Manhattan.
+ * A real sun over Manhattan, at the chosen hour.
  *
  * `_SunLight` derives its direction from the viewport's own latitude and
  * longitude plus a timestamp, so the light is where the sun actually was — and
@@ -240,25 +246,22 @@ function resolveBasemap(theme: 'dark' | 'light'): {
  * lit faces and the shadows stay put as you orbit. That is what makes rotating
  * feel like walking around a model instead of spinning a picture.
  *
- * Mid-morning in June, chosen deliberately: the sun is high enough that streets
- * are not lost in shadow, and far enough east that towers throw long, readable
- * shadows down the avenues.
+ * The hour comes from the atmosphere preset, so changing the time of day moves
+ * the real sun rather than merely re-tinting the scene.
  */
-const SUN_TIMESTAMP = Date.UTC(2025, 5, 21, 14, 30);
-
-function buildLighting(theme: 'dark' | 'light'): LightingEffect {
+function buildLighting(theme: 'dark' | 'light', preset: AtmospherePreset): LightingEffect {
   const effect = new LightingEffect({
     // Ambient carries most of the exposure and the sun supplies the modelling.
     // The split matters: too much directional intensity drove the blue channel
     // of Midnight-toned buildings to clip, which turned them electric cyan.
     ambient: new AmbientLight({
       color: [255, 255, 255],
-      intensity: theme === 'dark' ? 1.0 : 1.25,
+      intensity: preset.ambient,
     }),
     sun: new _SunLight({
-      timestamp: SUN_TIMESTAMP,
-      color: [255, 250, 238],
-      intensity: 0.65,
+      timestamp: preset.timestamp,
+      color: preset.sunColor,
+      intensity: preset.sun,
       // Cast shadows are OFF, and this is not a stylistic choice.
       //
       // deck.gl's shadow support is experimental, and switching it on breaks
@@ -291,6 +294,20 @@ function buildLighting(theme: 'dark' | 'light'): LightingEffect {
   // darker than the ground it falls on, or it disappears.
   effect.shadowColor = theme === 'dark' ? [0, 0, 0, 0.45] : [0, 30, 90, 0.16];
   return effect;
+}
+
+/**
+ * Puts the sky and its fog on the map.
+ *
+ * Wrapped because a basemap style that predates MapLibre's sky specification
+ * rejects it, and losing the sky is a far better outcome than losing the map.
+ */
+function applySky(instance: maplibregl.Map, preset: AtmospherePreset) {
+  try {
+    instance.setSky(skySpec(preset) as Parameters<maplibregl.Map['setSky']>[0]);
+  } catch {
+    // No sky on this style. The deck.gl haze still carries the depth cue.
+  }
 }
 
 /** Resolves once the map has stopped moving, with a floor on the wait. */
@@ -473,11 +490,18 @@ export default function MapView() {
   const photoreal = useApp((s) => s.photoreal);
   const showContext = useApp((s) => s.showContext);
   const mapTheme = useApp((s) => s.mapTheme);
+  const timeOfDay = useApp((s) => s.timeOfDay);
   const showTransit = useApp((s) => s.showTransit);
   const transitModes = useApp((s) => s.transitModes);
   const isolateSelection = useApp((s) => s.isolateSelection);
   const loading = useApp((s) => s.loading);
   const error = useApp((s) => s.error);
+
+  /** The hour the city is lit at — an explicit choice, or the theme's own. */
+  const atmosphere = useMemo(
+    () => ATMOSPHERE[timeOfDay ?? DEFAULT_TIME[mapTheme]],
+    [timeOfDay, mapTheme],
+  );
 
   const allFiltered = useMemo(
     () => applyFilters(buildings, filters),
@@ -576,7 +600,11 @@ export default function MapView() {
     let downgraded = false;
     const onStyleLoad = () => {
       styleLoaded = true;
-      enlargeStreetLabels(instance, useApp.getState().mapTheme);
+      const state = useApp.getState();
+      enlargeStreetLabels(instance, state.mapTheme);
+      // A style load replaces the sky along with everything else, so it has to
+      // be reapplied here rather than only when the hour changes.
+      applySky(instance, ATMOSPHERE[state.timeOfDay ?? DEFAULT_TIME[state.mapTheme]]);
     };
     const onError = () => {
       if (styleLoaded || downgraded) return;
@@ -590,10 +618,16 @@ export default function MapView() {
     instance.on('style.load', onStyleLoad);
     instance.on('error', onError);
 
+    const bootState = useApp.getState();
     const overlay = new MapboxOverlay({
       interleaved: false,
       layers: [],
-      effects: [buildLighting(useApp.getState().mapTheme)],
+      effects: [
+        buildLighting(
+          bootState.mapTheme,
+          ATMOSPHERE[bootState.timeOfDay ?? DEFAULT_TIME[bootState.mapTheme]],
+        ),
+      ],
       getTooltip: buildTooltip,
     });
     instance.addControl(overlay as unknown as maplibregl.IControl);
@@ -717,14 +751,24 @@ export default function MapView() {
     }
     try {
       instance.setStyle(resolveBasemap(mapTheme).style);
-      overlayRef.current?.setProps({ effects: [buildLighting(mapTheme)] });
-      // A style swap replaces every layer, so the label sizing has to be
-      // reapplied once the new one has loaded.
-      instance.once('style.load', () => enlargeStreetLabels(instance, mapTheme));
+      // A style swap replaces every layer, so the label sizing and the sky
+      // both have to be reapplied once the new one has loaded.
+      instance.once('style.load', () => {
+        enlargeStreetLabels(instance, mapTheme);
+        applySky(instance, ATMOSPHERE[useApp.getState().timeOfDay ?? DEFAULT_TIME[mapTheme]]);
+      });
     } catch {
       // A failed style swap leaves the previous basemap up, which is fine.
     }
   }, [mapTheme, map]);
+
+  // --- The hour of the day: the real sun position, and the sky it sits in.
+  useEffect(() => {
+    const instance = mapRef.current;
+    if (!instance) return;
+    overlayRef.current?.setProps({ effects: [buildLighting(mapTheme, atmosphere)] });
+    applySky(instance, atmosphere);
+  }, [atmosphere, mapTheme, map]);
 
   /**
    * Flattens the two stacked WebGL canvases into one bitmap.
@@ -956,6 +1000,7 @@ export default function MapView() {
         photoreal: activePhotorealLayer !== null && photorealDrawn,
         showContext,
         theme: mapTheme,
+        atmosphere,
         streetscape,
         transitStops,
         transitOrigin,
@@ -994,6 +1039,7 @@ export default function MapView() {
     photorealDrawn,
     showContext,
     mapTheme,
+    atmosphere,
     transitStops,
     transitOrigin,
     toViewport,

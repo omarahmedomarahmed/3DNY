@@ -2,6 +2,7 @@
 
 import type maplibregl from 'maplibre-gl';
 import { useApp } from '@/lib/store';
+import { ATMOSPHERE, DEFAULT_TIME, TIME_ORDER } from './atmosphere';
 import { photorealAvailable } from './photoreal';
 
 /**
@@ -111,6 +112,10 @@ export default function MapControls({
   const setShowContext = useApp((s) => s.setShowContext);
   const mapTheme = useApp((s) => s.mapTheme);
   const setMapTheme = useApp((s) => s.setMapTheme);
+  const timeOfDay = useApp((s) => s.timeOfDay);
+  const setTimeOfDay = useApp((s) => s.setTimeOfDay);
+  // Null means "follow the theme", which is the state the map opens in.
+  const activeTime = timeOfDay ?? DEFAULT_TIME[mapTheme];
   const showTransit = useApp((s) => s.showTransit);
   const setShowTransit = useApp((s) => s.setShowTransit);
   const transitModes = useApp((s) => s.transitModes);
@@ -308,6 +313,26 @@ export default function MapControls({
         <Icon>
           <rect x="3.2" y="4.5" width="17.6" height="15" rx="2" />
           <path d="M7 9.5h10M7 13h10M7 16.2h6" />
+        </Icon>
+      </ControlButton>
+
+      {/* Time of day. Moves the real sun — `_SunLight` takes its direction
+          from the viewport's own latitude and longitude at this timestamp —
+          along with the sky and the distance haze. Cycles rather than opening
+          a menu: it is a thing you flick through while talking. */}
+      <ControlButton
+        label={`Time of day: ${ATMOSPHERE[activeTime].label}. Click for the next hour`}
+        disabled={!map}
+        onClick={() => {
+          const i = TIME_ORDER.indexOf(activeTime);
+          setTimeOfDay(TIME_ORDER[(i + 1) % TIME_ORDER.length]);
+        }}
+      >
+        {/* A sun low over a horizon line — the hour, not the theme. */}
+        <Icon>
+          <path d="M3 18h18" />
+          <circle cx="12" cy="12.5" r="3.6" />
+          <path d="M12 4.5v2M4.9 7.4l1.4 1.4M19.1 7.4l-1.4 1.4M3 12.5h2M19 12.5h2" />
         </Icon>
       </ControlButton>
 
