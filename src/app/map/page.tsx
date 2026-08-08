@@ -7,7 +7,7 @@ import { useApp } from '@/lib/store';
 import AppHeader from '@/components/shell/AppHeader';
 import FilterRail from '@/components/filters/FilterRail';
 import ResultsSidebar from '@/components/sidebar/ResultsSidebar';
-import CompareTray from '@/components/compare/CompareTray';
+import ComparePanel from '@/components/compare/ComparePanel';
 import { DotMotif } from '@/components/brand/Logo';
 
 // deck.gl and MapLibre touch `window` at module scope, so the map can only be
@@ -52,6 +52,10 @@ export default function MapPage() {
         <main className="relative min-w-0 flex-1">
           <MapView />
 
+          {/* Compare lives ON the map: a floating panel over the towers it
+              describes, not a page takeover that replaces them. */}
+          <ComparePanel />
+
           {loading && (
             <div className="pointer-events-none absolute inset-x-0 top-4 flex justify-center">
               <span className="rounded-full border border-hairline bg-white px-4 py-1.5 text-xs text-muted shadow-card">
@@ -84,8 +88,6 @@ export default function MapPage() {
 
         <ResultsSidebar />
       </div>
-
-      <CompareTray />
     </div>
   );
 }

@@ -253,6 +253,47 @@ export interface ThemeColors {
   dimmed: RGBA;
   /** The surrounding city from NYC footprints. */
   cityContext: RGBA;
+  /** The ground plane itself — the block interiors between streets. */
+  ground: RGBA;
+  /** Rivers and ponds — the deep centre of the channel. */
+  water: RGBA;
+  /** The shallow band along the shore, which is what gives water its depth. */
+  waterShallow: RGBA;
+  /** The bright line where water meets land. */
+  waterEdge: RGBA;
+  /** Lawn and greensward. */
+  park: RGBA;
+  /** Paved plazas and triangles — Herald Square, not Central Park. */
+  parkPlaza: RGBA;
+  /** Playgrounds and ball courts. */
+  parkCourt: RGBA;
+  /** Tree canopy. */
+  canopy: RGBA;
+  /** Tree trunk. */
+  trunk: RGBA;
+  /**
+   * Timber, which roof water tanks are blended toward. Parapets, bulkheads
+   * and setbacks have no colour of their own: they take the fill of the
+   * building they stand on, so roof furniture reads as the same building
+   * rather than as grey objects placed on top of it.
+   */
+  waterTank: RGBA;
+  /** The railing enclosure around a subway stair. */
+  entranceStair: RGBA;
+  /** An elevator headhouse, which is a small building rather than a railing. */
+  entranceElevator: RGBA;
+  /** The globe lamp that has meant "this entrance is open" since the eighties. */
+  entranceGlobe: RGBA;
+  /** The pavement band flanking every roadbed. */
+  sidewalk: RGBA;
+  /** The kerb line between sidewalk and asphalt. */
+  roadCasing: RGBA;
+  /** The roadbed. */
+  roadFill: RGBA;
+  /** Street names painted onto the asphalt at close zoom. */
+  streetName: RGBA;
+  /** The halo behind painted names, keeping them legible over the kerb. */
+  streetNameHalo: RGBA;
   /** Floor plate lines drawn up every facade. */
   floorLine: RGBA;
   /** The post a transit marker stands on. */
@@ -271,6 +312,34 @@ export interface ThemeColors {
 const LIGHT_THEME: ThemeColors = {
   dimmed: rgba('#D8DCE4', 130),
   cityContext: rgba('#C6CFDE', 255),
+  // Daylight ground: block interiors a quiet blue-gray, pavements a step
+  // lighter, roadbeds white — the Positron reading, but drawn by us.
+  // The blocks have to be a clear step darker than the pavement, or a white
+  // roadbed on a near-white block field leaves no street grid at all.
+  ground: rgba('#D9E0EB', 255),
+  water: rgba('#A9C2DF', 255),
+  waterShallow: rgba('#C6D9EC', 255),
+  waterEdge: rgba('#DCE9F5', 255),
+  // Greens are desaturated toward the map's blue cast on purpose. A saturated
+  // park green would be the second-loudest thing on screen after Goldenrod,
+  // and parks are orientation, not data.
+  park: rgba('#C8DBC2', 255),
+  parkPlaza: rgba('#DFE2DC', 255),
+  parkCourt: rgba('#CFDCCB', 255),
+  canopy: rgba('#A6C39C', 255),
+  trunk: rgba('#9AA0A2', 255),
+  waterTank: rgba('#8C7B6B', 255),
+  entranceStair: rgba('#5A6473', 255),
+  entranceElevator: rgba('#7C8797', 255),
+  // The real globes are a green so desaturated it reads almost grey by day.
+  // Kept that way on purpose: a saturated green dot at every corner would be
+  // a second thing competing for the eye with the availability bands.
+  entranceGlobe: rgba('#4E7A55', 255),
+  sidewalk: rgba('#EDF1F7', 255),
+  roadCasing: rgba('#BFC7D6', 255),
+  roadFill: rgba('#FFFFFF', 255),
+  streetName: rgba('#5E6A85', 235),
+  streetNameHalo: rgba('#FDFDFE', 200),
   // Darker than the facade on a light map: a floor line is a shadow gap
   // between plates, not a highlight.
   floorLine: rgba('#0A1428', 42),
@@ -293,6 +362,30 @@ const LIGHT_THEME: ThemeColors = {
 const DARK_THEME: ThemeColors = {
   dimmed: rgba('#2A3345', 170),
   cityContext: rgba('#39435A', 255),
+  // Night ground: near-black blocks, streets a shade lighter — the street
+  // grid reads as the lit network it is at night, kerbs as lit stone edges.
+  ground: rgba('#0A0E17', 255),
+  water: rgba('#070C16', 255),
+  waterShallow: rgba('#101B2E', 255),
+  waterEdge: rgba('#1B2B45', 255),
+  // At night a park is a hole in the lit grid, not a green field — dark, but
+  // warm enough against the blue-black blocks to read as planting.
+  park: rgba('#101A15', 255),
+  parkPlaza: rgba('#161B22', 255),
+  parkCourt: rgba('#131D18', 255),
+  canopy: rgba('#1E3325', 255),
+  trunk: rgba('#20262E', 255),
+  waterTank: rgba('#4C4238', 255),
+  entranceStair: rgba('#3B4557', 255),
+  entranceElevator: rgba('#46516A', 255),
+  // At night the globe is genuinely lit, so it is the one thing down here
+  // allowed to glow — but green, and small, so it never reads as Goldenrod.
+  entranceGlobe: rgba('#57A268', 255),
+  sidewalk: rgba('#151C2B', 255),
+  roadCasing: rgba('#2C3750', 255),
+  roadFill: rgba('#1D2637', 255),
+  streetName: rgba('#A7B8DC', 215),
+  streetNameHalo: rgba('#0F1522', 190),
   // Lighter than the facade on a dark map — the same reading inverted, as a
   // lit slot between floor plates.
   floorLine: rgba('#9FB4D8', 46),

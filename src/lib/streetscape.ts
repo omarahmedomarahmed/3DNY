@@ -1,0 +1,717 @@
+import { bboxClip } from '@turf/turf';
+import type { Feature, MultiPolygon, Polygon } from 'geojson';
+import { snapBbox } from './city-context';
+import { metersBetween } from './transit';
+
+/**
+ * The ground the city stands on — real street geometry and real water, from
+ * NYC's planimetric surveys, drawn as our own 3D ground plane instead of a
+ * flat basemap image underneath the buildings.
+ *
+ * Two sources, both free and keyless:
+ *   - Centerline (inkn-q76z): every street segment with its measured roadbed
+ *     width, so an avenue is drawn wide and an alley narrow, plus the street
+ *     name — which becomes the painted-on-the-asphalt name at close zoom.
+ *   - Planimetric hydrography (pjs3-c3z5): the rivers, drawn as polygons so
+ *     the island reads as an island once our opaque ground covers the basemap.
+ *
+ * Sidewalks are derived from the centerline rather than fetched: the
+ * planimetric sidewalk dataset costs ~5MB per viewport cell before
+ * simplification, and a band extending from the kerb reads identically at
+ * map scale for zero bytes.
+ */
+
+const CENTERLINE = 'https://data.cityofnewyork.us/resource/inkn-q76z.json';
+const HYDROGRAPHY = 'https://data.cityofnewyork.us/resource/pjs3-c3z5.json';
+const PARKS = 'https://data.cityofnewyork.us/resource/enfh-gkve.json';
+const STREET_TREES = 'https://data.cityofnewyork.us/resource/uvpi-gqnh.json';
+/** MTA's own entrance inventory, on the state portal rather than the city's. */
+const SUBWAY_ENTRANCES = 'https://data.ny.gov/resource/i9wp-a4ja.json';
+
+/** Trees are the long tail of the payload; past this they stop being worth it. */
+export const TREE_LIMIT = 4000;
+
+/** Above this many road segments the request is truncated, widest first. */
+export const ROAD_LIMIT = 6000;
+
+/**
+ * Road tiers, which drive width fallbacks, colour and level-of-detail:
+ * 0 = highway/bridge/ramp, 1 = avenue-wide, 2 = ordinary street, 3 = alley.
+ */
+export type RoadTier = 0 | 1 | 2 | 3;
+
+export interface RoadSegment {
+  /** Polyline, [lon, lat] rounded to ~11cm. */
+  p: [number, number][];
+  /** Roadbed width in feet, kerb to kerb. */
+  w: number;
+  t: RoadTier;
+  /** Street name as painted on the ground, or null for unnamed segments. */
+  n: string | null;
+}
+
+export interface WaterPolygon {
+  /** First ring is the shore; the rest are holes — islands stay dry. */
+  rings: [number, number][][];
+}
+
+/**
+ * What a park is made of, which decides how it is drawn:
+ * 0 = greensward (Central Park, a neighbourhood park — lawn and trees),
+ * 1 = hardscape (Herald Square and the other triangles and plazas),
+ * 2 = active recreation (playgrounds, ball courts).
+ */
+export type ParkTier = 0 | 1 | 2;
+
+export interface ParkPolygon {
+  /** First ring is the boundary; the rest are holes. */
+  rings: [number, number][][];
+  t: ParkTier;
+  /** Park name, for the few big enough to label. */
+  n: string | null;
+  /** Acres, so the tiny triangles can be told from Central Park. */
+  a: number;
+}
+
+export interface StreetTree {
+  /** [lon, lat], rounded to ~11cm. */
+  p: [number, number];
+  /** Trunk diameter in inches, which stands in for canopy size. */
+  d: number;
+}
+
+/**
+ * How you get in: 0 = stair, 1 = elevator, 2 = escalator, 3 = everything else
+ * (doors, ramps, easements through building lobbies).
+ */
+export type EntranceKind = 0 | 1 | 2 | 3;
+
+export interface SubwayEntrance {
+  /** [lon, lat], rounded to ~11cm. */
+  p: [number, number];
+  k: EntranceKind;
+  /** Station name, for the popup. */
+  n: string;
+  /** Route letters and numbers serving it. */
+  r: string[];
+}
+
+export interface StreetscapeResult {
+  roads: RoadSegment[];
+  water: WaterPolygon[];
+  parks: ParkPolygon[];
+  trees: StreetTree[];
+  entrances: SubwayEntrance[];
+  truncated: boolean;
+  bbox: [number, number, number, number];
+}
+
+/**
+ * CSCL `rw_type` codes that are drawable road surface. Tunnels are
+ * deliberately absent — drawing the Queens–Midtown approach across the East
+ * River bed is how a map stops being trusted. Paths, step streets, driveways
+ * and paper streets are noise at this scale.
+ */
+const DRAWABLE_RW_TYPES = new Set(['1', '2', '3', '9', '10']);
+
+/** rw_type: 2 highway, 3 bridge, 9 ramp. */
+const ELEVATED_RW_TYPES = new Set(['2', '3', '9']);
+
+export function roadTier(rwType: string, widthFt: number): RoadTier {
+  if (ELEVATED_RW_TYPES.has(rwType)) return 0;
+  if (widthFt >= 56) return 1;
+  if (widthFt >= 30) return 2;
+  return 3;
+}
+
+/**
+ * Manhattan roadbeds run ~34ft (side streets) to ~100ft (Park Avenue).
+ * Widths outside plausibility are survey artefacts, not boulevards.
+ */
+export function clampRoadWidth(raw: number | null): number {
+  if (raw === null || !Number.isFinite(raw) || raw <= 0) return 30;
+  return Math.min(120, Math.max(16, raw));
+}
+
+const num = (v: unknown): number | null => {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
+
+/** Same collinear-vertex dropper the building footprints use. */
+function simplifyLine(line: [number, number][], tol: number): [number, number][] {
+  if (line.length <= 2) return line;
+  const out: [number, number][] = [line[0]];
+  for (let i = 1; i < line.length - 1; i++) {
+    const [ax, ay] = out[out.length - 1];
+    const [bx, by] = line[i];
+    const [cx, cy] = line[i + 1];
+    const area = Math.abs((bx - ax) * (cy - ay) - (cx - ax) * (by - ay));
+    const base = Math.hypot(cx - ax, cy - ay);
+    if (base === 0 || area / base > tol) out.push(line[i]);
+  }
+  out.push(line[line.length - 1]);
+  return out;
+}
+
+function headers(): Record<string, string> {
+  const token = process.env.NYC_OPEN_DATA_APP_TOKEN;
+  return token ? { 'X-App-Token': token } : {};
+}
+
+/** Every LineString in a LineString or MultiLineString geometry. */
+function lineParts(geom: any): [number, number][][] {
+  if (!geom) return [];
+  const lines: any[] =
+    geom.type === 'MultiLineString'
+      ? geom.coordinates
+      : geom.type === 'LineString'
+        ? [geom.coordinates]
+        : [];
+  return lines
+    .filter((l: any) => Array.isArray(l) && l.length >= 2)
+    .map((l: any) => l.map((p: number[]) => [p[0], p[1]] as [number, number]));
+}
+
+async function fetchRoads(
+  polygon: string,
+): Promise<{ roads: RoadSegment[]; truncated: boolean }> {
+  const url =
+    `${CENTERLINE}?$select=the_geom,streetwidth,rw_type,stname_label` +
+    `&$where=intersects(the_geom,'${polygon}')` +
+    `&$order=streetwidth DESC` +
+    `&$limit=${ROAD_LIMIT}`;
+
+  const res = await fetch(url, {
+    headers: headers(),
+    // Street geometry changes on the timescale of urban planning, not news.
+    next: { revalidate: 604800 },
+  });
+  if (!res.ok) throw new Error(`NYC centerline returned ${res.status}.`);
+
+  const records = (await res.json()) as any[];
+  const roads: RoadSegment[] = [];
+
+  for (const rec of records) {
+    const rwType = String(rec.rw_type ?? '').trim();
+    if (!DRAWABLE_RW_TYPES.has(rwType)) continue;
+
+    const width = clampRoadWidth(num(rec.streetwidth));
+    const tier = roadTier(rwType, width);
+    const name =
+      typeof rec.stname_label === 'string' && rec.stname_label.trim()
+        ? rec.stname_label.trim()
+        : null;
+
+    for (const part of lineParts(rec.the_geom)) {
+      roads.push({
+        p: simplifyLine(part, 0.00002).map(
+          ([lon, lat]) => [round6(lon), round6(lat)] as [number, number],
+        ),
+        w: width,
+        t: tier,
+        n: name,
+      });
+    }
+  }
+
+  return { roads, truncated: records.length >= ROAD_LIMIT };
+}
+
+async function fetchWater(
+  polygon: string,
+  bbox: [number, number, number, number],
+): Promise<WaterPolygon[]> {
+  const url =
+    `${HYDROGRAPHY}?$select=the_geom` +
+    `&$where=intersects(the_geom,'${polygon}')` +
+    `&$limit=200`;
+
+  const res = await fetch(url, {
+    headers: headers(),
+    next: { revalidate: 604800 },
+  });
+  if (!res.ok) throw new Error(`NYC hydrography returned ${res.status}.`);
+
+  const records = (await res.json()) as any[];
+  const water: WaterPolygon[] = [];
+
+  // The rivers are single enormous polygons that continue far beyond any
+  // viewport; clipped to a padded bbox so the payload carries only the water
+  // that can actually be seen. Holes are kept — Roosevelt Island is a hole in
+  // the East River, and dropping it would flood it.
+  const pad = 0.02;
+  const clipBox: [number, number, number, number] = [
+    bbox[0] - pad,
+    bbox[1] - pad,
+    bbox[2] + pad,
+    bbox[3] + pad,
+  ];
+
+  for (const rec of records) {
+    for (const rings of clipRings(rec.the_geom, clipBox, 0.00004)) {
+      water.push({ rings });
+    }
+  }
+
+  return water;
+}
+
+/**
+ * NYC's `typecategory` vocabulary, reduced to how a park should look.
+ *
+ * Anything not listed is treated as greensward, which is the safe default:
+ * a strip of lawn drawn where there is concrete reads far better than
+ * concrete drawn over Central Park.
+ */
+export function parkTier(typeCategory: string): ParkTier {
+  const t = typeCategory.trim().toLowerCase();
+  if (
+    t.includes('triangle') ||
+    t.includes('plaza') ||
+    t.includes('mall') ||
+    t.includes('strip') ||
+    t.includes('buildings') ||
+    t.includes('institution')
+  ) {
+    return 1;
+  }
+  if (t.includes('playground') || t.includes('recreational') || t.includes('court')) {
+    return 2;
+  }
+  return 0;
+}
+
+/** Clips a polygon geometry to a bbox and simplifies its rings. */
+function clipRings(
+  geom: any,
+  clipBox: [number, number, number, number],
+  tol: number,
+): [number, number][][][] {
+  if (!geom || (geom.type !== 'Polygon' && geom.type !== 'MultiPolygon')) return [];
+  let clipped: Feature<Polygon | MultiPolygon>;
+  try {
+    clipped = bboxClip(
+      { type: 'Feature', properties: {}, geometry: geom } as Feature<Polygon | MultiPolygon>,
+      clipBox,
+    ) as Feature<Polygon | MultiPolygon>;
+  } catch {
+    return [];
+  }
+
+  const polys =
+    clipped.geometry.type === 'MultiPolygon'
+      ? clipped.geometry.coordinates
+      : [clipped.geometry.coordinates];
+
+  const out: [number, number][][][] = [];
+  for (const poly of polys) {
+    const rings = poly
+      .filter((ring) => Array.isArray(ring) && ring.length >= 4)
+      .map((ring) =>
+        simplifyLine(
+          ring.map((p) => [p[0], p[1]] as [number, number]),
+          tol,
+        ).map(([lon, lat]) => [round6(lon), round6(lat)] as [number, number]),
+      )
+      .filter((ring) => ring.length >= 4);
+    if (rings.length > 0) out.push(rings);
+  }
+  return out;
+}
+
+async function fetchParks(
+  polygon: string,
+  bbox: [number, number, number, number],
+): Promise<ParkPolygon[]> {
+  const url =
+    `${PARKS}?$select=multipolygon,signname,typecategory,acres` +
+    `&$where=intersects(multipolygon,'${polygon}')` +
+    `&$limit=400`;
+
+  const res = await fetch(url, { headers: headers(), next: { revalidate: 604800 } });
+  if (!res.ok) throw new Error(`NYC parks returned ${res.status}.`);
+
+  const records = (await res.json()) as any[];
+  const parks: ParkPolygon[] = [];
+
+  // Central Park is one polygon far larger than any viewport, so parks are
+  // clipped exactly as the rivers are.
+  const pad = 0.02;
+  const clipBox: [number, number, number, number] = [
+    bbox[0] - pad,
+    bbox[1] - pad,
+    bbox[2] + pad,
+    bbox[3] + pad,
+  ];
+
+  for (const rec of records) {
+    const tier = parkTier(String(rec.typecategory ?? ''));
+    const name =
+      typeof rec.signname === 'string' && rec.signname.trim() ? rec.signname.trim() : null;
+    const acres = num(rec.acres) ?? 0;
+    for (const rings of clipRings(rec.multipolygon, clipBox, 0.000025)) {
+      parks.push({ rings, t: tier, n: name, a: acres });
+    }
+  }
+
+  return parks;
+}
+
+async function fetchTrees(
+  bbox: [number, number, number, number],
+): Promise<StreetTree[]> {
+  const [w, s, e, n] = bbox;
+  // The tree census carries no queryable geometry column, only latitude and
+  // longitude, so this is a plain bounds filter rather than an intersects().
+  const url =
+    `${STREET_TREES}?$select=latitude,longitude,tree_dbh` +
+    `&$where=latitude between ${s} and ${n}` +
+    ` AND longitude between ${w} and ${e}` +
+    ` AND status='Alive'` +
+    `&$limit=${TREE_LIMIT}`;
+
+  const res = await fetch(encodeURI(url), {
+    headers: headers(),
+    next: { revalidate: 604800 },
+  });
+  if (!res.ok) throw new Error(`NYC street trees returned ${res.status}.`);
+
+  const records = (await res.json()) as any[];
+  const trees: StreetTree[] = [];
+  for (const rec of records) {
+    const lat = num(rec.latitude);
+    const lon = num(rec.longitude);
+    if (lat === null || lon === null) continue;
+    trees.push({
+      p: [round6(lon), round6(lat)],
+      // Clamped: the census has both saplings and typos.
+      d: Math.min(60, Math.max(2, num(rec.tree_dbh) ?? 6)),
+    });
+  }
+  return trees;
+}
+
+export function entranceKind(entranceType: string): EntranceKind {
+  const t = entranceType.trim().toLowerCase();
+  if (t.includes('stair')) return 0;
+  if (t.includes('elevator')) return 1;
+  if (t.includes('escalator')) return 2;
+  return 3;
+}
+
+/**
+ * Subway entrances — the actual holes in the pavement, from the MTA's own
+ * 2024 inventory rather than a station centroid.
+ *
+ * This is what makes transit read as part of the street rather than as a pin
+ * dropped near it: a station is not a point, it is eight stair heads spread
+ * over two blocks, and which corner you come up on is a real part of whether a
+ * building is a five-minute walk or a nine-minute one.
+ */
+async function fetchEntrances(
+  bbox: [number, number, number, number],
+): Promise<SubwayEntrance[]> {
+  const [w, s, e, n] = bbox;
+  // This dataset exposes latitude and longitude as plain columns, so the
+  // filter is a bounds test rather than an intersects().
+  const url =
+    `${SUBWAY_ENTRANCES}?$select=entrance_latitude,entrance_longitude,entrance_type,` +
+    `stop_name,daytime_routes` +
+    `&$where=entrance_latitude between ${s} and ${n}` +
+    ` AND entrance_longitude between ${w} and ${e}` +
+    ` AND entry_allowed='YES'` +
+    `&$limit=1200`;
+
+  const res = await fetch(encodeURI(url), {
+    headers: headers(),
+    next: { revalidate: 604800 },
+  });
+  if (!res.ok) throw new Error(`MTA subway entrances returned ${res.status}.`);
+
+  const records = (await res.json()) as any[];
+  const entrances: SubwayEntrance[] = [];
+  for (const rec of records) {
+    const lat = num(rec.entrance_latitude);
+    const lon = num(rec.entrance_longitude);
+    if (lat === null || lon === null) continue;
+    entrances.push({
+      p: [round6(lon), round6(lat)],
+      k: entranceKind(String(rec.entrance_type ?? '')),
+      n: typeof rec.stop_name === 'string' ? rec.stop_name : '',
+      r: String(rec.daytime_routes ?? '')
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 8),
+    });
+  }
+  return entrances;
+}
+
+export async function fetchStreetscape(
+  rawBbox: [number, number, number, number],
+): Promise<StreetscapeResult> {
+  const bbox = snapBbox(rawBbox);
+  const [w, s, e, n] = bbox;
+  const polygon = `POLYGON((${w} ${s},${e} ${s},${e} ${n},${w} ${n},${w} ${s}))`;
+
+  // One source failing must not take the others down with it: a ground plane
+  // with streets but no trees is still far better than no ground plane. Only
+  // the streets are load-bearing, because without them there is no city.
+  const [roadsResult, waterResult, parksResult, treesResult, entrancesResult] =
+    await Promise.allSettled([
+      fetchRoads(polygon),
+      fetchWater(polygon, bbox),
+      fetchParks(polygon, bbox),
+      fetchTrees(bbox),
+      fetchEntrances(bbox),
+    ]);
+
+  if (roadsResult.status === 'rejected') {
+    throw new Error(String((roadsResult.reason as Error).message));
+  }
+
+  return {
+    roads: roadsResult.value.roads,
+    water: waterResult.status === 'fulfilled' ? waterResult.value : [],
+    parks: parksResult.status === 'fulfilled' ? parksResult.value : [],
+    trees: treesResult.status === 'fulfilled' ? treesResult.value : [],
+    entrances: entrancesResult.status === 'fulfilled' ? entrancesResult.value : [],
+    truncated: roadsResult.value.truncated,
+    bbox,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Painted street names — geometry solved here so it can be unit-tested.
+// ---------------------------------------------------------------------------
+
+export interface StreetNameLabel {
+  position: [number, number];
+  /** Degrees CCW from east, normalised to (-90, 90] so text is never upside down. */
+  angle: number;
+  text: string;
+  tier: RoadTier;
+}
+
+/** Total length of a polyline in metres. */
+export function polylineMeters(line: [number, number][]): number {
+  let total = 0;
+  for (let i = 1; i < line.length; i++) total += metersBetween(line[i - 1], line[i]);
+  return total;
+}
+
+/**
+ * The point halfway along a polyline by arc length, plus the direction of the
+ * segment it falls on. Midpoint by arc length, not by vertex index: centerline
+ * vertices cluster at curves, and a vertex-index midpoint slides toward them.
+ */
+export function polylineMidpoint(line: [number, number][]): {
+  point: [number, number];
+  angle: number;
+} {
+  const half = polylineMeters(line) / 2;
+  let walked = 0;
+  for (let i = 1; i < line.length; i++) {
+    const seg = metersBetween(line[i - 1], line[i]);
+    if (walked + seg >= half && seg > 0) {
+      const t = (half - walked) / seg;
+      const [ax, ay] = line[i - 1];
+      const [bx, by] = line[i];
+      return {
+        point: [ax + (bx - ax) * t, ay + (by - ay) * t],
+        angle: segmentAngle(line[i - 1], line[i]),
+      };
+    }
+    walked += seg;
+  }
+  const last = line[line.length - 1];
+  return { point: last, angle: 0 };
+}
+
+/**
+ * Angle of a segment in degrees CCW from east, corrected for latitude so a
+ * street that runs true north-east is drawn at 45° rather than skewed by the
+ * aspect ratio of degrees. Normalised to (-90, 90]: painted text has a fixed
+ * world orientation — like real thermoplastic road lettering — and this is the
+ * half-plane that reads left-to-right at the map's default bearing.
+ */
+export function segmentAngle(a: [number, number], b: [number, number]): number {
+  const dx = (b[0] - a[0]) * Math.cos(((a[1] + b[1]) / 2) * (Math.PI / 180));
+  const dy = b[1] - a[1];
+  let deg = (Math.atan2(dy, dx) * 180) / Math.PI;
+  if (deg > 90) deg -= 180;
+  if (deg <= -90) deg += 180;
+  return deg;
+}
+
+/**
+ * A grid-hashed index of road segments, for "which street is this next to".
+ *
+ * Built once per streetscape payload and queried per entrance. Pairwise would
+ * be a few thousand entrances against a few thousand segments every render;
+ * this is a hash lookup over a 3×3 neighbourhood.
+ */
+export interface RoadIndex {
+  cell: number;
+  buckets: Map<string, { a: [number, number]; b: [number, number] }[]>;
+}
+
+/** ~110m cells: comfortably wider than a Manhattan block is deep. */
+const ROAD_INDEX_CELL = 0.001;
+
+export function buildRoadIndex(roads: RoadSegment[]): RoadIndex {
+  const buckets = new Map<string, { a: [number, number]; b: [number, number] }[]>();
+  const put = (key: string, seg: { a: [number, number]; b: [number, number] }) => {
+    const list = buckets.get(key);
+    if (list) list.push(seg);
+    else buckets.set(key, [seg]);
+  };
+
+  for (const road of roads) {
+    for (let i = 1; i < road.p.length; i++) {
+      const a = road.p[i - 1];
+      const b = road.p[i];
+      const seg = { a, b };
+      // A segment can span cells, so both endpoints index it. Manhattan's
+      // blocks are short enough that a segment rarely crosses more than two.
+      for (const [x, y] of [a, b]) {
+        put(`${Math.floor(x / ROAD_INDEX_CELL)},${Math.floor(y / ROAD_INDEX_CELL)}`, seg);
+      }
+    }
+  }
+  return { cell: ROAD_INDEX_CELL, buckets };
+}
+
+/**
+ * The bearing of the street nearest a point, in degrees CCW from east.
+ *
+ * Subway entrances have no orientation in the MTA's data, and a stair head
+ * sitting at a random angle to the pavement is worse than no stair head at
+ * all — it reads as litter. Every entrance is on a sidewalk, so the street it
+ * is beside gives it the only orientation it could plausibly have.
+ *
+ * Returns null when there is no road nearby, so the caller can decide rather
+ * than being handed a confident wrong answer.
+ */
+export function nearestRoadAngle(
+  point: [number, number],
+  index: RoadIndex,
+): number | null {
+  const cx = Math.floor(point[0] / index.cell);
+  const cy = Math.floor(point[1] / index.cell);
+
+  let best: number | null = null;
+  let bestDist = Infinity;
+
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      const segs = index.buckets.get(`${cx + dx},${cy + dy}`);
+      if (!segs) continue;
+      for (const seg of segs) {
+        const d = pointToSegmentMeters(point, seg.a, seg.b);
+        if (d < bestDist) {
+          bestDist = d;
+          best = segmentAngle(seg.a, seg.b);
+        }
+      }
+    }
+  }
+  return best;
+}
+
+/** Perpendicular distance from a point to a segment, in metres. */
+export function pointToSegmentMeters(
+  p: [number, number],
+  a: [number, number],
+  b: [number, number],
+): number {
+  // Work in a local metric frame so the projection is not skewed by latitude.
+  const mLon = 111_320 * Math.cos((p[1] * Math.PI) / 180);
+  const px = (p[0] - a[0]) * mLon;
+  const py = (p[1] - a[1]) * 111_320;
+  const bx = (b[0] - a[0]) * mLon;
+  const by = (b[1] - a[1]) * 111_320;
+
+  const lenSq = bx * bx + by * by;
+  if (lenSq === 0) return Math.hypot(px, py);
+  // Clamped, so a point beyond either end measures to that end, not to the
+  // infinite line — which would put an entrance beside a street it is nowhere
+  // near just because that street's line passes close.
+  const t = Math.max(0, Math.min(1, (px * bx + py * by) / lenSq));
+  return Math.hypot(px - bx * t, py - by * t);
+}
+
+/** Which tier wins a contested spot, low first. Highways come last. */
+const NAME_PRIORITY: Record<RoadTier, number> = { 1: 0, 2: 1, 3: 2, 0: 3 };
+
+/**
+ * Chooses where street names are painted.
+ *
+ * One name per street roughly every `repeatMeters`, longest segments first so
+ * the name lands on the block face with room for it, and a global spacing so
+ * two different names never collide at an intersection. Grid-hash rather than
+ * pairwise, so it stays O(n) for a few thousand segments.
+ */
+export function layoutStreetNames(
+  roads: RoadSegment[],
+  opts: { repeatMeters?: number; clearMeters?: number; minSegmentMeters?: number } = {},
+): StreetNameLabel[] {
+  const { repeatMeters = 420, clearMeters = 80, minSegmentMeters = 55 } = opts;
+
+  const named = roads
+    .filter((r) => r.n && r.p.length >= 2)
+    .map((r) => ({ road: r, meters: polylineMeters(r.p) }))
+    .filter((r) => r.meters >= minSegmentMeters)
+    // Avenue first, then street, then lane — and the highway last of all.
+    // Sorting by tier number instead would put tier 0 first, which spends the
+    // whole label budget on "FDR DRIVE SB ENTRANCE E 34 ST" while Park Avenue
+    // goes unnamed. A broker names avenues and cross-streets; a ramp is the
+    // least useful word this map can paint on itself.
+    .sort((a, b) => NAME_PRIORITY[a.road.t] - NAME_PRIORITY[b.road.t] || b.meters - a.meters);
+
+  const labels: StreetNameLabel[] = [];
+  // ~1.1km cells; every check looks at the surrounding 3×3 block.
+  const CELL = 0.01;
+  const placedByName = new Map<string, [number, number][]>();
+  const grid = new Map<string, [number, number][]>();
+
+  const cellKey = (lon: number, lat: number) =>
+    `${Math.floor(lon / CELL)},${Math.floor(lat / CELL)}`;
+
+  const tooClose = (
+    point: [number, number],
+    candidates: [number, number][] | undefined,
+    limit: number,
+  ) => candidates?.some((p) => metersBetween(p, point) < limit) ?? false;
+
+  for (const { road } of named) {
+    const name = road.n as string;
+    const { point, angle } = polylineMidpoint(road.p);
+
+    if (tooClose(point, placedByName.get(name), repeatMeters)) continue;
+
+    let blocked = false;
+    const cx = Math.floor(point[0] / CELL);
+    const cy = Math.floor(point[1] / CELL);
+    for (let dx = -1; dx <= 1 && !blocked; dx++) {
+      for (let dy = -1; dy <= 1 && !blocked; dy++) {
+        blocked = tooClose(point, grid.get(`${cx + dx},${cy + dy}`), clearMeters);
+      }
+    }
+    if (blocked) continue;
+
+    labels.push({ position: point, angle, text: name, tier: road.t });
+    const byName = placedByName.get(name) ?? [];
+    byName.push(point);
+    placedByName.set(name, byName);
+    const cell = grid.get(cellKey(point[0], point[1])) ?? [];
+    cell.push(point);
+    grid.set(cellKey(point[0], point[1]), cell);
+  }
+
+  return labels;
+}

@@ -2,6 +2,7 @@
 
 import { create } from 'zustand';
 import { EMPTY_FILTERS } from '@/types';
+import type { TimeOfDay } from '@/components/map/atmosphere';
 import type {
   BuildingWithSpaces,
   ColorMode,
@@ -40,6 +41,12 @@ interface AppState {
   showContext: boolean;
   /** Basemap and recessive-colour theme. Dark reads better in a dim room. */
   mapTheme: 'dark' | 'light';
+  /**
+   * Hour of the day the city is lit at: sun position, sky, and how far
+   * distance fades into haze. Null follows the theme, which is what almost
+   * everyone wants — a dark room gets night, a bright one gets morning.
+   */
+  timeOfDay: TimeOfDay | null;
   /** Draw subway, bus, ferry and rail stops, with walk lines from the selection. */
   showTransit: boolean;
   /** Which transit modes are drawn. Empty means all of them. */
@@ -69,6 +76,7 @@ interface AppState {
   setPhotoreal: (on: boolean) => void;
   setShowContext: (on: boolean) => void;
   setMapTheme: (t: 'dark' | 'light') => void;
+  setTimeOfDay: (t: TimeOfDay | null) => void;
   setShowTransit: (on: boolean) => void;
   toggleTransitMode: (mode: string) => void;
   setIsolateSelection: (on: boolean) => void;
@@ -97,6 +105,7 @@ export const useApp = create<AppState>((set, get) => ({
   photoreal: false,
   showContext: false,
   mapTheme: 'dark',
+  timeOfDay: null,
   showTransit: false,
   transitModes: [],
   isolateSelection: false,
@@ -162,7 +171,15 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   setMapTheme(mapTheme) {
-    set({ mapTheme });
+    // Switching theme re-follows the theme's own hour. Someone who has picked
+    // an hour deliberately gets it back by picking again; someone who has not
+    // gets the sensible default for the map they just switched to, rather
+    // than a night sky over a white basemap.
+    set({ mapTheme, timeOfDay: null });
+  },
+
+  setTimeOfDay(timeOfDay) {
+    set({ timeOfDay });
   },
 
   setShowTransit(showTransit) {

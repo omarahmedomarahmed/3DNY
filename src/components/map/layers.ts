@@ -22,6 +22,12 @@ import {
   type WalkLabel,
 } from '@/lib/transit';
 import { MULLIONS_DARK, MULLIONS_LIGHT } from './mullions';
+import { ATMOSPHERE, DEFAULT_TIME, hazeFor, type AtmospherePreset } from './atmosphere';
+import { buildGroundLayers, GROUND_TOP_Z, type ViewportBounds } from './ground';
+import { buildRoofLayers, CONTEXT_ROOF_LIMIT, CONTEXT_ROOF_ZOOM } from './roofs';
+import type { StreetscapeResult } from '@/lib/streetscape';
+import { seededUnit } from '@/lib/roofscape';
+import type { Building } from '@/types';
 import {
   DIMMED_COLOR,
   FLOOR_BAND_COLOR,
@@ -93,6 +99,15 @@ export interface BuildLayersOptions {
   showContext?: boolean;
   /** Dark or light basemap. Only the recessive colours change with it. */
   theme?: MapTheme;
+  /** The hour the city is lit at, which drives sun, sky and distance haze. */
+  atmosphere?: AtmospherePreset;
+  /** What the camera can see, so ground geometry off screen is not drawn. */
+  view?: ViewportBounds | null;
+  /**
+   * Our own ground plane: streets, kerbs, sidewalks, water. When present it
+   * covers the basemap entirely — the default map draws every pixel itself.
+   */
+  streetscape?: StreetscapeResult | null;
   /** Transit stops in view. Empty unless the transit layer is switched on. */
   transitStops?: TransitStop[];
   /** Walk lines are drawn from this building to its nearest stops. */
@@ -186,6 +201,70 @@ function labelText(b: BuildingWithSpaces): string {
   return `${firstAddressLine(b.address_display)}\n${lowestRentLabel(b)}  ·  ${spaces}`;
 }
 
+/**
+ * Turns the surrounding grey city into something the roofscape can read.
+ *
+ * Context footprints carry an outline and a roof height and nothing else — no
+ * year built, so every one of them would be classed midcentury and the whole
+ * skyline would end in identical mechanical slabs. The BIN is a stable
+ * per-building number, so it is used to deal each one an era: the mix is
+ * roughly Manhattan's, and because it is derived from the BIN rather than
+ * drawn at random it is the same building every time.
+ *
+ * Tallest first, capped: the towers that define a skyline are the ones worth
+ * spending the frame budget on, and a two-storey garage's parapet is invisible
+ * from anywhere this map is read.
+ */
+/**
+ * Cached per fetched city-context payload.
+ *
+ * These are synthesised Building objects, so building them fresh on every
+ * layer rebuild would also defeat the roofscape cache downstream — which is
+ * keyed on object identity. Both caches have to hold for either to help.
+ */
+const contextRoofCache = new WeakMap<ContextBuilding[], Building[]>();
+
+function contextRoofSources(
+  cityContext: ContextBuilding[] | undefined,
+  buildings: BuildingWithSpaces[],
+  zoom: number,
+): Building[] {
+  if (!cityContext || cityContext.length === 0 || zoom < CONTEXT_ROOF_ZOOM) return [];
+
+  const cached = contextRoofCache.get(cityContext);
+  if (cached) return cached;
+
+  const ownBins = new Set(
+    buildings.map((b) => b.bin).filter((bin): bin is string => Boolean(bin)),
+  );
+
+  const sources = cityContext
+    .filter((c) => (!c.b || !ownBins.has(c.b)) && c.h >= 80 && c.r.length >= 4)
+    .sort((a, b) => b.h - a.h)
+    .slice(0, CONTEXT_ROOF_LIMIT)
+    .map((c, i) => {
+      const key = c.b ?? `ctx-${i}`;
+      // Manhattan's pre-war stock dominates by count, so the deal is weighted
+      // toward it rather than being an even three-way split.
+      const draw = seededUnit(key, 97);
+      const year = draw < 0.58 ? 1925 : draw < 0.86 ? 1965 : 1995;
+      return {
+        id: key,
+        bin: c.b,
+        year_built: year,
+        height_roof_ft: c.h,
+        num_floors: Math.max(1, Math.round(c.h / 12.5)),
+        footprint: c.r,
+        lon: null,
+        lat: null,
+        floor_height_override: null,
+      } as unknown as Building;
+    });
+
+  contextRoofCache.set(cityContext, sources);
+  return sources;
+}
+
 export function buildLayers(opts: BuildLayersOptions): Layer[] {
   const {
     buildings,
@@ -201,6 +280,9 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
     photorealLayer = null,
     showContext = false,
     theme = 'dark',
+    atmosphere = ATMOSPHERE[DEFAULT_TIME[theme]],
+    streetscape = null,
+    view = null,
     transitStops,
     transitOrigin = null,
     onTransitClick,
@@ -213,9 +295,37 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
   const palette = themeColors(theme);
   const layers: Layer[] = [];
 
+  /**
+   * Distance haze, applied by how much a surface is allowed to recede.
+   *
+   * The scenery — the grey city, the filtered-out massing — takes the full
+   * effect, because that is exactly what it is for: fading into the air is how
+   * a background says it is a background.
+   *
+   * The buildings that carry data take a fraction of it, so a tower six blocks
+   * away still sits in the same air as its neighbours without being softened
+   * out of the conversation.
+   *
+   * And the availability bands take NONE. That is the whole hierarchy rule
+   * expressed in one number: whatever else the atmosphere does to this scene,
+   * a Goldenrod band on the 14th floor is at full strength at any distance,
+   * and every other surface yields to it. Haze is the classic way an
+   * atmosphere pass quietly eats legibility, and this is where that is
+   * refused.
+   */
+  const sceneryHaze = hazeFor(atmosphere, 1);
+  const subjectHaze = hazeFor(atmosphere, 0.42);
+
   // The photoreal mesh is the ground itself — first in, so everything with
   // data draws over it.
   if (photorealLayer) layers.push(photorealLayer);
+
+  // --- Our own ground: streets, kerbs, sidewalks, water. Drawn before every
+  // other layer so the whole city stands on it. Photoreal imagery carries its
+  // own ground, so the two never draw together.
+  if (!photoreal && streetscape) {
+    layers.push(...buildGroundLayers({ streetscape, theme, zoom, view, haze: sceneryHaze }));
+  }
 
   // --- The city itself. Drawn first so everything with data sits on top of it,
   // and never pickable: this is scenery, and a click that selects a random
@@ -234,6 +344,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         new PolygonLayer<ContextBuilding>({
           id: 'city-context',
           data: scenery,
+          extensions: [sceneryHaze],
           extruded: true,
           filled: true,
           stroked: false,
@@ -243,11 +354,17 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
           // no face shading is a fog bank. The separation between lit and
           // shaded walls is what makes it read as buildings, and the fill is
           // desaturated enough that it still cannot be mistaken for data.
+          // A white specular at shininess 1 is a lobe broad enough to wash the
+          // whole surface, and it was lifting this massing far above the
+          // colour it is declared in — at a low sun the nearest towers clipped
+          // to pure white, which is a brighter object than any availability
+          // band. Restrained specular keeps the face separation that makes it
+          // read as buildings without the blowout.
           material: {
             ambient: 0.62,
             diffuse: 0.55,
-            shininess: 1,
-            specularColor: [255, 255, 255],
+            shininess: 4,
+            specularColor: [58, 66, 84],
           },
           getPolygon: (c) => c.r,
           getElevation: (c) => c.h * FT_TO_M,
@@ -269,6 +386,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       new PolygonLayer<BuildingWithSpaces>({
         id: 'buildings-context',
         data: context,
+        extensions: [sceneryHaze],
         extruded: true,
         filled: true,
         stroked: false,
@@ -306,7 +424,11 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         filled: true,
         stroked: false,
         pickable: false,
-        getPolygon: (d) => d.ring,
+        // Above the whole ground stack: a contact shadow falls ON the street,
+        // and at exactly street level the depth buffer cannot say which of the
+        // two is in front.
+        getPolygon: (d) =>
+          d.ring.map(([lon, lat]) => [lon, lat, GROUND_TOP_Z] as [number, number, number]),
         getFillColor: (d) => [
           palette.contactShadow[0],
           palette.contactShadow[1],
@@ -317,6 +439,29 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       }),
     );
   }
+
+  /**
+   * The fill for one building, in the active mode and selection state.
+   *
+   * Shared with the roof furniture, so a tower's parapet and plant follow it
+   * into its selected colour instead of a grey cap floating over an orange
+   * building.
+   */
+  const buildingFill = (b: BuildingWithSpaces): RGBA => {
+    if (b.id === selectedBuildingId) return SELECTED_COLOR;
+    if (b.id === hoveredBuildingId) {
+      const [r, g, bl] = colorForBuilding(b, colorMode);
+      // Pull the hovered building toward Goldenrod. On the old dark theme
+      // this lifted toward white; on a white basemap that would erase it.
+      return [
+        Math.round((r + HOVER_COLOR[0]) / 2),
+        Math.round((g + HOVER_COLOR[1]) / 2),
+        Math.round((bl + HOVER_COLOR[2]) / 2),
+        255,
+      ];
+    }
+    return colorForBuilding(b, colorMode);
+  };
 
   layers.push(
     new PolygonLayer<BuildingWithSpaces>({
@@ -337,8 +482,10 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       pickable: true,
       autoHighlight: false,
       // Walls only, and only while they are walls: in photorealistic mode the
-      // footprint is a flat plate with no side faces to draw them on.
-      extensions: photoreal ? [] : [theme === 'dark' ? MULLIONS_DARK : MULLIONS_LIGHT],
+      // footprint is a flat plate with no side faces to draw them on. The
+      // haze rides alongside at reduced strength — a building carrying data
+      // sits in the air but is never softened out of the conversation.
+      extensions: photoreal ? [] : [theme === 'dark' ? MULLIONS_DARK : MULLIONS_LIGHT, subjectHaze],
       // Tuned for a real sun rather than a flat ambient wash: enough diffuse
       // that the lit and shaded walls of a tower differ plainly as the camera
       // orbits, and a small specular term so the highlight travels across the
@@ -346,21 +493,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       material: { ambient: 0.62, diffuse: 0.6, shininess: 12, specularColor: [38, 44, 58] },
       getPolygon: (b) => buildingRing(b) ?? [],
       getElevation: (b) => buildingHeightFt(b) * FT_TO_M,
-      getFillColor: (b): RGBA => {
-        if (b.id === selectedBuildingId) return SELECTED_COLOR;
-        if (b.id === hoveredBuildingId) {
-          const [r, g, bl] = colorForBuilding(b, colorMode);
-          // Pull the hovered building toward Goldenrod. On the old dark theme
-          // this lifted toward white; on a white basemap that would erase it.
-          return [
-            Math.round((r + HOVER_COLOR[0]) / 2),
-            Math.round((g + HOVER_COLOR[1]) / 2),
-            Math.round((bl + HOVER_COLOR[2]) / 2),
-            255,
-          ];
-        }
-        return colorForBuilding(b, colorMode);
-      },
+      getFillColor: buildingFill,
       onClick: (info: PickingInfo<BuildingWithSpaces>) => {
         if (!info.object) return false;
         onBuildingClick(info.object.id, { x: info.x, y: info.y });
@@ -376,6 +509,27 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       },
     }),
   );
+
+  // --- Roof furniture. Parapets, mechanical plant, setback crowns and water
+  // tanks, all derived from footprint, height and year built — so a 1913 loft
+  // ends in a timber tank on a frame and a 1963 tower ends in a blank slab,
+  // instead of both ending in the same flat lid.
+  //
+  // Drawn after the massing so it stands on it, and never pickable: a click
+  // near the top of a tower has to select the tower.
+  if (!photoreal) {
+    layers.push(
+      ...buildRoofLayers({
+        buildings: active,
+        colorFor: (b) => buildingFill(b as BuildingWithSpaces),
+        context: showContext ? contextRoofSources(cityContext, buildings, zoom) : [],
+        theme,
+        zoom,
+        haze: sceneryHaze,
+        subjectHaze,
+      }),
+    );
+  }
 
   // --- The facade skin: every floor plate of every building on screen, drawn
   // as a thin ring one shade off the wall. This is what makes an extrusion
