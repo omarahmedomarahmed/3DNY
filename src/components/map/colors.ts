@@ -301,3 +301,27 @@ const DARK_THEME: ThemeColors = {
 export function themeColors(theme: MapTheme): ThemeColors {
   return theme === 'dark' ? DARK_THEME : LIGHT_THEME;
 }
+
+// ---------------------------------------------------------------------------
+// Transit
+// ---------------------------------------------------------------------------
+
+/**
+ * One colour per mode, all drawn from the Cresa palette so transit reads as
+ * part of the same product rather than as a borrowed transit map. Subway leads
+ * because it is the mode that decides a lease; bus is deliberately the quietest
+ * because there are twenty times as many of them.
+ */
+export const TRANSIT_COLORS: Record<string, RGBA> = {
+  subway: rgba(BRAND.brightBlue, 255),
+  rail: rgba(BRAND.midnight, 255),
+  path: rgba(BRAND.stadiumBlue, 255),
+  ferry: rgba('#0E7C86', 255),
+  tram: rgba(BRAND.warmOrange, 255),
+  bus: rgba('#7A879E', 235),
+};
+
+/** The dashed walk line, and the pill carrying its minutes. */
+export const WALK_LINE_COLOR: RGBA = rgba(BRAND.goldenrod, 245);
+export const WALK_LABEL_BG: RGBA = rgba(BRAND.midnight, 240);
+export const WALK_LABEL_TEXT: RGBA = rgba('#FFFFFF', 255);

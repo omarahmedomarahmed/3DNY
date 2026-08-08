@@ -17,6 +17,7 @@ Built to be used live in a tenant meeting.
 - **Floor-level bands.** Zoom into a tower and each available floor is its own highlighted band. Click one for that space.
 - **Space detail** with photos you upload yourself.
 - **Compare tray.** Add a space from one building, another from a different building and floor, a third — side-by-side specs, landlord data included. Shareable as a link.
+- **Transit.** Every subway station, bus stop, ferry landing, PATH and rail terminal in view. Select a building and dashed lines run to the nearest few with an estimated walk time and the routes that serve them. Walk time is also a compare column.
 - **Radius comps.** Draw a circle around a target building, see every available space inside it.
 - **Filter on anything** in the sheet: lease expiration, asking rent range, SF, floor, class, direct vs sublet, submarket, leasing company, date added.
 - **Edit everything.** Every imported row is editable in-app. Add photos. Correct a bad address match. Update tenants.

@@ -1,4 +1,4 @@
-import { PolygonLayer, TextLayer } from '@deck.gl/layers';
+import { PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers';
 import type { Layer, PickingInfo } from '@deck.gl/core';
 import { circle as turfCircle } from '@turf/turf';
 import {
@@ -10,6 +10,13 @@ import {
 } from '@/lib/floor-bands';
 import type { BuildingWithSpaces, ColorMode, FloorBand } from '@/types';
 import type { ContextBuilding } from '@/lib/city-context';
+import {
+  MODE_LABEL,
+  metersBetween,
+  nearestStops,
+  type NearbyStop,
+  type TransitStop,
+} from '@/lib/transit';
 import { MULLIONS_DARK, MULLIONS_LIGHT } from './mullions';
 import {
   DIMMED_COLOR,
@@ -17,6 +24,10 @@ import {
   FLOOR_BAND_PARTIAL_COLOR,
   HOVER_COLOR,
   SELECTED_COLOR,
+  TRANSIT_COLORS,
+  WALK_LABEL_BG,
+  WALK_LABEL_TEXT,
+  WALK_LINE_COLOR,
   colorForBuilding,
   themeColors,
 } from './colors';
@@ -78,6 +89,11 @@ export interface BuildLayersOptions {
   showContext?: boolean;
   /** Dark or light basemap. Only the recessive colours change with it. */
   theme?: MapTheme;
+  /** Transit stops in view. Empty unless the transit layer is switched on. */
+  transitStops?: TransitStop[];
+  /** Walk lines are drawn from this building to its nearest stops. */
+  transitOrigin?: [number, number] | null;
+  onTransitClick?: (stop: TransitStop, at: MapPoint) => void;
   /** `at` is where the pointer was, so the popup can anchor to the click. */
   onBuildingClick: (buildingId: string, at: MapPoint) => void;
   onSpaceClick: (spaceId: string, buildingId: string, at: MapPoint) => void;
@@ -181,6 +197,9 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
     photorealLayer = null,
     showContext = false,
     theme = 'dark',
+    transitStops,
+    transitOrigin = null,
+    onTransitClick,
     onBuildingClick,
     onSpaceClick,
     onHover,
@@ -474,6 +493,124 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         },
       }),
     );
+  }
+
+  // --- Transit. Stops first, then the walk lines from the selected building,
+  // then the minutes — each above the last so a number is never covered by the
+  // dot it belongs to.
+  if (transitStops && transitStops.length > 0) {
+    layers.push(
+      new ScatterplotLayer<TransitStop>({
+        id: 'transit-stops',
+        data: transitStops,
+        pickable: true,
+        radiusUnits: 'pixels',
+        // Bus stops are twenty times as numerous as everything else, so they
+        // are drawn small enough to read as texture until you look for them.
+        getRadius: (d) => (d.mode === 'bus' ? 3.4 : 6.5),
+        radiusMinPixels: 3,
+        stroked: true,
+        lineWidthUnits: 'pixels',
+        getLineWidth: 1.4,
+        getLineColor: palette.labelBg,
+        getPosition: (d) => [d.lon, d.lat],
+        getFillColor: (d) => TRANSIT_COLORS[d.mode] ?? TRANSIT_COLORS.bus,
+        // Sits flat on the ground plane, under the towers rather than through
+        // them, which is where a station actually is.
+        parameters: { depthCompare: 'always' },
+        onClick: (info: PickingInfo<TransitStop>) => {
+          if (!info.object || !onTransitClick) return false;
+          onTransitClick(info.object, { x: info.x, y: info.y });
+          return true;
+        },
+        updateTriggers: { getLineColor: [theme] },
+      }),
+    );
+
+    if (transitOrigin) {
+      const nearby = nearestStops(transitOrigin, transitStops, {
+        limit: 6,
+        maxMeters: 1000,
+        perMode: 2,
+      });
+
+      // deck.gl has no dashed path without the style extension, so the dash is
+      // the geometry: each line is cut into alternating drawn and skipped
+      // pieces, sized in metres so the rhythm holds at any zoom.
+      const dashes: { path: [number, number][] }[] = [];
+      for (const stop of nearby) {
+        const from = transitOrigin;
+        const to: [number, number] = [stop.lon, stop.lat];
+        const meters = Math.max(1, stop.meters);
+        const dashM = 26;
+        const steps = Math.max(2, Math.round(meters / dashM));
+        for (let i = 0; i < steps; i += 2) {
+          const t0 = i / steps;
+          const t1 = Math.min(1, (i + 1) / steps);
+          dashes.push({
+            path: [
+              [from[0] + (to[0] - from[0]) * t0, from[1] + (to[1] - from[1]) * t0],
+              [from[0] + (to[0] - from[0]) * t1, from[1] + (to[1] - from[1]) * t1],
+            ],
+          });
+        }
+      }
+
+      if (dashes.length > 0) {
+        layers.push(
+          new PathLayer<{ path: [number, number][] }>({
+            id: 'transit-walk-lines',
+            data: dashes,
+            pickable: false,
+            widthUnits: 'pixels',
+            getWidth: 2.4,
+            widthMinPixels: 2,
+            capRounded: true,
+            getPath: (d) => d.path,
+            getColor: WALK_LINE_COLOR,
+            parameters: { depthCompare: 'always' },
+          }),
+        );
+
+        layers.push(
+          new TextLayer<NearbyStop>({
+            id: 'transit-walk-minutes',
+            data: nearby,
+            pickable: false,
+            billboard: true,
+            background: true,
+            // Staggered along each line rather than all at the same radius.
+            // Every walk line starts at the same building, so a fixed fraction
+            // puts every pill on the same small circle and they pile up.
+            getPosition: (d, info) => {
+              const t = 0.46 + ((info?.index ?? 0) % 4) * 0.13;
+              return [
+                transitOrigin[0] + (d.lon - transitOrigin[0]) * t,
+                transitOrigin[1] + (d.lat - transitOrigin[1]) * t,
+              ];
+            },
+            getText: (d) =>
+              `${d.minutes} min  ·  ${d.routes.length ? d.routes.slice(0, 3).join(' ') : MODE_LABEL[d.mode]}`,
+            getSize: 12,
+            sizeUnits: 'pixels',
+            characterSet: 'auto',
+            fontFamily:
+              'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
+            fontWeight: 700,
+            getColor: WALK_LABEL_TEXT,
+            getBackgroundColor: WALK_LABEL_BG,
+            backgroundPadding: [7, 3, 7, 3],
+            getTextAnchor: 'middle',
+            getAlignmentBaseline: 'center',
+            parameters: { depthCompare: 'always' },
+            updateTriggers: {
+              getText: [transitOrigin[0], transitOrigin[1], nearby.length],
+              getPosition: [transitOrigin[0], transitOrigin[1]],
+            },
+          }),
+        );
+      }
+    }
   }
 
   // --- Name-plates. Drawn last so they sit above the massing, and with depth

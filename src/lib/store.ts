@@ -40,6 +40,8 @@ interface AppState {
   showContext: boolean;
   /** Basemap and recessive-colour theme. Dark reads better in a dim room. */
   mapTheme: 'dark' | 'light';
+  /** Draw subway, bus, ferry and rail stops, with walk lines from the selection. */
+  showTransit: boolean;
 
   selectedBuildingId: string | null;
   selectedSpaceId: string | null;
@@ -63,6 +65,7 @@ interface AppState {
   setPhotoreal: (on: boolean) => void;
   setShowContext: (on: boolean) => void;
   setMapTheme: (t: 'dark' | 'light') => void;
+  setShowTransit: (on: boolean) => void;
 
   selectBuilding: (id: string | null) => void;
   selectSpace: (id: string | null) => void;
@@ -88,6 +91,7 @@ export const useApp = create<AppState>((set, get) => ({
   photoreal: false,
   showContext: false,
   mapTheme: 'dark',
+  showTransit: false,
 
   selectedBuildingId: null,
   selectedSpaceId: null,
@@ -151,6 +155,10 @@ export const useApp = create<AppState>((set, get) => ({
 
   setMapTheme(mapTheme) {
     set({ mapTheme });
+  },
+
+  setShowTransit(showTransit) {
+    set({ showTransit });
   },
 
   selectBuilding(selectedBuildingId) {
