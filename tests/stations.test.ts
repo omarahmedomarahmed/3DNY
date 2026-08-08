@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dedupeStations, stationLabelText } from '../src/components/map/stations';
+import { buildStationLayers, dedupeStations, stationLabelText } from '../src/components/map/stations';
 import type { TransitStop } from '../src/lib/transit';
 
 function stop(patch: Partial<TransitStop>): TransitStop {
@@ -50,6 +50,65 @@ describe('dedupeStations', () => {
 
   it('handles an empty list', () => {
     expect(dedupeStations([])).toEqual([]);
+  });
+});
+
+describe('a station can actually be clicked', () => {
+  /**
+   * This is not a hypothetical.
+   *
+   * The sign pylon was once the only pickable part of a modelled station. It
+   * is 1.1m square and stands 5.7m off to one side of the entrance, so below
+   * about zoom 17 it is smaller than a pixel, and it is not under the name
+   * plate that tells you the station is there. The shelter — the large,
+   * obvious thing anyone would aim at — did nothing. In practice a station
+   * could not be opened at all, and the map looked perfectly correct while
+   * that was true.
+   *
+   * So the assertion is on the BIG pieces, because those are what a pointer
+   * can hit at the zoom the stations first appear.
+   */
+  const layers = () =>
+    buildStationLayers({
+      stops: [stop({ id: 'gct' }), stop({ id: 'bus', mode: 'bus', lon: -73.978, lat: 40.753 })],
+      theme: 'dark',
+      zoom: 16,
+      onClick: () => {},
+    });
+
+  const byId = (id: string) => layers().find((l) => l.id === id);
+
+  for (const id of ['station-kiosks', 'station-canopies', 'station-pylons']) {
+    it(`${id} answers to a click`, () => {
+      const layer = byId(id);
+      expect(layer, `${id} should be built at zoom 16`).toBeTruthy();
+      expect(layer!.props.pickable, id).toBe(true);
+      expect(typeof layer!.props.onClick, id).toBe('function');
+    });
+  }
+
+  it('the shelter is a far bigger target than the sign beside it', () => {
+    // The number that matters: at zoom 16 a pixel is roughly 1.8m here, so a
+    // 1.1m pylon is sub-pixel and an 8.5m kiosk is not.
+    const kiosk = byId('station-kiosks');
+    const pylon = byId('station-pylons');
+    const span = (layer: any, i = 0) => {
+      const ring = layer.props.getPolygon(layer.props.data[i]);
+      const lons = ring.map((p: number[]) => p[0]);
+      const lats = ring.map((p: number[]) => p[1]);
+      return Math.max(Math.max(...lons) - Math.min(...lons), Math.max(...lats) - Math.min(...lats));
+    };
+    expect(span(kiosk)).toBeGreaterThan(span(pylon) * 3);
+  });
+
+  it('bus posts stay clickable too', () => {
+    const posts = byId('transit-posts');
+    expect(posts!.props.pickable).toBe(true);
+  });
+
+  it('draws no station models below the zoom they are legible at', () => {
+    const early = buildStationLayers({ stops: [stop({})], theme: 'dark', zoom: 14 });
+    expect(early.find((l) => l.id === 'station-kiosks')).toBeUndefined();
   });
 });
 
