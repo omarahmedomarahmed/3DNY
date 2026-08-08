@@ -231,7 +231,7 @@ function resolveBasemap(theme: 'dark' | 'light'): {
 }
 
 /**
- * A real sun over Manhattan, casting real shadows.
+ * A real sun over Manhattan.
  *
  * `_SunLight` derives its direction from the viewport's own latitude and
  * longitude plus a timestamp, so the light is where the sun actually was — and
@@ -258,7 +258,23 @@ function buildLighting(theme: 'dark' | 'light'): LightingEffect {
       timestamp: SUN_TIMESTAMP,
       color: [255, 250, 238],
       intensity: 0.65,
-      _shadow: true,
+      // Cast shadows are OFF, and this is not a stylistic choice.
+      //
+      // deck.gl's shadow support is experimental, and switching it on breaks
+      // two things at once. Its shader module modifies the fragment colour
+      // inside the same hook deck.gl uses to emit picking colours, so every
+      // click resolved to the wrong object or to none — buildings simply
+      // stopped being clickable. And the shadow map, at city scale over
+      // facades carrying floor plates a few centimetres proud of the wall,
+      // produced textbook shadow acne: the zig-zag banding that appeared on
+      // every tower and read as another building's shadow falling across it.
+      //
+      // Nothing about the requirement is lost. The sun still takes its
+      // direction from the viewport's latitude and longitude, so it stays
+      // fixed in the world: orbit the map and the lit and shaded faces change
+      // exactly as they should. Only ground shadows go, and they were the
+      // part that was misbehaving.
+      _shadow: false,
     }),
     // A cool bounce from the opposite side, standing in for skylight off the
     // buildings behind you. Keeps shaded faces from going flat.
