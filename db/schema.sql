@@ -203,3 +203,51 @@ ALTER TABLE landlords ADD COLUMN IF NOT EXISTS needs_review boolean NOT NULL DEF
 -- ---------------------------------------------------------------------------
 ALTER TABLE spaces    ADD COLUMN IF NOT EXISTS field_sources jsonb NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE buildings ADD COLUMN IF NOT EXISTS field_sources jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+-- ---------------------------------------------------------------------------
+-- Occupancy. Added after the first release, so guarded.
+--
+-- A `tenants` row used to be a line in a table on the building profile and
+-- nothing more: who is in the building, as background. It now has to carry
+-- three different things that all live on the same floor of the same tower:
+--
+--   'occupier'  someone who is simply there — market intelligence
+--   'prospect'  a Salesforce prospect
+--   'client'    a CRESA client, in space we placed them in
+--
+-- They are one table rather than three because they are the same fact about
+-- the world — this company is on these floors — differing only in our
+-- relationship to it, and that relationship changes over time. A prospect
+-- becomes a client without moving.
+--
+-- `floor_numbers` is what lets any of them be drawn on the tower. The `floors`
+-- column stays as the sheet wrote it ("12-14", "Ground, 2"), because the
+-- parsed version is a derivation and the original is the record.
+-- ---------------------------------------------------------------------------
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS relationship text NOT NULL DEFAULT 'occupier'
+  CHECK (relationship IN ('occupier','prospect','client'));
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS floor_numbers integer[] NOT NULL DEFAULT '{}';
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS suite text;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS lease_start date;
+-- Where the row came from, so the map can say so and a re-sync can update in
+-- place rather than duplicating.
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS salesforce_id text;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS salesforce_url text;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS source_import_id uuid REFERENCES imports(id) ON DELETE SET NULL;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS last_synced_at timestamptz;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS field_sources jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+-- A Salesforce record is one tenancy wherever it is synced from, so the id is
+-- the key that makes a re-sync an update. Partial, because everything that did
+-- not come from Salesforce has no id and must not collide on NULL.
+CREATE UNIQUE INDEX IF NOT EXISTS tenants_salesforce_idx
+  ON tenants (salesforce_id) WHERE salesforce_id IS NOT NULL;
+
+-- Re-importing the same roster updates rather than duplicates. A company can
+-- hold space in several buildings, and two blocks in one building, so the key
+-- has to include the floors.
+CREATE UNIQUE INDEX IF NOT EXISTS tenants_natural_key_idx
+  ON tenants (building_id, lower(company_name), COALESCE(floors, ''))
+  WHERE salesforce_id IS NULL;
+
+CREATE INDEX IF NOT EXISTS tenants_relationship_idx ON tenants (relationship);

@@ -5,11 +5,14 @@ import {
   FT_TO_M,
   buildingHeightFt,
   buildingRing,
-  computeFloorBands,
+  computeBands,
   computeFloorLines,
   contactShadowRings,
+  spaceClaims,
+  tenantClaims,
+  type FloorClaim,
 } from '@/lib/floor-bands';
-import type { BuildingWithSpaces, ColorMode, FloorBand } from '@/types';
+import type { BuildingWithSpaces, ColorMode, FloorBand, OccupancyKind } from '@/types';
 import type { ContextBuilding } from '@/lib/city-context';
 import {
   MODE_LABEL,
@@ -37,14 +40,11 @@ import { buildStationLayers } from './stations';
 import type { Building } from '@/types';
 import {
   DIMMED_COLOR,
-  FLOOR_BAND_COLOR,
-  FLOOR_BAND_PARTIAL_COLOR,
   HOVER_COLOR,
+  occupancyColors,
   SELECTED_COLOR,
   TRANSIT_COLORS,
-  WALK_LABEL_BG,
-  WALK_LABEL_TEXT,
-  WALK_LINE_COLOR,
+  walkColors,
   colorForBuilding,
   themeColors,
 } from './colors';
@@ -123,7 +123,14 @@ export interface BuildLayersOptions {
   /** `at` is where the pointer was, so the popup can anchor to the click. */
   onBuildingClick: (buildingId: string, at: MapPoint) => void;
   onSpaceClick: (spaceId: string, buildingId: string, at: MapPoint) => void;
+  /** A band that is somebody's space rather than space on the market. */
+  onTenantClick?: (tenantId: string, buildingId: string, at: MapPoint) => void;
   onHover: (buildingId: string | null) => void;
+  /**
+   * Which kinds of band to draw. Availability alone is the default and the
+   * shape of the product before any tenant data exists.
+   */
+  occupancyKinds?: OccupancyKind[];
 }
 
 /**
@@ -136,6 +143,16 @@ export interface BuildLayersOptions {
  * spread in as an untyped object rather than suppressed at each call site.
  */
 const NO_SHADOW = { shadowEnabled: false } as {};
+
+/**
+ * Draw order for coincident bands. Availability last, so it is what you see
+ * where two things are true of the same floor.
+ */
+const KIND_ORDER: Record<OccupancyKind, number> = {
+  occupied: 0,
+  client: 1,
+  available: 2,
+};
 
 /** A polygon ring carrying a fixed z, so deck.gl extrudes from that base. */
 type Ring3 = [number, number, number][];
@@ -328,8 +345,15 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
     onTransitClick,
     onBuildingClick,
     onSpaceClick,
+    onTenantClick,
     onHover,
+    occupancyKinds = ['available'],
   } = opts;
+
+  const kinds = new Set<OccupancyKind>(occupancyKinds);
+  // A stable string for deck.gl's updateTriggers: a Set is a new object every
+  // render, so passing it directly would rebuild every band on every frame.
+  const kindKey = [...kinds].sort().join(',');
 
   const filteredIds = new Set(filtered.map((b) => b.id));
   const palette = themeColors(theme);
@@ -630,13 +654,45 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
     (b) => showAllBands || b.id === selectedBuildingId,
   );
 
+  /**
+   * How thick each kind's stripe is, as a fraction of the floor.
+   *
+   * The second lever after colour, and the one that survives a colourblind
+   * viewer and a projector with the contrast turned down. Availability is
+   * nearly the full floor; a tenancy is a quarter of it, which reads as a line
+   * on the facade rather than as a plate.
+   */
+  const BAND_THICKNESS: Record<OccupancyKind, { entire: number; partial: number }> = {
+    available: { entire: 0.92, partial: 0.55 },
+    client: { entire: 0.62, partial: 0.42 },
+    occupied: { entire: 0.3, partial: 0.24 },
+  };
+
   const bands: BandDatum[] = [];
   for (const building of bandSources) {
-    for (const band of computeFloorBands(building, building.spaces)) {
+    const claims: FloorClaim[] = [];
+    if (kinds.has('available')) claims.push(...spaceClaims(building.spaces));
+    if (kinds.has('client') || kinds.has('occupied')) {
+      claims.push(
+        ...tenantClaims(building.tenants ?? []).filter((c) => kinds.has(c.kind)),
+      );
+    }
+
+    for (const band of computeBands(building, claims)) {
       // A part floor is drawn as a thinner stripe than a whole one, so the two
       // are distinguishable at a glance and not only by colour.
-      const thickness = band.portion === 'partial' ? 0.55 : 0.92;
-      const heightM = Math.max(0.5, (band.topFt - band.baseFt) * thickness * FT_TO_M);
+      const thickness = BAND_THICKNESS[band.kind];
+      const fraction = band.portion === 'partial' ? thickness.partial : thickness.entire;
+      // The fraction applies to the TOP floor of a run, not to the run.
+      //
+      // Scaling it across the whole block would draw an eight-floor tenancy as
+      // a slab two and a half floors tall sitting at the bottom of it, which
+      // is neither where the tenancy is nor a shape that means anything. This
+      // way a single floor is a stripe and a block is a block, and the gap
+      // left at the top of each is what separates one tenancy from the next —
+      // exactly how a stacking plan reads on paper.
+      const floorFt = (band.topFt - band.baseFt) / Math.max(1, band.floors);
+      const heightM = Math.max(0.4, floorFt * (band.floors - 1 + fraction) * FT_TO_M);
       bands.push({
         ...band,
         building,
@@ -645,6 +701,11 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       });
     }
   }
+
+  // Availability last, so it draws over anything it shares a floor with. The
+  // radii already separate them in space; this settles the remaining case
+  // where two bands are exactly coincident.
+  bands.sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
 
   if (bands.length > 0) {
     layers.push(
@@ -663,20 +724,21 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         material: { ambient: 0.92, diffuse: 0.16, shininess: 1, specularColor: [255, 255, 255] },
         getPolygon: (d) => d.ring,
         getElevation: (d) => d.heightM,
-        getFillColor: (d): RGBA =>
-          d.spaceId === selectedSpaceId
-            ? SELECTED_COLOR
-            : d.portion === 'partial'
-              ? FLOOR_BAND_PARTIAL_COLOR
-              : FLOOR_BAND_COLOR,
+        getFillColor: (d): RGBA => {
+          if (d.kind === 'available' && d.recordId === selectedSpaceId) {
+            return SELECTED_COLOR;
+          }
+          const colors = occupancyColors(d.kind, theme);
+          return d.portion === 'partial' ? colors.partial : colors.entire;
+        },
         onClick: (info: PickingInfo<BandDatum>) => {
           if (!info.object) return false;
+          const { kind, recordId, buildingId } = info.object;
+          const at = { x: info.x, y: info.y };
           // Returning true stops deck.gl from also dispatching the click to the
           // building layer underneath.
-          onSpaceClick(info.object.spaceId, info.object.buildingId, {
-            x: info.x,
-            y: info.y,
-          });
+          if (kind === 'available') onSpaceClick(recordId, buildingId, at);
+          else onTenantClick?.(recordId, buildingId, at);
           return true;
         },
         onHover: (info: PickingInfo<BandDatum>) => {
@@ -689,9 +751,9 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         // thing on screen — the same trade already made for the name-plates.
         ...(photoreal ? { parameters: { depthCompare: 'always' as const } } : {}),
         updateTriggers: {
-          getFillColor: [selectedSpaceId, colorMode],
+          getFillColor: [selectedSpaceId, colorMode, theme, kindKey],
           getElevation: [bands.length],
-          getPolygon: [bands.length, selectedBuildingId, showAllBands],
+          getPolygon: [bands.length, selectedBuildingId, showAllBands, kindKey],
         },
       }),
     );
@@ -765,29 +827,55 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       const graph =
         streetscape && streetscape.roads.length > 0 ? walkGraphFor(streetscape.roads) : null;
 
+      const walk = walkColors(theme);
+      const routes: { path: [number, number][] }[] = [];
       const dashes: { path: [number, number][] }[] = [];
       for (const stop of nearby) {
         const destination: [number, number] = [stop.lon, stop.lat];
         const route =
           (graph ? routeOnStreets(graph, transitOrigin, destination) : null) ??
           walkRoute(transitOrigin, destination);
+        routes.push({ path: route });
         for (const piece of dashPath(route)) {
           dashes.push({ path: piece });
         }
       }
 
       if (dashes.length > 0) {
+        // The casing: the whole route, undashed, wider and soft, underneath.
+        //
+        // Without it the route only exists where a dash happens to be, so at
+        // any distance it breaks into ticks and the eye has to reassemble it.
+        // With it the path is continuous and the dashes ride on top as
+        // texture — which is also what makes the line survive crossing a pale
+        // pavement, a dark roadway and a green park in the space of one block.
+        layers.push(
+          new PathLayer<{ path: [number, number][] }>({
+            id: 'transit-walk-casing',
+            data: routes,
+            pickable: false,
+            widthUnits: 'pixels',
+            getWidth: 6,
+            widthMinPixels: 5,
+            capRounded: true,
+            jointRounded: true,
+            getPath: (d) => d.path,
+            getColor: walk.casing,
+            parameters: { depthCompare: 'always' },
+          }),
+        );
+
         layers.push(
           new PathLayer<{ path: [number, number][] }>({
             id: 'transit-walk-lines',
             data: dashes,
             pickable: false,
             widthUnits: 'pixels',
-            getWidth: 2.4,
+            getWidth: 2.6,
             widthMinPixels: 2,
             capRounded: true,
             getPath: (d) => d.path,
-            getColor: WALK_LINE_COLOR,
+            getColor: walk.line,
             parameters: { depthCompare: 'always' },
           }),
         );
@@ -826,8 +914,8 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
             fontFamily:
               'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
             fontWeight: 700,
-            getColor: WALK_LABEL_TEXT,
-            getBackgroundColor: WALK_LABEL_BG,
+            getColor: walk.labelText,
+            getBackgroundColor: walk.labelBg,
             backgroundPadding: [7, 3, 7, 3],
             getTextAnchor: 'middle',
             getAlignmentBaseline: 'center',

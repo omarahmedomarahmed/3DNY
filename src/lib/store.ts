@@ -7,6 +7,7 @@ import type {
   BuildingWithSpaces,
   ColorMode,
   Filters,
+  OccupancyKind,
   Space,
 } from '@/types';
 
@@ -53,6 +54,18 @@ interface AppState {
   transitModes: string[];
   /** Hide every building except the selection, or those inside the radius. */
   isolateSelection: boolean;
+  /**
+   * Which kinds of floor band are drawn: what is available, whose space our
+   * clients are in, and who occupies the rest.
+   *
+   * Availability alone is the default and stays the default even once tenant
+   * data exists. This map's subject is space on the market; the other two are
+   * answers to "and what about the rest of the building", which is a question
+   * you ask second. Someone who wants them switches them on and the choice
+   * persists — but nobody opening the map for the first time is shown a tower
+   * covered in bands before they have asked for any.
+   */
+  occupancyKinds: OccupancyKind[];
 
   selectedBuildingId: string | null;
   selectedSpaceId: string | null;
@@ -79,6 +92,7 @@ interface AppState {
   setTimeOfDay: (t: TimeOfDay | null) => void;
   setShowTransit: (on: boolean) => void;
   toggleTransitMode: (mode: string) => void;
+  toggleOccupancyKind: (kind: OccupancyKind) => void;
   setIsolateSelection: (on: boolean) => void;
 
   selectBuilding: (id: string | null) => void;
@@ -108,6 +122,7 @@ export const useApp = create<AppState>((set, get) => ({
   timeOfDay: null,
   showTransit: false,
   transitModes: [],
+  occupancyKinds: ['available'],
   isolateSelection: false,
 
   selectedBuildingId: null,
@@ -199,6 +214,19 @@ export const useApp = create<AppState>((set, get) => ({
     // Back to the implicit "all" when everything is on, so the map does not
     // sit on a filter that filters nothing.
     set({ transitModes: next.length === ALL.length ? [] : next });
+  },
+
+  toggleOccupancyKind(kind) {
+    // Availability is never switched off. It is the subject of the map, and a
+    // map of Manhattan showing only who is already in the buildings is a
+    // different product that nobody asked for.
+    if (kind === 'available') return;
+    const current = get().occupancyKinds;
+    set({
+      occupancyKinds: current.includes(kind)
+        ? current.filter((k) => k !== kind)
+        : [...current, kind],
+    });
   },
 
   setIsolateSelection(isolateSelection) {

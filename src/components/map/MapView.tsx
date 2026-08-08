@@ -50,6 +50,7 @@ import MapLegend from './MapLegend';
 import MapControls from './MapControls';
 import RadiusControl from './RadiusControl';
 import SpacePopup, { type PopupAnchor } from './SpacePopup';
+import TenantPopup from './TenantPopup';
 import { useVisibleBuildings } from './useVisibleBuildings';
 
 const DEFAULT_CENTER: [number, number] = [-73.98, 40.75];
@@ -527,6 +528,11 @@ export default function MapView() {
     stop: TransitStop;
     at: PopupAnchor;
   } | null>(null);
+  const [tenantPopup, setTenantPopup] = useState<{
+    tenantId: string;
+    buildingId: string;
+    at: PopupAnchor;
+  } | null>(null);
   const [photorealDrawn, setPhotorealDrawn] = useState(false);
   // The snapshot waits on this from inside an async function, where a state
   // value captured at call time would never update.
@@ -545,6 +551,7 @@ export default function MapView() {
   const timeOfDay = useApp((s) => s.timeOfDay);
   const showTransit = useApp((s) => s.showTransit);
   const transitModes = useApp((s) => s.transitModes);
+  const occupancyKinds = useApp((s) => s.occupancyKinds);
   const isolateSelection = useApp((s) => s.isolateSelection);
   const loading = useApp((s) => s.loading);
   const error = useApp((s) => s.error);
@@ -1035,6 +1042,7 @@ export default function MapView() {
         if (info.object) return;
         setPopup(null);
         setTransitPopup(null);
+    setTenantPopup(null);
         useApp.getState().selectBuilding(null);
       },
       layers: buildLayers({
@@ -1073,6 +1081,9 @@ export default function MapView() {
           setPopup({ buildingId: id, spaceId: only, at: toViewport(at) });
         },
         onSpaceClick: openSpace,
+        onTenantClick: (tenantId, buildingId, at) =>
+          setTenantPopup({ tenantId, buildingId, at: toViewport(at) }),
+        occupancyKinds,
         onHover: (id) => useApp.getState().setHovered(id),
         photorealLayer: activePhotorealLayer,
       }),
@@ -1097,6 +1108,7 @@ export default function MapView() {
     atmosphere,
     transitStops,
     transitOrigin,
+    occupancyKinds,
     toViewport,
   ]);
 
@@ -1183,6 +1195,7 @@ export default function MapView() {
   const showEmpty = !loading && !error && buildings.length === 0;
   useEffect(() => {
     setTransitPopup(null);
+    setTenantPopup(null);
   }, [selectedBuildingId, showTransit]);
 
   // --- One panel at a time.
@@ -1198,6 +1211,7 @@ export default function MapView() {
     if (!compareOpen) return;
     setPopup(null);
     setTransitPopup(null);
+    setTenantPopup(null);
   }, [compareOpen]);
 
   const closePopup = useCallback(() => setPopup(null), []);
@@ -1385,6 +1399,16 @@ export default function MapView() {
             {transitError}
           </div>
         </div>
+      )}
+
+      {tenantPopup && (
+        <TenantPopup
+          key={tenantPopup.tenantId}
+          tenantId={tenantPopup.tenantId}
+          buildingId={tenantPopup.buildingId}
+          at={tenantPopup.at}
+          onClose={() => setTenantPopup(null)}
+        />
       )}
 
       {popup && (

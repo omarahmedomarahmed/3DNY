@@ -80,6 +80,66 @@ export const FLOOR_BAND_PARTIAL_COLOR: RGBA = rgba(BRAND.goldenrod, 155);
 export const SELECTED_COLOR: RGBA = rgba(BRAND.warmOrange, 255);
 
 /**
+ * The three things that can be true of a floor, and how loudly each says so.
+ *
+ * The whole map is built around one rule: a Goldenrod band on the 14th floor
+ * is the loudest thing on screen. Adding two more kinds of band to the same
+ * facade is the most direct threat that rule has faced, because the new ones
+ * are more numerous — a tower has one availability and forty tenants.
+ *
+ * So the hierarchy is enforced three ways at once, not just by hue:
+ *
+ *   available  Goldenrod, full opacity, thickest stripe, furthest out.
+ *   client     Teal. Ours to point at, so it has to be findable — but a
+ *              thinner stripe than availability and a colour that does not
+ *              sit next to gold on the wheel.
+ *   occupied   Deliberately recessive. It is context: the answer to "what
+ *              about the rest of the building", not something to look at. On
+ *              a busy frame these should read as tone on the facade rather
+ *              than as marks competing for a glance.
+ *
+ * Teal is chosen against the rest of the map rather than in isolation: the
+ * massing runs Midnight through blue to gold with the rent ramp, the parks are
+ * a desaturated sage, and none of those is a saturated blue-green.
+ */
+export const OCCUPANCY_COLORS: Record<
+  string,
+  { entire: RGBA; partial: RGBA; legend: string }
+> = {
+  available: {
+    entire: rgba(BRAND.goldenrod, 240),
+    partial: rgba(BRAND.goldenrod, 155),
+    legend: BRAND.goldenrod,
+  },
+  client: {
+    entire: rgba('#00A38C', 235),
+    partial: rgba('#00A38C', 160),
+    legend: '#00A38C',
+  },
+  occupied: {
+    // Translucent on purpose. A block tenancy can cover twelve floors, and at
+    // full opacity twelve floors of grey is a slab that replaces the tower
+    // rather than annotating it. Letting the facade through keeps it reading
+    // as a tint on the building — context, which is what it is.
+    entire: rgba('#94A2BC', 112),
+    partial: rgba('#94A2BC', 88),
+    legend: '#94A2BC',
+  },
+};
+
+/** On the dark map the occupied tone has to lift, not darken, to read at all. */
+export const OCCUPIED_DARK: { entire: RGBA; partial: RGBA; legend: string } = {
+  entire: rgba('#8494B5', 122),
+  partial: rgba('#8494B5', 96),
+  legend: '#8494B5',
+};
+
+export function occupancyColors(kind: string, theme: MapTheme) {
+  if (kind === 'occupied' && theme === 'dark') return OCCUPIED_DARK;
+  return OCCUPANCY_COLORS[kind] ?? OCCUPANCY_COLORS.available;
+}
+
+/**
  * Filtered-out massing. On a LIGHT basemap the dimmed state must be LIGHTER
  * than the highlighted state — a warm gray that sits behind everything.
  */
@@ -432,7 +492,47 @@ export const TRANSIT_COLORS: Record<string, RGBA> = {
   bus: rgba('#7A879E', 235),
 };
 
-/** The dashed walk line, and the pill carrying its minutes. */
-export const WALK_LINE_COLOR: RGBA = rgba(BRAND.goldenrod, 245);
-export const WALK_LABEL_BG: RGBA = rgba(BRAND.midnight, 240);
-export const WALK_LABEL_TEXT: RGBA = rgba('#FFFFFF', 255);
+/**
+ * The dashed walk line, and the pill carrying its minutes.
+ *
+ * These used to be Goldenrod, which was a straight breach of the one rule this
+ * map is built around. Goldenrod means available space and nothing else — and
+ * a gold dash lying on the pavement beside a tower with gold bands on it reads
+ * as a floor plate that fell off. Worse, there are five walk lines and one
+ * building, so the routes were quietly out-shouting the thing they exist to
+ * give context to.
+ *
+ * What replaces it is how a route is drawn on paper: a pale casing under a
+ * dark dashed line, so the path reads as continuous even where an individual
+ * dash is only a few pixels, and stays legible whether it crosses roadway,
+ * pavement or a park. The dash takes the same ink as the minutes pill at the
+ * end of it, because the route and its time are one object.
+ */
+export interface WalkColors {
+  /** The dash itself. */
+  line: RGBA;
+  /** The wider, softer line under it that keeps the route continuous. */
+  casing: RGBA;
+  labelBg: RGBA;
+  labelText: RGBA;
+}
+
+export const WALK_LIGHT: WalkColors = {
+  line: rgba(BRAND.midnight, 250),
+  casing: rgba('#FFFFFF', 215),
+  labelBg: rgba(BRAND.midnight, 240),
+  labelText: rgba('#FFFFFF', 255),
+};
+
+export const WALK_DARK: WalkColors = {
+  // Pale ink on the dark map, for the same reason the light map uses dark ink:
+  // the line has to beat the surface it crosses, not match it.
+  line: rgba('#E8EDF7', 245),
+  casing: rgba('#0A1330', 210),
+  labelBg: rgba('#E8EDF7', 240),
+  labelText: rgba(BRAND.midnight, 255),
+};
+
+export function walkColors(theme: MapTheme): WalkColors {
+  return theme === 'dark' ? WALK_DARK : WALK_LIGHT;
+}

@@ -84,19 +84,43 @@ export interface NearbyStop extends TransitStop {
   minutes: number;
 }
 
+/**
+ * How far each mode is worth walking.
+ *
+ * One radius for everything is wrong in a specific, visible way. A bus stop
+ * twelve minutes away is not worth knowing about — there is a nearer one. A
+ * rail terminal twelve minutes away absolutely is: there are three of them in
+ * Manhattan, a tenant's whole commute may depend on which one they are near,
+ * and "20 minutes to Grand Central" is a real answer where "no rail" is a
+ * false one. Under a flat 1200m, Grand Central simply vanished from every
+ * building in Midtown South.
+ */
+export const MODE_REACH_M: Record<TransitMode, number> = {
+  rail: 2400,
+  path: 1400,
+  ferry: 1400,
+  // The Roosevelt Island tram has exactly one Manhattan station, so like a
+  // terminal it is worth knowing about from further off than a bus stop.
+  tram: 1400,
+  subway: 1200,
+  bus: 700,
+};
+
 export function nearestStops(
   origin: [number, number],
   stops: TransitStop[],
   opts: { limit?: number; maxMeters?: number; perMode?: number } = {},
 ): NearbyStop[] {
-  const { limit = 8, maxMeters = 1200, perMode } = opts;
+  const { limit = 8, maxMeters, perMode } = opts;
 
   const scored = stops
     .map((stop) => {
       const meters = metersBetween(origin, [stop.lon, stop.lat]);
       return { ...stop, meters, minutes: walkMinutes(meters) };
     })
-    .filter((s) => s.meters <= maxMeters)
+    // An explicit maxMeters still wins — the map's walk lines want one tight
+    // radius for every mode, because those are drawn, not read.
+    .filter((s) => s.meters <= (maxMeters ?? MODE_REACH_M[s.mode] ?? 1200))
     .sort((a, b) => a.meters - b.meters);
 
   if (!perMode) return scored.slice(0, limit);
@@ -519,6 +543,17 @@ export function routeLength(path: [number, number][]): number {
 }
 
 /**
+ * How long a dash runs, and how much pavement it skips before the next one.
+ *
+ * Roughly the length of a parked car and the gap between two, which is the
+ * rhythm the eye already reads as "along the street". At the zoom the map is
+ * actually used at that is around ten pixels of ink to three of gap — enough
+ * to read as one line, dashed, rather than as a row of dots.
+ */
+export const DASH_M = 20;
+export const GAP_M = 7;
+
+/**
  * Cuts a polyline into dashes of a fixed length in metres.
  *
  * deck.gl has no dashed path without the style extension, so the dash is the
@@ -527,7 +562,8 @@ export function routeLength(path: [number, number][]): number {
  */
 export function dashPath(
   path: [number, number][],
-  dashMeters = 26,
+  dashMeters = DASH_M,
+  gapMeters = GAP_M,
 ): [number, number][][] {
   const out: [number, number][][] = [];
   let carry = 0;
@@ -541,8 +577,13 @@ export function dashPath(
 
     let travelled = 0;
     while (travelled < segment) {
-      const remaining = dashMeters - carry;
-      const step = Math.min(remaining, segment - travelled);
+      // Dash and gap are separate lengths. Equal on and off reads as a dotted
+      // line — a texture, not a route — and at the zoom a broker actually uses
+      // it dissolves into scattered ticks. A long dash with a short gap reads
+      // as one path that happens to be dashed, which is the point: it says
+      // "this is a walk", not "this is a fence".
+      const span = drawing ? dashMeters : gapMeters;
+      const step = Math.min(span - carry, segment - travelled);
       const t0 = travelled / segment;
       const t1 = (travelled + step) / segment;
       if (drawing) {
@@ -553,7 +594,7 @@ export function dashPath(
       }
       travelled += step;
       carry += step;
-      if (carry >= dashMeters) {
+      if (carry >= span) {
         carry = 0;
         drawing = !drawing;
       }
