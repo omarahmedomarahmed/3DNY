@@ -1,4 +1,5 @@
 import { sql } from './db';
+import { fieldSourceAssignment } from './field-stamp';
 
 /**
  * The admin data editor: read, edit and delete anything that was imported.
@@ -287,18 +288,28 @@ export async function updateRow(
   const editable = editableColumns(spec);
   const sets: string[] = [];
   const values: unknown[] = [];
+  const written: Record<string, unknown> = {};
 
   for (const column of editable) {
     if (!(column.name in patch)) continue;
-    values.push(coerce(column, patch[column.name]));
+    const value = coerce(column, patch[column.name]);
+    values.push(value);
+    written[column.name] = value;
     sets.push(`${column.name} = $${values.length}`);
   }
   if (sets.length === 0) return null;
 
   values.push(id);
+  const idIdx = values.length;
+  // The Data grid edits the same rows the drawer does, so it stamps the same
+  // way. A rent corrected here must stop crediting the sheet, exactly as one
+  // corrected in the space editor does.
+  const stamp = fieldSourceAssignment(spec.table, written, values);
+
   const db = sql();
   const rows = (await db(
-    `UPDATE ${spec.table} SET ${sets.join(', ')} WHERE ${primaryKey(spec)} = $${values.length} RETURNING *`,
+    `UPDATE ${spec.table} AS t SET ${sets.join(', ')}${stamp}
+     WHERE t.${primaryKey(spec)} = $${idIdx} RETURNING *`,
     values,
   )) as any[];
   return rows[0] ?? null;

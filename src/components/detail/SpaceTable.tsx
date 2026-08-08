@@ -7,8 +7,26 @@ import { useApp } from '@/lib/store';
 import Badge, { LeaseTypeBadge } from '@/components/ui/Badge';
 import { DateText, Rent, Sf, monthsUntil } from '@/components/ui/Money';
 import Icon from '@/components/ui/Icon';
+import SourceInfo from '@/components/ui/SourceInfo';
+import { spaceOriginNote, spaceSource, type SpaceField } from '@/lib/provenance';
 import PhotoGallery, { fetchSpaceImages } from './PhotoGallery';
 import EditDrawer, { type EditTarget } from '@/components/edit/EditDrawer';
+
+/**
+ * A source marker on a table cell, but only when the cell disagrees with its
+ * row.
+ *
+ * The stack is nine columns wide and can run to sixteen rows. Every value in a
+ * row shares one origin — the sheet the space arrived on — so a marker in
+ * every cell would be a hundred and forty identical icons saying one thing,
+ * and the floor numbers would be harder to read for it. The row carries its
+ * origin once, beside the floor; a cell only speaks up when something has
+ * overwritten it since, which is exactly the case the row's answer gets wrong.
+ */
+function Stamped({ space, field, label }: { space: Space; field: SpaceField; label: string }) {
+  if (!space.field_sources?.[field]) return null;
+  return <SourceInfo label={label} note={spaceSource(space, field)} />;
+}
 
 /**
  * Brokers read a stack from the top down — the penthouse first — so the
@@ -162,6 +180,10 @@ export default function SpaceTable({
                   <td className={TD}>
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-ink">{space.floor_label || '—'}</span>
+                      <SourceInfo
+                        label={`floor ${space.floor_label || 'row'}`}
+                        note={spaceOriginNote(space)}
+                      />
                       {space.floor_portion === 'partial' ? (
                         <Badge variant="neutral" title="Part of the floor only">
                           Partial
@@ -174,17 +196,38 @@ export default function SpaceTable({
                     </div>
                   </td>
                   <td className={clsx(TD, 'text-right tabular font-medium')}>
-                    <Sf value={space.sf} />
+                    <span className="inline-flex items-center gap-1">
+                      <Sf value={space.sf} />
+                      <Stamped space={space} field="sf" label="this square footage" />
+                    </span>
                   </td>
                   <td className={clsx(TD, 'text-right tabular font-semibold')}>
-                    <Rent psf={space.asking_rent_psf} withheld={space.asking_rent_withheld} />
+                    <span className="inline-flex items-center gap-1">
+                      <Rent psf={space.asking_rent_psf} withheld={space.asking_rent_withheld} />
+                      <Stamped space={space} field="asking_rent_psf" label="this asking rent" />
+                    </span>
                   </td>
-                  <td className={clsx(TD, 'font-medium text-body')}>{space.space_use ?? '—'}</td>
+                  <td className={clsx(TD, 'font-medium text-body')}>
+                    <span className="inline-flex items-center gap-1">
+                      {space.space_use ?? '—'}
+                      <Stamped space={space} field="space_use" label="this space use" />
+                    </span>
+                  </td>
                   <td className={TD}>
-                    <LeaseTypeBadge value={space.lease_type} />
+                    <span className="inline-flex items-center gap-1">
+                      <LeaseTypeBadge value={space.lease_type} />
+                      <Stamped space={space} field="lease_type" label="this lease type" />
+                    </span>
                   </td>
                   <td className={clsx(TD, 'text-right tabular font-medium text-body')}>
-                    <DateText value={space.available_from} fallback={space.occupancy_raw} />
+                    <span className="inline-flex items-center gap-1">
+                      <DateText value={space.available_from} fallback={space.occupancy_raw} />
+                      <Stamped
+                        space={space}
+                        field="available_from"
+                        label="this availability date"
+                      />
+                    </span>
                   </td>
                   <td className={clsx(TD, 'font-medium text-body')}>
                     <div className="flex items-center gap-2 whitespace-nowrap">
@@ -193,16 +236,21 @@ export default function SpaceTable({
                       </span>
                       {expiry === 'warn' && <Badge variant="warn">Rolls within 12 mo</Badge>}
                       {expiry === 'danger' && <Badge variant="danger">Expired</Badge>}
+                      <Stamped space={space} field="term_expires" label="this expiry date" />
                     </div>
                   </td>
                   <td className={clsx(TD, 'font-medium text-body')}>
                     {/* The firm, never the named agent. */}
                     {space.leasing_company ? (
-                      <span
-                        className="block max-w-[180px] truncate"
-                        title={space.leasing_company}
-                      >
-                        {space.leasing_company}
+                      <span className="flex max-w-[180px] items-center gap-1">
+                        <span className="truncate" title={space.leasing_company}>
+                          {space.leasing_company}
+                        </span>
+                        <Stamped
+                          space={space}
+                          field="leasing_company"
+                          label="this listing broker"
+                        />
                       </span>
                     ) : (
                       <span className="text-subtle">—</span>

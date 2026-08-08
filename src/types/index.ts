@@ -7,6 +7,30 @@ export type LeaseType = 'direct' | 'sublet';
 export type BuildingClass = 'A' | 'B' | 'C' | null;
 export type TenantSource = 'csv' | 'manual' | 'salesforce';
 
+/**
+ * Where one particular field's current value came from, when that differs from
+ * where its row came from.
+ *
+ * Only written when something overwrites a field after the fact — a person
+ * correcting a rent in the app, or, later, a CRM sync. A field with no stamp
+ * still has the row's own origin, which is the common case and costs nothing
+ * to store.
+ *
+ * `kind` is deliberately a bare string rather than a union: the database is
+ * the thing that has to accept a value a future integration invents, and a
+ * kind the resolver does not recognise degrades to "recorded by <kind>"
+ * instead of throwing away the fact that the field was touched at all.
+ */
+export interface FieldSourceStamp {
+  kind: string;
+  /** ISO timestamp of the write. */
+  at?: string;
+  /** Optional external identifier, e.g. a Salesforce record id. */
+  ref?: string;
+}
+
+export type FieldSources = Record<string, FieldSourceStamp>;
+
 /** A landlord / ownership entity. Insights here are authored by hand. */
 export interface Landlord {
   id: string;
@@ -55,6 +79,8 @@ export interface Building {
   /** Per-building override of the derived floor height, in feet. */
   floor_height_override: number | null;
   notes: string | null;
+  /** Fields written after the row was created — see FieldSourceStamp. */
+  field_sources?: FieldSources;
   updated_at: string;
 }
 
@@ -98,6 +124,15 @@ export interface Space {
   agent_email_suspect: boolean;
   date_added: string | null;
   source_import_id: string | null;
+  /**
+   * The sheet this space came from, joined in so any surface that shows a
+   * value can also say where it came from without a second request.
+   * Null when the row was typed in by hand rather than imported.
+   */
+  import_filename?: string | null;
+  import_uploaded_at?: string | null;
+  /** Fields written after the row was created — see FieldSourceStamp. */
+  field_sources?: FieldSources;
   notes: string | null;
   is_active: boolean;
   updated_at: string;

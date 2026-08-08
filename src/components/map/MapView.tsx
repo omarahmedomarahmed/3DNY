@@ -32,6 +32,8 @@ import { buildingHeightFt, buildingRing } from '@/lib/floor-bands';
 import { composeSnapshot, downloadSnapshot, SNAPSHOT_SIDE } from '@/lib/stack-snapshot';
 import type { Landlord } from '@/types';
 import { MODE_LABEL, metersBetween, walkMinutes, type TransitStop } from '@/lib/transit';
+import { transitSource } from '@/lib/provenance';
+import SourceInfo from '@/components/ui/SourceInfo';
 import {
   buildPhotorealLayer,
   loadPhotorealModule,
@@ -1339,11 +1341,15 @@ export default function MapView() {
           <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
             {MODE_LABEL[transitPopup.stop.mode]}
           </p>
-          <p className="mt-1 text-sm font-semibold leading-snug text-ink">
+          <p className="mt-1 flex items-center gap-1 text-sm font-semibold leading-snug text-ink">
             {transitPopup.stop.name}
+            <SourceInfo
+              label="this station"
+              note={transitSource('name', transitPopup.stop.mode)}
+            />
           </p>
           {transitPopup.stop.routes.length > 0 && (
-            <p className="mt-1.5 flex flex-wrap gap-1">
+            <p className="mt-1.5 flex flex-wrap items-center gap-1">
               {transitPopup.stop.routes.map((r) => (
                 <span
                   key={r}
@@ -1352,20 +1358,24 @@ export default function MapView() {
                   {r}
                 </span>
               ))}
+              <SourceInfo
+                label="these routes"
+                note={transitSource('routes', transitPopup.stop.mode)}
+              />
             </p>
           )}
           {transitOrigin && (
-            <p className="mt-2 text-xs font-medium text-body">
-              About{' '}
-              {walkMinutes(
-                metersBetween(transitOrigin, [transitPopup.stop.lon, transitPopup.stop.lat]),
-              )}{' '}
-              min walk from the selected building
+            <p className="mt-2 flex items-center gap-1 text-xs font-medium text-body">
+              <span>
+                About{' '}
+                {walkMinutes(
+                  metersBetween(transitOrigin, [transitPopup.stop.lon, transitPopup.stop.lat]),
+                )}{' '}
+                min walk from the selected building
+              </span>
+              <SourceInfo label="this walk time" note={transitSource('walk_time')} />
             </p>
           )}
-          <p className="mt-2 text-[10px] leading-snug text-subtle">
-            Stop locations from OpenStreetMap. Walk time is estimated, not routed.
-          </p>
         </div>
       )}
 

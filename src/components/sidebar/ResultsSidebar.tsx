@@ -5,8 +5,22 @@ import Link from 'next/link';
 import { useApp } from '@/lib/store';
 import { applyFilters, activeFilterCount } from '@/lib/filters';
 import type { BuildingWithSpaces, Space } from '@/types';
+import SourceInfo from '@/components/ui/SourceInfo';
+import type { SourceNote } from '@/lib/provenance';
 import SpaceCard, { formatSf } from './SpaceCard';
 import RadiusResults from './RadiusResults';
+
+/**
+ * The counts in this header are the one number on screen with no source at
+ * all: they describe the current filter and viewport, not any record.
+ */
+const VIEW_TOTALS: SourceNote = {
+  kind: 'derived',
+  label: 'Counted from what is on screen',
+  detail:
+    'Not a market figure. It is the sum of the availabilities currently passing your filters and ' +
+    'inside the map view — pan or filter and it changes.',
+};
 
 type SortKey =
   | 'rent-asc'
@@ -126,8 +140,9 @@ export default function ResultsSidebar() {
             <span className="tabular">{inView.length}</span> building
             {inView.length === 1 ? '' : 's'}
           </h2>
-          <span className="tabular shrink-0 text-xs font-medium text-muted">
-            {formatSf(totalSf)}
+          <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-muted">
+            <span className="tabular">{formatSf(totalSf)}</span>
+            <SourceInfo label="these totals" note={VIEW_TOTALS} />
           </span>
         </div>
 

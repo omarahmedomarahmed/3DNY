@@ -63,6 +63,56 @@ Two things are derived rather than surveyed, because nobody publishes them:
 - **Where a floor sits vertically.** Height ÷ floor count, as before. See
   [Accuracy](#accuracy).
 
+### Where every number comes from
+
+A building profile shows "Class A · 1962 · 41 floors · $88/SF" in one strip, in
+one typeface, and it reads as one continuous fact. It is four different kinds
+of claim: the class came off a leasing sheet, the year and the floor count off
+the city's tax record, and the rent is a broker's asking figure that somebody
+here may have retyped this morning. They are not equally reliable and nothing
+on screen said so.
+
+So every value that reaches a screen can name its own source. A small circled
+**i** sits beside it; clicking it says which sheet, which city dataset, or
+which calculation — and, when the value is an estimate rather than a recorded
+figure, says that too.
+
+| Kind of value | What the marker says |
+|---|---|
+| Rent, size, floor, dates, listing broker | The sheet it was imported from, by filename and date |
+| Address, building name, class, submarket | Also the sheet — these are how the market describes a building, not what the city records |
+| BIN, BBL, coordinates | The city's address index, and whether the match was confirmed |
+| Outline, roof height | NYC Building Footprints, with the 2014 survey caveat |
+| Floors, year built, area, owner of record | MapPLUTO |
+| Station names, routes | MTA open data — except ferry, PATH and rail, which are a hand-kept table and say so |
+| Annual rent, floor band position, walk times, view totals | Calculated here, flagged as an estimate |
+| Anything corrected in the app | "Corrected here", with the date — the sheet is no longer credited for it |
+
+Three design decisions hold this together.
+
+**Per-field, not per-record.** `spaces` and `buildings` carry a `field_sources`
+JSONB column, stamped on write with the field that changed and what changed it.
+Only fields whose value actually differs get stamped, compared server-side in
+the same statement — saving a form untouched must not turn a sheet figure into
+a hand-entered one. Re-importing drops the stamps on the columns the import
+overwrites, and leaves the rest.
+
+**Open to what does not exist yet.** The stamp's `kind` is a bare string. A
+Salesforce sync writing `{"kind":"salesforce","ref":"006xx"}` needs no schema
+change and no new branch; a kind the resolver has never seen still renders as
+"recorded by *kind*" rather than silently falling back to "off the sheet",
+which would be a lie.
+
+**The marker has to stay quiet.** There are forty of these on a busy screen.
+They are drawn in the muted text colour at half opacity, reach full contrast
+only on hover or focus, and are **never Goldenrod** — see the rule below. Where
+a surface would repeat itself they collapse: the sidebar card carries one
+marker rather than six identical ones, the stack table carries its origin once
+per row and a cell only speaks up when it disagrees, and a compare row shows
+one marker when every column gives the same answer. The Stack Snapshot is a
+PNG that gets forwarded and cannot carry an affordance at all, so it prints the
+same facts in its footer.
+
 ### The one rule
 
 A Goldenrod band on the 14th floor is the loudest thing on screen. Everything
@@ -72,7 +122,8 @@ all** to the availability bands, so a band is at full contrast at any distance;
 roof furniture takes the colour of the building it stands on rather than
 introducing a second colour at the top of a silhouette; and the Compare
 launcher on the map canvas is deliberately not Goldenrod, because on the map
-Goldenrod means available space and nothing else.
+Goldenrod means available space and nothing else — as are the source markers,
+for the same reason and with a test to hold it.
 
 ---
 
@@ -83,7 +134,7 @@ Goldenrod means available space and nothing else.
 | Plan | Complete — [PLAN.md](./PLAN.md) |
 | Build | Complete and deployable |
 | Production build | Passing |
-| Tests | 194 passing — parser against both real sheets, plus transit, photoreal gating, streetscape and label layout, roofscape geometry, atmosphere and both shaders' picking guards, entrance placement, street-network routing, station deduplication, the fallback geocoder's address normalisation, the compare set's lifecycle, and a guard that no UI file references a named agent |
+| Tests | 238 passing — parser against both real sheets, plus transit, photoreal gating, streetscape and label layout, roofscape geometry, atmosphere and both shaders' picking guards, entrance placement, street-network routing, station deduplication, the fallback geocoder's address normalisation, the compare set's lifecycle, the source resolver's field-by-field answers, and two guards that hold rules a comment cannot: that no UI file references a named agent, and that every dismiss-on-outside-click surface exempts the source popover |
 | Coverage | Midtown + Midtown South |
 
 ### Verifying it by looking at it
@@ -101,6 +152,7 @@ against the live database, and every assertion is on the thing itself:
 | `node scripts/shoot.mjs <dir> <tag>` | Both themes, wide and close, with and without transit. |
 | `node scripts/shoot-ground.mjs`, `shoot-atmosphere.mjs`, `shoot-stations.mjs` | The ground plane, the four hours, and the subway entrances. |
 | `node scripts/verify-snapshot.mjs <dir>` | Stack Snapshot is produced for real and the PNG inspected: composed at 2x, and no blank filler band. |
+| `node scripts/verify-sources.mjs <dir>` | The source markers are reachable on the map, the building page and compare; opening one does **not** close the card it sits on; only one opens at a time; and the sheet and the city give different answers where they should. |
 | `node scripts/measure-perf.mjs` | Frame rate across five scenes. |
 
 All of them need the app running: `npx next build && sh scripts/restart-server.sh`.
@@ -164,7 +216,8 @@ The importer reads the existing sheet format with no changes: market label on ro
 | Type | Direct vs Sublet |
 | Occupancy | Available-from date (`Vacant`, `30 Days`, `Sep 2025`) |
 | Term | Lease expiration (`Thru Mar 2033`) |
-| Leasing Company, Agent, Agent email | Contact card on the space |
+| Leasing Company | Shown as the listing broker |
+| Agent, Agent email | Parsed and stored so the import is not lossy, and **never displayed** — see [Where every number comes from](#where-every-number-comes-from) |
 | Class | A / B / C filter |
 | Submarket Cluster | Grouping and filter |
 | Notes | Free text |
@@ -192,6 +245,10 @@ Cases already present in the sample data and handled: building names appended af
 | Which building is highlighted | Exact — matched to NYC's Building Identification Number |
 | Which floor is available | Exact — straight from your sheet |
 | Where the floor band sits on the tower | Estimated from building height ÷ floor count. Within about one floor on towers with mechanical levels or setbacks. Overridable per building. |
+
+Every one of those answers is also on screen, beside the value itself — see
+[Where every number comes from](#where-every-number-comes-from). Nothing in
+this table is a fact you have to remember; the map will tell you when asked.
 
 ---
 
@@ -270,6 +327,8 @@ src/components/map/facade.ts       Curtain-wall shader — read it before writin
 src/components/map/stations.ts    Modelled stations and their name plates
 src/lib/walk-network.ts   Walking routes along the real street network
 src/lib/nyc-addresses.ts  Fallback geocoder for when Geosearch is down
+src/lib/provenance.ts     Where every value on screen came from — one resolver, no guessing
+src/components/ui/SourceInfo.tsx  The circled "i", and the helper every dismissible surface must call
 scripts/verify-*.mjs      Behaviour checks that assert on the thing itself
 scripts/shoot-*.mjs       Screenshot harnesses for visual verification
 src/components/import/    Drop zone, preview, review queue

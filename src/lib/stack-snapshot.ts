@@ -1,4 +1,5 @@
 import type { BuildingWithSpaces, Landlord, Space } from '@/types';
+import { recordSourceSummary } from '@/lib/provenance';
 
 /**
  * Stack Snapshot — one building, captured as a shareable image.
@@ -55,8 +56,16 @@ const ROW = 62;
  */
 const MAX_STACK_ROWS = 16;
 
-/** Room the footer needs beneath the panel's last line. */
-const FOOTER_H = 74;
+/**
+ * Room the footer needs beneath the panel's last line, over and above its own
+ * text. Just the rule and the breathing space either side of it — the lines
+ * themselves are counted after wrapping, so this no longer has to guess how
+ * many there will be.
+ */
+const FOOTER_H = 30;
+/** Leading and face for the footer's provenance lines. */
+const FOOT_LINE = 14;
+const FOOT_FONT = '400 11px ui-sans-serif, system-ui, Helvetica, Arial, sans-serif';
 
 /** The sheet never grows past this, however much a building has in it. */
 const MAX_SHEET_H = 1600;
@@ -383,11 +392,50 @@ export function composeSnapshot(input: SnapshotInput): HTMLCanvasElement {
   // how tall it is, and the sheet is cut to that. A one-space building gets a
   // compact sheet; a twelve-space building gets a taller one; neither has a
   // void in it.
+  // A snapshot leaves the building. It gets forwarded, printed and looked at
+  // months later, by people who were not in the room and cannot click an "i"
+  // to ask where a number came from. So it carries in text what the app
+  // carries as an affordance — the same facts, in the only form that survives
+  // being emailed.
+  const stamp = capturedAt.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  const summary = recordSourceSummary(building, spaces);
+
+  // Google's imagery attribution is required whenever the tiles are on. The
+  // massing credit is not repeated when the summary above already named the
+  // city datasets — a footer that says the same thing twice reads as boilerplate
+  // and stops being read at all.
+  const credit = photoreal
+    ? 'Imagery © Google.'
+    : summary.some((l) => l.startsWith('Building:'))
+      ? null
+      : 'Massing from NYC Open Data.';
+
   const measure = document.createElement('canvas').getContext('2d');
   const panelBottom = measure ? drawPanel(measure, 0, PANEL_W - PAD * 2, input, spaces) : MIN_SHEET_H;
+
+  // Wrapped BEFORE the sheet is sized, not while it is being drawn. A line
+  // that wraps to two is two lines of height, and reserving room for one is
+  // how the credit ended up printed on top of the provenance.
+  const footerW = PANEL_W - PAD * 2;
+  const footerLines = [`Cresa Spaces · ${stamp}`];
+  const body = credit ? [...summary, credit] : summary;
+  if (measure) {
+    measure.font = FOOT_FONT;
+    for (const line of body) footerLines.push(...wrap(measure, line, footerW, 2));
+  } else {
+    footerLines.push(...body);
+  }
+
+  const footerH = FOOTER_H + footerLines.length * FOOT_LINE;
   const height = Math.min(
     MAX_SHEET_H,
-    Math.max(MIN_SHEET_H, Math.ceil(panelBottom + FOOTER_H + PAD)),
+    Math.max(MIN_SHEET_H, Math.ceil(panelBottom + footerH + PAD)),
   );
   const mapW = height;
   const width = mapW + PANEL_W;
@@ -423,25 +471,22 @@ export function composeSnapshot(input: SnapshotInput): HTMLCanvasElement {
   void y;
 
   // --- Footer. Provenance, because a snapshot outlives the data in it.
+  //
+  // The lines were wrapped and counted above, so the block is laid out from
+  // the bottom of the sheet upward and the rule always lands above the first
+  // of them however many there turn out to be.
   const footY = height - PAD;
+  const ruleY = footY - footerLines.length * FOOT_LINE - 8;
   ctx.fillStyle = HAIRLINE;
-  ctx.fillRect(x, footY - 34, w, 1);
+  ctx.fillRect(x, ruleY, w, 1);
 
   ctx.fillStyle = MUTED;
-  ctx.font = '400 11px ui-sans-serif, system-ui, Helvetica, Arial, sans-serif';
-  const stamp = capturedAt.toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-  ctx.fillText(`Cresa Spaces · ${stamp}`, x, footY - 14);
-
-  const source = photoreal
-    ? 'Imagery © Google · floors from your availability sheet'
-    : 'Massing from NYC Open Data · floors from your availability sheet';
-  ctx.fillText(source, x, footY);
+  ctx.font = FOOT_FONT;
+  let sy = ruleY + 8 + FOOT_LINE;
+  for (const line of footerLines) {
+    ctx.fillText(line, x, sy);
+    sy += FOOT_LINE;
+  }
 
   return canvas;
 }

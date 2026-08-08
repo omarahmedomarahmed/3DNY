@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useApp, useCompareDetails } from '@/lib/store';
+import { isInsideSourcePopover } from '@/components/ui/SourceInfo';
 import CompareView from './CompareView';
 
 /**
@@ -113,6 +114,10 @@ export default function ComparePanel() {
       // The launcher chip toggles on its own; letting this handler see the
       // click too would close and reopen in the same gesture.
       if (e.target instanceof Element && e.target.closest('[data-compare-launcher]')) return;
+      // Source popovers are portalled to the body, so they sit outside this
+      // panel. Reading where a figure came from must not close the comparison
+      // it was being read against.
+      if (isInsideSourcePopover(e.target)) return;
       setCompareOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {

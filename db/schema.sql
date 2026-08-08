@@ -182,3 +182,24 @@ END $$;
 ALTER TABLE landlords ADD COLUMN IF NOT EXISTS owner_of_record text;
 ALTER TABLE landlords ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'manual';
 ALTER TABLE landlords ADD COLUMN IF NOT EXISTS needs_review boolean NOT NULL DEFAULT false;
+
+-- ---------------------------------------------------------------------------
+-- Per-field provenance. Added after the first release, so guarded.
+--
+-- A row already records where it came from as a whole: source_import_id names
+-- the sheet a space arrived on, and the enrichment pass fills a building's
+-- dimensions from the city. What neither records is a field someone corrected
+-- afterwards — once an asking rent has been retyped by hand it is
+-- indistinguishable from the one the sheet supplied, and crediting the sheet
+-- for a number nobody on the sheet wrote is worse than saying nothing.
+--
+-- This column holds one entry per field that has been written by something
+-- other than the row's own origin:
+--
+--   {"asking_rent_psf": {"kind": "manual", "at": "2026-03-14T18:02:11.043Z"}}
+--
+-- `kind` is open on purpose. A Salesforce sync writing the same shape with
+-- kind "salesforce" needs no schema change and no new resolver branch.
+-- ---------------------------------------------------------------------------
+ALTER TABLE spaces    ADD COLUMN IF NOT EXISTS field_sources jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE buildings ADD COLUMN IF NOT EXISTS field_sources jsonb NOT NULL DEFAULT '{}'::jsonb;
