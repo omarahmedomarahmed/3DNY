@@ -15,10 +15,12 @@ Built to be used live in a tenant meeting.
 - **Photorealistic mode.** An optional camera toggle swaps our massing for Google's photographed 3D imagery — real facades and rooftops. Off by default, needs a Google Cloud key, and bills per use; availability bands draw over the imagery so they stay readable. It is an alternative, never a dependency: nothing in the default map relies on it. See SETUP.md.
 - **The real city around them.** Every other building in view is drawn from NYC's footprint and roof-height records, so your towers stand inside Manhattan instead of floating in an empty plane. Scenery only — it is never clickable, coloured or labelled.
 - **Time of day.** Morning, midday, golden hour and night move the real sun over Manhattan, along with the sky and how far distance fades into haze.
+- **Walk routes along real streets.** Select a building with transit on and the dashed lines follow the actual street network to each station, rather than cutting across blocks.
 - **Buildings highlight** by asking rent, availability, or class.
 - **Floor-level bands.** Zoom into a tower and each available floor is its own highlighted band. Click one for that space.
 - **Space detail** with photos you upload yourself.
-- **Compare, on the map.** Add a space from one building, another from a different building and floor, a third — side-by-side specs, landlord data included, in a panel floating over the towers rather than a page takeover. Clicking the map dismisses it; dismissing it never empties it. Shareable as a link.
+- **Compare, on the map.** Add a space from one building, another from a different building and floor, a third — side-by-side specs, landlord data included, in a large panel floating over the towers rather than a page takeover. Minimises to a chip and back; dismissing it never empties it; the map's own controls stay reachable underneath. Shareable as a link.
+- **No named agents, anywhere.** The weekly sheet carries the listing broker's name and email. Both are imported and stored, and neither is ever displayed — the firm is shown as "Listing broker", the individual is not. Enforced by a test over every UI file, not just by convention.
 - **Transit.** Every subway station, bus stop, ferry landing, PATH and rail terminal in view. Select a building and dashed lines run to the nearest few with an estimated walk time and the routes that serve them. Walk time is also a compare column.
 - **Radius comps.** Draw a circle around a target building, see every available space inside it.
 - **Filter on anything** in the sheet: lease expiration, asking rent range, SF, floor, class, direct vs sublet, submarket, leasing company, date added.
@@ -45,6 +47,7 @@ fetched once and shared.
 | Central Park, Bryant Park, Herald Square and the rest | NYC Parks Properties `enfh-gkve` |
 | Individual street trees, sized by trunk diameter | 2015 Street Tree Census `uvpi-gqnh` |
 | Subway entrances, stair heads and elevator headhouses | MTA Subway Entrances and Exits 2024 `i9wp-a4ja` |
+| Address matching, when Geosearch is down | NYC AddressPoint `uf93-f8nk` |
 | Surrounding buildings and roof heights | NYC Building Footprints `5zhs-2jue` |
 | Floor counts, year built, owner | MapPLUTO `64uk-42ks` |
 | Transit stops and routes | MTA Subway Stations `39hk-dx4f`, Bus Stops `2ucp-7wg5` |
@@ -80,7 +83,7 @@ Goldenrod means available space and nothing else.
 | Plan | Complete — [PLAN.md](./PLAN.md) |
 | Build | Complete and deployable |
 | Production build | Passing |
-| Tests | 125 passing — parser against both real sheets, plus transit, photoreal gating, streetscape and label layout, roofscape geometry, atmosphere and the haze shader's picking guard, entrance placement, and the compare set's lifecycle |
+| Tests | 194 passing — parser against both real sheets, plus transit, photoreal gating, streetscape and label layout, roofscape geometry, atmosphere and both shaders' picking guards, entrance placement, street-network routing, station deduplication, the fallback geocoder's address normalisation, the compare set's lifecycle, and a guard that no UI file references a named agent |
 | Coverage | Midtown + Midtown South |
 
 ### Verifying it by looking at it
@@ -97,18 +100,37 @@ against the live database, and every assertion is on the thing itself:
 | `node scripts/verify-compare.mjs <dir>` | Compare opens, closes on a map click **without emptying**, reopens with the same spaces, shares and rehydrates. Asserts on `[role="dialog"]`, never on an address. |
 | `node scripts/shoot.mjs <dir> <tag>` | Both themes, wide and close, with and without transit. |
 | `node scripts/shoot-ground.mjs`, `shoot-atmosphere.mjs`, `shoot-stations.mjs` | The ground plane, the four hours, and the subway entrances. |
+| `node scripts/verify-snapshot.mjs <dir>` | Stack Snapshot is produced for real and the PNG inspected: composed at 2x, and no blank filler band. |
 | `node scripts/measure-perf.mjs` | Frame rate across five scenes. |
 
 All of them need the app running: `npx next build && sh scripts/restart-server.sh`.
+
+**Before you touch the importer.** Address resolution has two independent
+sources and needs both. Geosearch is the primary and is authoritative, but it
+is a single hosted service — when it started returning 503, every row of every
+sheet came back "unmatched" and nothing could be imported at all, including
+the bundled samples, so a deleted inventory could not be restored. NYC
+AddressPoint is the fallback, on the same Socrata infrastructure the rest of
+the map already depends on. Geosearch also has a 4-second deadline, because it
+has been observed answering correctly but taking 7-9 seconds, which turns a
+weekly sheet into a two-minute import.
 
 **The trap worth knowing before you write a shader here.** deck.gl encodes
 every object as an exact RGB value and reads it back out of the framebuffer to
 resolve a click. Anything injecting into `DECKGL_FILTER_COLOR` must guard with
 `!bool(picking.isActive)` or clicks decode to the wrong object or to none —
 while the scene still looks perfect. That has broken this map twice. Both
-shaders here (curtain-wall mullions in `mullions.ts`, distance haze in
-`atmosphere.ts`) are guarded, there is a unit test asserting the guard is in
+shaders here (the curtain wall in `facade.ts`, distance haze in
+`atmosphere.ts`) are guarded, there are unit tests asserting the guard is in
 the emitted source, and `verify-picking.mjs` proves it holds at runtime.
+
+A second, quieter trap in the same place: a shader that fails to **compile**
+does not throw either. deck.gl logs a link error and the buildings simply do
+not draw. `#if 5.0 > 0.5` is the way to cause it — GLSL's preprocessor only
+evaluates integer constant expressions — so conditionals of that kind belong
+in JavaScript, emitting the block or not. `tests/facade.test.ts` checks the
+emitted GLSL for exactly that shape, along with unsubstituted template
+placeholders, unbalanced braces, and varyings read but never declared.
 
 Setup instructions: **[SETUP.md](./SETUP.md)** — about 20 minutes, all browser clicks,
 no terminal commands.
@@ -244,7 +266,10 @@ src/components/map/       3D map, floor highlights, radius
 src/components/map/ground.ts      The ground plane: streets, kerbs, parks, trees, entrances
 src/components/map/roofs.ts       Parapets, plant, crowns and water tanks
 src/components/map/atmosphere.ts  Sky, time of day, and the distance-haze shader
-src/components/map/mullions.ts    Curtain-wall shader — read it before writing another
+src/components/map/facade.ts       Curtain-wall shader — read it before writing another
+src/components/map/stations.ts    Modelled stations and their name plates
+src/lib/walk-network.ts   Walking routes along the real street network
+src/lib/nyc-addresses.ts  Fallback geocoder for when Geosearch is down
 scripts/verify-*.mjs      Behaviour checks that assert on the thing itself
 scripts/shoot-*.mjs       Screenshot harnesses for visual verification
 src/components/import/    Drop zone, preview, review queue
