@@ -4,6 +4,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 import type { BuildingWithSpaces, Landlord, Space } from '@/types';
 import { useApp, useCompareDetails } from '@/lib/store';
+import {
+  MODE_LABEL,
+  MODE_RANK,
+  nearestStops,
+  type NearbyStop,
+  type TransitResult,
+  type TransitStop,
+} from '@/lib/transit';
 import Badge, { ClassBadge, LeaseTypeBadge } from '@/components/ui/Badge';
 import {
   annualRent,
@@ -22,6 +30,8 @@ interface Column {
   space: Space;
   landlord: Landlord | null;
   photo: string | null;
+  /** Nearest transit, walk-sorted. Null until the lookup has answered. */
+  transit: NearbyStop[] | null;
 }
 
 type Best = 'min' | 'max' | null;
@@ -219,6 +229,115 @@ const SPACE_ROWS: Row[] = [
   },
 ];
 
+/** The best stop of a given mode, or null when there is none within range. */
+function bestOfMode(c: Column, mode: string): NearbyStop | null {
+  return c.transit?.find((s) => s.mode === mode) ?? null;
+}
+
+function stopCell(stop: NearbyStop | null, pending: boolean): React.ReactNode {
+  if (pending) return <span className="text-subtle">Checking…</span>;
+  if (!stop) return DASH;
+  return (
+    <div>
+      <p className="font-semibold text-ink">
+        {stop.minutes} min <span className="font-normal text-muted">walk</span>
+      </p>
+      <p className="mt-0.5 text-xs leading-snug text-muted">{stop.name}</p>
+      {stop.routes.length > 0 && (
+        <p className="mt-1 flex flex-wrap gap-1">
+          {stop.routes.slice(0, 5).map((r) => (
+            <span
+              key={r}
+              className="rounded bg-midnight px-1.5 py-0.5 text-[10px] font-bold text-white"
+            >
+              {r}
+            </span>
+          ))}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Transit rows. Walk time is the number a tenant actually argues about, so it
+ * drives the best-in-row accent; the station name and its routes sit under it
+ * because "7 minutes" means nothing without knowing to what.
+ */
+const TRANSIT_ROWS: Row[] = [
+  {
+    key: 'transit_subway',
+    label: 'Nearest subway',
+    best: 'min',
+    numeric: (c) => bestOfMode(c, 'subway')?.minutes ?? null,
+    compareKey: (c) => bestOfMode(c, 'subway')?.name ?? '',
+    render: (c) => stopCell(bestOfMode(c, 'subway'), c.transit === null),
+    tall: true,
+  },
+  {
+    key: 'transit_rail',
+    label: 'Nearest rail / PATH',
+    best: 'min',
+    numeric: (c) => {
+      const rail = bestOfMode(c, 'rail');
+      const path = bestOfMode(c, 'path');
+      const best = [rail, path].filter(Boolean) as NearbyStop[];
+      return best.length ? Math.min(...best.map((s) => s.minutes)) : null;
+    },
+    compareKey: (c) => (bestOfMode(c, 'rail') ?? bestOfMode(c, 'path'))?.name ?? '',
+    render: (c) => {
+      const rail = bestOfMode(c, 'rail');
+      const path = bestOfMode(c, 'path');
+      const best =
+        rail && path ? (rail.minutes <= path.minutes ? rail : path) : (rail ?? path);
+      return stopCell(best, c.transit === null);
+    },
+    tall: true,
+  },
+  {
+    key: 'transit_bus',
+    label: 'Nearest bus',
+    best: 'min',
+    numeric: (c) => bestOfMode(c, 'bus')?.minutes ?? null,
+    compareKey: (c) => bestOfMode(c, 'bus')?.name ?? '',
+    render: (c) => stopCell(bestOfMode(c, 'bus'), c.transit === null),
+    tall: true,
+  },
+  {
+    key: 'transit_ferry',
+    label: 'Nearest ferry',
+    best: 'min',
+    numeric: (c) => bestOfMode(c, 'ferry')?.minutes ?? null,
+    compareKey: (c) => bestOfMode(c, 'ferry')?.name ?? '',
+    render: (c) => stopCell(bestOfMode(c, 'ferry'), c.transit === null),
+    tall: true,
+  },
+  {
+    key: 'transit_within_10',
+    label: 'Stops within 10 min',
+    best: 'max',
+    numeric: (c) => c.transit?.filter((s) => s.minutes <= 10).length ?? null,
+    compareKey: (c) => String(c.transit?.filter((s) => s.minutes <= 10).length ?? ''),
+    render: (c) => {
+      if (c.transit === null) return <span className="text-subtle">Checking…</span>;
+      const within = c.transit.filter((s) => s.minutes <= 10);
+      if (within.length === 0) return DASH;
+      const byMode = new Map<string, number>();
+      for (const stop of within) byMode.set(stop.mode, (byMode.get(stop.mode) ?? 0) + 1);
+      const parts = [...byMode.entries()]
+        .sort((a, b) => (MODE_RANK[a[0] as never] ?? 9) - (MODE_RANK[b[0] as never] ?? 9))
+        .map(([mode, n]) => `${n} ${MODE_LABEL[mode as never] ?? mode}`);
+      return (
+        <div>
+          <p className="tabular font-semibold text-ink">{within.length}</p>
+          <p className="mt-0.5 text-xs leading-snug text-muted">{parts.join(' · ')}</p>
+        </div>
+      );
+    },
+    tall: true,
+  },
+];
+
 const LANDLORD_ROWS: Row[] = [
   {
     key: 'landlord',
@@ -311,6 +430,7 @@ export default function CompareView({ onClose }: { onClose?: () => void }) {
   const [landlords, setLandlords] = useState<Landlord[]>([]);
   const [photos, setPhotos] = useState<Record<string, string | null>>({});
   const [copied, setCopied] = useState<string | null>(null);
+  const [transitStops, setTransitStops] = useState<TransitStop[] | null>(null);
   const hydrated = useRef(false);
 
   const close = onClose ?? (() => setCompareOpen(false));
@@ -351,6 +471,59 @@ export default function CompareView({ onClose }: { onClose?: () => void }) {
     };
   }, [spaceIds]);
 
+  // One transit lookup covering every compared building, rather than one per
+  // column: they are usually within a few blocks of each other, and Overpass
+  // is a volunteer service.
+  const transitBounds = details
+    .map(({ building }) =>
+      building.lon !== null && building.lat !== null
+        ? `${building.lon.toFixed(3)},${building.lat.toFixed(3)}`
+        : '',
+    )
+    .filter(Boolean)
+    .sort()
+    .join('|');
+
+  useEffect(() => {
+    if (!transitBounds) {
+      setTransitStops(null);
+      return;
+    }
+    const points = transitBounds.split('|').map((p) => p.split(',').map(Number));
+    let west = 180;
+    let south = 90;
+    let east = -180;
+    let north = -90;
+    for (const [lon, lat] of points) {
+      west = Math.min(west, lon);
+      east = Math.max(east, lon);
+      south = Math.min(south, lat);
+      north = Math.max(north, lat);
+    }
+    // A margin wide enough that a station just outside the group still counts.
+    const pad = 0.012;
+    const bbox = [west - pad, south - pad, east + pad, north + pad];
+    // Two compared buildings can be a mile apart; past the API's own limit the
+    // lookup is skipped rather than failed.
+    if (bbox[2] - bbox[0] > 0.19 || bbox[3] - bbox[1] > 0.19) {
+      setTransitStops([]);
+      return;
+    }
+
+    let cancelled = false;
+    void fetch(`/api/transit?bbox=${bbox.map((v) => v.toFixed(3)).join(',')}`)
+      .then((res) => (res.ok ? (res.json() as Promise<TransitResult>) : null))
+      .then((data) => {
+        if (!cancelled) setTransitStops(data?.stops ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setTransitStops([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [transitBounds]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') close();
@@ -368,9 +541,17 @@ export default function CompareView({ onClose }: { onClose?: () => void }) {
           landlords.find((l) => l.id === building.landlord_id) ??
           landlords.find((l) => l.name === building.landlord_name) ??
           null,
+        transit:
+          transitStops === null || building.lon === null || building.lat === null
+            ? null
+            : nearestStops([building.lon, building.lat], transitStops, {
+                limit: 12,
+                maxMeters: 1200,
+                perMode: 4,
+              }),
         photo: photos[space.id] ?? null,
       })),
-    [details, landlords, photos],
+    [details, landlords, photos, transitStops],
   );
 
   async function copyLink() {
@@ -556,6 +737,7 @@ export default function CompareView({ onClose }: { onClose?: () => void }) {
               </thead>
               <tbody>
                 {renderSection('Space', SPACE_ROWS)}
+                {renderSection('Transit', TRANSIT_ROWS, true)}
                 {renderSection('Landlord', LANDLORD_ROWS, true)}
               </tbody>
             </table>

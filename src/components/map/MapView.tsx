@@ -19,9 +19,11 @@ import { applyFilters } from '@/lib/filters';
 import type { BuildingWithSpaces } from '@/types';
 import { BAND_ZOOM_THRESHOLD, buildLayers, type MapPoint } from './layers';
 import { useCityContext } from './useCityContext';
+import { useTransit } from './useTransit';
 import { buildingHeightFt, buildingRing } from '@/lib/floor-bands';
 import { composeSnapshot, downloadSnapshot } from '@/lib/stack-snapshot';
 import type { Landlord } from '@/types';
+import { MODE_LABEL, metersBetween, walkMinutes, type TransitStop } from '@/lib/transit';
 import {
   buildPhotorealLayer,
   loadPhotorealModule,
@@ -377,6 +379,10 @@ export default function MapView() {
   const [snapshotBusy, setSnapshotBusy] = useState(false);
   const [snapshotStage, setSnapshotStage] = useState<string | null>(null);
   const [snapshotError, setSnapshotError] = useState<string | null>(null);
+  const [transitPopup, setTransitPopup] = useState<{
+    stop: TransitStop;
+    at: PopupAnchor;
+  } | null>(null);
   const [photorealDrawn, setPhotorealDrawn] = useState(false);
   // The snapshot waits on this from inside an async function, where a state
   // value captured at call time would never update.
@@ -392,6 +398,7 @@ export default function MapView() {
   const photoreal = useApp((s) => s.photoreal);
   const showContext = useApp((s) => s.showContext);
   const mapTheme = useApp((s) => s.mapTheme);
+  const showTransit = useApp((s) => s.showTransit);
   const loading = useApp((s) => s.loading);
   const error = useApp((s) => s.error);
 
@@ -405,6 +412,16 @@ export default function MapView() {
   // The surrounding city, so the towers that carry data stand in Manhattan
   // rather than in an empty plane.
   const cityContext = useCityContext(map, zoom, showContext);
+  const { stops: transitStops, error: transitError } = useTransit(map, zoom, showTransit);
+
+  // Walk lines start at the selected building, so they appear the moment a
+  // building is clicked and vanish when it is dismissed.
+  const transitOrigin = useMemo<[number, number] | null>(() => {
+    if (!showTransit || !selectedBuildingId) return null;
+    const b = buildings.find((x) => x.id === selectedBuildingId);
+    if (!b || b.lon === null || b.lat === null) return null;
+    return [b.lon, b.lat];
+  }, [showTransit, selectedBuildingId, buildings]);
 
   // --- Map bootstrap. Runs once; layer updates go through the overlay.
   useEffect(() => {
@@ -812,6 +829,9 @@ export default function MapView() {
         photoreal: activePhotorealLayer !== null && photorealDrawn,
         showContext,
         theme: mapTheme,
+        transitStops,
+        transitOrigin,
+        onTransitClick: (stop, at) => setTransitPopup({ stop, at: toViewport(at) }),
         onBuildingClick: (id, at) => {
           const state = useApp.getState();
           state.selectBuilding(id);
@@ -845,6 +865,8 @@ export default function MapView() {
     photorealDrawn,
     showContext,
     mapTheme,
+    transitStops,
+    transitOrigin,
     toViewport,
   ]);
 
@@ -906,6 +928,10 @@ export default function MapView() {
   }, [selectedBuildingId, buildings]);
 
   const showEmpty = !loading && !error && buildings.length === 0;
+  useEffect(() => {
+    setTransitPopup(null);
+  }, [selectedBuildingId, showTransit]);
+
   const closePopup = useCallback(() => setPopup(null), []);
 
   return (
@@ -1031,6 +1057,53 @@ export default function MapView() {
             }
           >
             {snapshotError ?? snapshotStage}
+          </div>
+        </div>
+      )}
+
+      {transitPopup && (
+        <div
+          className="pointer-events-auto fixed z-40 w-64 -translate-x-1/2 -translate-y-full rounded-card border border-hairline bg-white p-3 shadow-float"
+          style={{ left: transitPopup.at.x, top: transitPopup.at.y - 12 }}
+          onClick={() => setTransitPopup(null)}
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+            {MODE_LABEL[transitPopup.stop.mode]}
+          </p>
+          <p className="mt-1 text-sm font-semibold leading-snug text-ink">
+            {transitPopup.stop.name}
+          </p>
+          {transitPopup.stop.routes.length > 0 && (
+            <p className="mt-1.5 flex flex-wrap gap-1">
+              {transitPopup.stop.routes.map((r) => (
+                <span
+                  key={r}
+                  className="rounded bg-midnight px-1.5 py-0.5 text-[11px] font-bold text-white"
+                >
+                  {r}
+                </span>
+              ))}
+            </p>
+          )}
+          {transitOrigin && (
+            <p className="mt-2 text-xs font-medium text-body">
+              About{' '}
+              {walkMinutes(
+                metersBetween(transitOrigin, [transitPopup.stop.lon, transitPopup.stop.lat]),
+              )}{' '}
+              min walk from the selected building
+            </p>
+          )}
+          <p className="mt-2 text-[10px] leading-snug text-subtle">
+            Stop locations from OpenStreetMap. Walk time is estimated, not routed.
+          </p>
+        </div>
+      )}
+
+      {showTransit && transitError && (
+        <div className="pointer-events-none absolute inset-x-0 top-16 z-20 flex justify-center">
+          <div className="rounded-full border border-warn/30 bg-warn-surface px-3 py-1.5 text-sm font-medium text-warn shadow-card">
+            {transitError}
           </div>
         </div>
       )}

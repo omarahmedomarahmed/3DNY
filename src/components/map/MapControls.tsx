@@ -102,6 +102,8 @@ export default function MapControls({
   const setShowContext = useApp((s) => s.setShowContext);
   const mapTheme = useApp((s) => s.mapTheme);
   const setMapTheme = useApp((s) => s.setMapTheme);
+  const showTransit = useApp((s) => s.showTransit);
+  const setShowTransit = useApp((s) => s.setShowTransit);
 
   return (
     <div className="pointer-events-auto absolute right-4 top-4 z-20 flex flex-col overflow-hidden rounded-card border border-hairline bg-white shadow-raised">
@@ -204,6 +206,24 @@ export default function MapControls({
           <path d="M15 4h2.5A2.5 2.5 0 0 1 20 6.5V9" />
           <path d="M20 15v2.5a2.5 2.5 0 0 1-2.5 2.5H15" />
           <path d="M9 20H6.5A2.5 2.5 0 0 1 4 17.5V15" />
+        </Icon>
+      </ControlButton>
+
+      {/* Transit. Every subway, bus, ferry and rail stop in view; with a
+          building selected, dashed walk lines and minutes to the nearest few. */}
+      <ControlButton
+        label={showTransit ? 'Hide transit stops' : 'Show transit stops and walk times'}
+        active={showTransit}
+        disabled={!map}
+        onClick={() => setShowTransit(!showTransit)}
+      >
+        {/* A train car on rails. */}
+        <Icon>
+          <rect x="6" y="3.5" width="12" height="12.5" rx="3" />
+          <path d="M6.5 11.5h11" />
+          <path d="M9.5 19.5 8 16.5M14.5 19.5 16 16.5M4.5 20h15" />
+          <circle cx="9.4" cy="13.8" r="0.9" fill="currentColor" stroke="none" />
+          <circle cx="14.6" cy="13.8" r="0.9" fill="currentColor" stroke="none" />
         </Icon>
       </ControlButton>
 
