@@ -24,6 +24,7 @@ Built to be used live in a tenant meeting.
 - **Transit.** Every subway station, bus stop, ferry landing, PATH and rail terminal in view. Select a building and dashed lines run to the nearest few with an estimated walk time and the routes that serve them. Walk time is also a compare column.
 - **Radius comps.** Draw a circle around a target building, see every available space inside it.
 - **Filter on anything** in the sheet: lease expiration, asking rent range, SF, floor, class, direct vs sublet, submarket, leasing company, date added.
+- **Search by who is in the building.** Nobody remembers 100 Park Avenue; everybody remembers who is in it. A tenant name or industry finds the tower.
 - **Edit everything.** Every imported row is editable in-app. Add photos. Correct a bad address match. Update tenants.
 - **Landlord profiles.** Every imported building gets a landlord record created for it automatically, seeded from the city's owner of record and flagged for review — so you edit a landlord rather than create one. Insights, amenities and portfolio numbers are yours to write.
 - **Your own logo.** Upload the Cresa mark at `/setup` and position it against live previews of the real navigation bar and footer.
@@ -93,7 +94,17 @@ from the building's own floor lines.
 A tenancy whose floors cannot be read as numbers — "Ground", "PH", "Entire
 building" — is imported, listed on the building profile, and **not drawn**.
 Guessing that "Ground" means 1 would put a band on a floor on the strength of
-a guess.
+a guess. The building profile marks those rows "not on the map", which is the
+one place anyone would find out why a tenancy they can see in the table is not
+on the tower.
+
+Occupancy carries through the rest of the product too: tenant names and
+industries are searchable, the building profile shows each tenancy's
+relationship in the same colour the map uses, and Compare gains an **Occupancy**
+section — our clients in each building, who else is there, and how many leases
+roll inside twelve months. That last row is scored the opposite way to every
+other one on the table: more is better, because a lease about to roll is an
+opportunity rather than a defect.
 
 Three ways in, in order of how much setup they need:
 
@@ -189,7 +200,7 @@ for the same reason and with a test to hold it.
 | Plan | Complete — [PLAN.md](./PLAN.md) |
 | Build | Complete and deployable |
 | Production build | Passing |
-| Tests | 337 passing — parser against both real sheets, plus transit, photoreal gating, streetscape and label layout, roofscape geometry, atmosphere and both shaders' picking guards, entrance placement, street-network routing, station deduplication, the fallback geocoder's address normalisation, the compare set's lifecycle, the source resolver's field-by-field answers, how people write floors, the occupancy bands' hierarchy, the Salesforce field mapping, and two guards that hold rules a comment cannot: that no UI file references a named agent, and that every dismiss-on-outside-click surface exempts the source popover |
+| Tests | 341 passing — parser against both real sheets, plus transit, photoreal gating, streetscape and label layout, roofscape geometry, atmosphere and both shaders' picking guards, entrance placement, street-network routing, station deduplication, the fallback geocoder's address normalisation, the compare set's lifecycle, the source resolver's field-by-field answers, how people write floors, the occupancy bands' hierarchy, the Salesforce field mapping, and two guards that hold rules a comment cannot: that no UI file references a named agent, and that every dismiss-on-outside-click surface exempts the source popover |
 | Coverage | Midtown + Midtown South |
 
 ### Verifying it by looking at it
@@ -207,7 +218,7 @@ against the live database, and every assertion is on the thing itself:
 | `node scripts/shoot.mjs <dir> <tag>` | Both themes, wide and close, with and without transit. |
 | `node scripts/shoot-ground.mjs`, `shoot-atmosphere.mjs`, `shoot-stations.mjs` | The ground plane, the four hours, and the subway entrances. |
 | `node scripts/verify-snapshot.mjs <dir>` | Stack Snapshot is produced for real and the PNG inspected: composed at 2x, and no blank filler band. |
-| `node scripts/verify-occupancy.mjs <dir>` | The three band kinds are listed, filterable and clickable on the real map; availability cannot be switched off; and an unconfigured Salesforce fails with a remedy rather than just a failure. |
+| `node scripts/verify-occupancy.mjs <dir>` | The three band kinds are listed, filterable and clickable on the real map; availability cannot be switched off; a tenant name finds its building; Compare answers "what else is in that tower"; and an unconfigured Salesforce fails with a remedy rather than just a failure. |
 | `node scripts/verify-sources.mjs <dir>` | The source markers are reachable on the map, on a station, on the building page and in compare; opening one does **not** close the card it sits on; only one opens at a time; and the sheet, the city and the hand-kept transit table give different answers where they should. |
 
 Clicking a subway station in a headless browser needs the station's real screen

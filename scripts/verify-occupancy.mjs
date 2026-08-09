@@ -12,6 +12,11 @@
  * than unconfigured.
  */
 import { chromium } from 'playwright';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+
+const outdir = process.argv[2] ?? 'shots';
+mkdirSync(outdir, { recursive: true });
 const browser = await chromium.launch({
   executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
   args: ['--no-sandbox', '--use-gl=swiftshader', '--enable-unsafe-swiftshader'],
@@ -34,7 +39,7 @@ const notConfigured = await page.getByText(/not configured/i).count();
 check('an unconfigured Salesforce says so and points at the CSV path', notConfigured > 0);
 const remedy = await page.getByText(/use the tenant CSV import/i).count();
 check('and the error carries a remedy, not just a failure', remedy > 0);
-await page.screenshot({ path: 'shots/tenant-import.png' });
+await page.screenshot({ path: join(outdir, 'tenant-import.png') });
 
 // --- The map: three kinds, filterable, clickable.
 await page.goto('http://localhost:3111/map', { waitUntil: 'domcontentloaded' });
@@ -73,8 +78,57 @@ if (opened) {
   check('the card names the company and its relationship', /Occupier|Prospect|Cresa client/.test(text), text.replace(/\s+/g, ' ').slice(0, 90));
   check('and it carries a source marker',
     (await page.getByRole('button', { name: 'Where this tenancy came from' }).count()) > 0);
-  await page.screenshot({ path: 'shots/tenant-card.png' });
+  await page.screenshot({ path: join(outdir, 'tenant-card.png') });
 }
+// --- A tenant name is a way into the map ---------------------------------
+
+await page.goto('http://localhost:3111/map', { waitUntil: 'domcontentloaded' });
+await page.waitForSelector('text=100 Park Avenue', { timeout: 30000 });
+await sleep(6000);
+const before = await page.locator('article').count();
+await page.getByPlaceholder(/Address, building, tenant/).fill('Kestrel');
+await sleep(2000);
+const after = await page.locator('article').count();
+check('searching a tenant name narrows the list', after > 0 && after < before, `${before} → ${after}`);
+check('and lands on the building that tenant is in',
+  (await page.getByText('100 Park Avenue').count()) > 0);
+await page.getByPlaceholder(/Address, building, tenant/).fill('');
+await sleep(1500);
+
+// --- Compare answers "what else is in that tower" -------------------------
+
+const add = page.getByRole('button', { name: /^Add to compare$/ });
+for (let i = 0; i < 2; i++) { await add.nth(0).click(); await sleep(700); }
+await sleep(6000);
+for (const label of ['Our clients here', 'Tenants recorded', 'Leases rolling in 12 mo']) {
+  const row = page.locator('tr', { has: page.locator('th', { hasText: label }) }).first();
+  const found = await row.count();
+  if (found) await row.scrollIntoViewIfNeeded();
+  check(`compare has a "${label}" row`, found > 0);
+}
+await page.screenshot({ path: join(outdir, 'compare-occupancy.png') });
+
+// --- The building profile speaks the same language as the map -------------
+
+const all = await (await fetch('http://localhost:3111/api/buildings')).json();
+const undrawable = all.find((b) =>
+  (b.tenants ?? []).some((t) => (t.floor_numbers ?? []).length === 0),
+);
+if (undrawable) {
+  await page.goto(`http://localhost:3111/building/${undrawable.id}`, {
+    waitUntil: 'domcontentloaded',
+  });
+  await page.waitForSelector('h1', { timeout: 20000 });
+  await sleep(2500);
+  check('the tenant table shows a relationship',
+    (await page.getByText(/Occupier|Prospect|Cresa client/).count()) > 0);
+  // The one place someone would find out why a tenancy they can see in the
+  // table is not on the tower.
+  check('and says when a tenancy cannot be drawn',
+    (await page.getByText('not on the map').count()) > 0);
+  await page.screenshot({ path: join(outdir, 'tenant-table.png') });
+}
+
 await browser.close();
 console.log(fails === 0 ? '\nALL PASS' : `\n${fails} FAILURE(S)`);
 process.exit(fails === 0 ? 0 : 1);

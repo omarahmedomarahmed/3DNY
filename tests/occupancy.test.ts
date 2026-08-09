@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { computeBands, mergeRuns, spaceClaims, tenantClaims } from '../src/lib/floor-bands';
 import { OCCUPANCY_COLORS, occupancyColors } from '../src/components/map/colors';
 import { BRAND, rgba } from '../src/lib/brand';
-import type { Building, Space, Tenant } from '../src/types';
+import { applyFilters } from '../src/lib/filters';
+import { EMPTY_FILTERS } from '../src/types';
+import type { Building, BuildingWithSpaces, Space, Tenant } from '../src/types';
 
 /**
  * Three kinds of band now share one facade, and the risk they introduce is the
@@ -107,6 +109,44 @@ describe('what gets drawn, and what deliberately does not', () => {
 
   it('leaves an inactive space out', () => {
     expect(spaceClaims([space({ is_active: false })])).toEqual([]);
+  });
+});
+
+describe('a tenant name finds its building', () => {
+  /**
+   * "Where is Kestrel Analytics" is asked out loud in a meeting, and a tenant
+   * name is also how a broker locates a building they only know by its anchor.
+   * Nobody remembers 100 Park Avenue; everybody remembers who is in it.
+   */
+  const withTenants: BuildingWithSpaces = {
+    ...BUILDING,
+    spaces: [space()],
+    tenants: [tenant({ company_name: 'Kestrel Analytics', industry: 'Data & Analytics' })],
+    minRent: 88, maxRent: 88, totalAvailableSf: 10000, spaceCount: 1,
+  };
+  const without: BuildingWithSpaces = {
+    ...BUILDING, id: 'b2', address_display: 'Elsewhere',
+    spaces: [space({ id: 's2', building_id: 'b2' })], tenants: [],
+    minRent: 88, maxRent: 88, totalAvailableSf: 10000, spaceCount: 1,
+  };
+
+  const search = (q: string) =>
+    applyFilters([withTenants, without], { ...EMPTY_FILTERS, search: q });
+
+  it('matches on the company', () => {
+    expect(search('kestrel').map((b) => b.id)).toEqual(['b1']);
+  });
+
+  it('matches on the industry', () => {
+    expect(search('analytics').map((b) => b.id)).toEqual(['b1']);
+  });
+
+  it('still matches on everything it did before', () => {
+    expect(search('elsewhere').map((b) => b.id)).toEqual(['b2']);
+  });
+
+  it('excludes a building whose tenants do not match', () => {
+    expect(search('nobody here')).toEqual([]);
   });
 });
 

@@ -1,7 +1,5 @@
 import { NextResponse } from 'next/server';
-import { sql } from '@/lib/db';
-import { createTenant } from '@/lib/queries';
-import type { Tenant } from '@/types';
+import { createTenant, getTenants } from '@/lib/queries';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,11 +15,11 @@ function fail(err: unknown) {
 export async function GET(req: Request) {
   try {
     const buildingId = new URL(req.url).searchParams.get('buildingId');
-    const db = sql();
-    const rows = buildingId
-      ? await db(`SELECT * FROM tenants WHERE building_id = $1 ORDER BY company_name`, [buildingId])
-      : await db(`SELECT * FROM tenants ORDER BY company_name`);
-    return NextResponse.json(rows as unknown as Tenant[]);
+    // Same shape the map gets, including the roster it came from — a tenant
+    // read through this route and one read through the buildings route have to
+    // be the same object, or the source marker works on one screen and not the
+    // other.
+    return NextResponse.json(await getTenants(buildingId));
   } catch (err) {
     return fail(err);
   }
