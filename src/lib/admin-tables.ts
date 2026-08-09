@@ -1,5 +1,6 @@
 import { sql } from './db';
 import { fieldSourceAssignment } from './field-stamp';
+import { parseFloorList } from './floor-list';
 
 /**
  * The admin data editor: read, edit and delete anything that was imported.
@@ -142,18 +143,35 @@ export const ADMIN_TABLES: AdminTable[] = [
     key: 'tenants',
     label: 'Tenants',
     table: 'tenants',
-    description: 'Existing tenants in a building, from a sheet or entered by hand.',
+    description:
+      'Who is in a building: occupiers, prospects and Cresa clients, from a roster, ' +
+      'the CRM, or entered by hand.',
     orderBy: 'company_name ASC',
     titleColumn: 'company_name',
     columns: [
       { name: 'id', label: 'ID', kind: 'readonly' },
       { name: 'building_id', label: 'Building ID', kind: 'text' },
       { name: 'company_name', label: 'Company', kind: 'text', inGrid: true },
+      // occupier | prospect | client. Free text rather than a picker because
+      // the grid has no select kind; the database CHECK is what actually holds
+      // the values, so a typo is rejected rather than stored.
+      { name: 'relationship', label: 'Relationship', kind: 'text', inGrid: true },
       { name: 'floors', label: 'Floors', kind: 'text', inGrid: true },
+      { name: 'suite', label: 'Suite', kind: 'text' },
       { name: 'sf', label: 'SF', kind: 'number', inGrid: true },
+      { name: 'lease_start', label: 'Lease starts', kind: 'date' },
       { name: 'lease_expiration', label: 'Lease expires', kind: 'date', inGrid: true },
       { name: 'industry', label: 'Industry', kind: 'text', inGrid: true },
       { name: 'source', label: 'Source', kind: 'text' },
+      // Readonly: these are the CRM's keys, and editing one here would either
+      // orphan the row from its Salesforce record or point it at a different
+      // one. The floors are readonly for a different reason — they are derived
+      // from the text beside them, so a hand edit would be overwritten by the
+      // next save of that field and is a lie until then.
+      { name: 'floor_numbers', label: 'Floors drawn', kind: 'readonly' },
+      { name: 'salesforce_id', label: 'Salesforce ID', kind: 'readonly' },
+      { name: 'salesforce_url', label: 'Salesforce link', kind: 'readonly' },
+      { name: 'last_synced_at', label: 'Last synced', kind: 'readonly' },
       { name: 'notes', label: 'Notes', kind: 'text' },
       ...ts,
     ],
@@ -298,6 +316,16 @@ export async function updateRow(
     sets.push(`${column.name} = $${values.length}`);
   }
   if (sets.length === 0) return null;
+
+  // A tenancy's floor numbers are derived from its floors text, and this grid
+  // is a second way to edit that text. Deriving it in only one of the two
+  // writers is how a band ends up drawn on floors the record no longer names —
+  // correct in the table, wrong on the tower, and nothing on screen to say so.
+  if (spec.table === 'tenants' && 'floors' in written) {
+    const floors = typeof written.floors === 'string' ? written.floors : null;
+    values.push(parseFloorList(floors));
+    sets.push(`floor_numbers = $${values.length}`);
+  }
 
   values.push(id);
   const idIdx = values.length;
