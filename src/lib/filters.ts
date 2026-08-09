@@ -86,6 +86,14 @@ export function spaceMatches(
       space.leasing_company,
       space.space_use,
       space.notes,
+      // Who is in the building, and what they do.
+      //
+      // "Where is Kestrel Analytics" is a question asked out loud in a meeting,
+      // and before this the answer was "scroll until you find it". A tenant
+      // name is also how a broker locates a building they only know by its
+      // anchor — nobody remembers 100 Park Avenue, everybody remembers who is
+      // in it.
+      ...(building.tenants ?? []).flatMap((t) => [t.company_name, t.industry]),
     ]
       .filter(Boolean)
       .join(' ')

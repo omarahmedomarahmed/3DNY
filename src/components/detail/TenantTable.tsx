@@ -7,6 +7,20 @@ import Badge from '@/components/ui/Badge';
 import { DateText, Sf, monthsUntil } from '@/components/ui/Money';
 import SourceInfo from '@/components/ui/SourceInfo';
 import { tenantSource } from '@/lib/provenance';
+import type { TenantRelationship } from '@/types';
+
+/** Shared with the map legend and the tenant popup — one colour language. */
+const RELATIONSHIP_LABEL: Record<TenantRelationship, string> = {
+  client: 'Cresa client',
+  prospect: 'Prospect',
+  occupier: 'Occupier',
+};
+
+const RELATIONSHIP_CHIP: Record<TenantRelationship, string> = {
+  client: 'bg-[#00A38C] text-white',
+  prospect: 'bg-midnight-50 text-midnight-700',
+  occupier: 'bg-surface-sunken text-muted',
+};
 import EditDrawer, { type EditTarget } from '@/components/edit/EditDrawer';
 
 const TH =
@@ -19,16 +33,20 @@ const CELL_INPUT =
 interface Draft {
   company_name: string;
   floors: string;
+  suite: string;
   sf: string;
   lease_expiration: string;
   industry: string;
+  relationship: TenantRelationship;
 }
 
 const EMPTY_DRAFT: Draft = {
   company_name: '',
   floors: '',
+  suite: '',
   sf: '',
   lease_expiration: '',
+  relationship: 'occupier',
   industry: '',
 };
 
@@ -36,6 +54,8 @@ function toDraft(t: Tenant): Draft {
   return {
     company_name: t.company_name ?? '',
     floors: t.floors ?? '',
+    suite: t.suite ?? '',
+    relationship: t.relationship ?? 'occupier',
     sf: t.sf === null ? '' : String(t.sf),
     lease_expiration: t.lease_expiration ? t.lease_expiration.slice(0, 10) : '',
     industry: t.industry ?? '',
@@ -47,6 +67,8 @@ function draftToPayload(d: Draft) {
   return {
     company_name: d.company_name.trim(),
     floors: d.floors.trim() || null,
+    suite: d.suite.trim() || null,
+    relationship: d.relationship,
     sf: sf !== null && Number.isFinite(sf) ? sf : null,
     lease_expiration: d.lease_expiration || null,
     industry: d.industry.trim() || null,
@@ -184,6 +206,20 @@ export default function TenantTable({
         />
       </td>
       <td className={TD}>
+        <select
+          className={CELL_INPUT}
+          value={d.relationship}
+          disabled={disabled}
+          onChange={(e) =>
+            set({ ...d, relationship: e.target.value as TenantRelationship })
+          }
+        >
+          <option value="occupier">Occupier</option>
+          <option value="prospect">Prospect</option>
+          <option value="client">Cresa client</option>
+        </select>
+      </td>
+      <td className={TD}>
         <input
           className={CELL_INPUT}
           placeholder="12-14"
@@ -236,6 +272,7 @@ export default function TenantTable({
           <thead className="border-b border-hairline bg-surface-alt">
             <tr className="text-left">
               <th className={TH}>Company</th>
+              <th className={TH}>Relationship</th>
               <th className={TH}>Floors</th>
               <th className={clsx(TH, 'text-right')}>SF</th>
               <th className={TH}>Lease Expiration</th>
@@ -246,7 +283,7 @@ export default function TenantTable({
           <tbody className="divide-y divide-hairline">
             {loading && tenants.length === 0 && (
               <tr>
-                <td className={clsx(TD, 'text-muted')} colSpan={6}>
+                <td className={clsx(TD, 'text-muted')} colSpan={7}>
                   Loading tenants…
                 </td>
               </tr>
@@ -254,7 +291,7 @@ export default function TenantTable({
 
             {!loading && tenants.length === 0 && !adding && (
               <tr>
-                <td className={clsx(TD, 'text-center text-muted')} colSpan={6}>
+                <td className={clsx(TD, 'text-center text-muted')} colSpan={7}>
                   No tenants recorded yet.
                 </td>
               </tr>
@@ -300,11 +337,41 @@ export default function TenantTable({
                           arrived together, from a sheet or from a person. */}
                       <SourceInfo
                         label={`this tenant record`}
-                        note={tenantSource(t.source)}
+                        note={tenantSource(t.source, t.import_filename, t.last_synced_at)}
                       />
                     </span>
                   </td>
-                  <td className={clsx(TD, 'text-body')}>{t.floors ?? '—'}</td>
+                  <td className={TD}>
+                    {/* The same three words the map's legend uses, and the same
+                        colour, so a teal band on a tower and a teal chip in
+                        this table are visibly one idea. */}
+                    <span
+                      className={
+                        'rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] ' +
+                        RELATIONSHIP_CHIP[t.relationship]
+                      }
+                    >
+                      {RELATIONSHIP_LABEL[t.relationship]}
+                    </span>
+                  </td>
+                  <td className={clsx(TD, 'text-body')}>
+                    <span className="whitespace-nowrap">
+                      {t.floors ?? '—'}
+                      {t.suite ? ` · Ste ${t.suite}` : ''}
+                    </span>
+                    {/* When the floors could not be read as numbers, the row is
+                        recorded and never drawn. Saying so here is the only
+                        place someone would find out why a tenancy they can see
+                        in this table is not on the tower. */}
+                    {(t.floor_numbers ?? []).length === 0 && t.floors ? (
+                      <span
+                        className="ml-1.5 text-[11px] font-medium text-subtle"
+                        title="No floor number could be read from this, so it is not drawn on the tower."
+                      >
+                        not on the map
+                      </span>
+                    ) : null}
+                  </td>
                   <td className={clsx(TD, 'text-right tabular font-medium')}>
                     <Sf value={t.sf} />
                   </td>
@@ -385,7 +452,7 @@ export default function TenantTable({
               </tr>
             ) : (
               <tr className="bg-surface-alt">
-                <td className={TD} colSpan={6}>
+                <td className={TD} colSpan={7}>
                   <button
                     type="button"
                     onClick={() => setAdding(true)}

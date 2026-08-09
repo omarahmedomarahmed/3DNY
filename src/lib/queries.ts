@@ -671,6 +671,19 @@ export async function updateTenant(id: string, patch: Record<string, unknown>) {
 export const updateLandlord = (id: string, patch: Record<string, unknown>) =>
   patchRow('landlords', LANDLORD_EDITABLE, id, patch);
 
+/** Tenants for one building, or all of them, in the map's own shape. */
+export async function getTenants(buildingId: string | null): Promise<Tenant[]> {
+  const db = sql();
+  const rows = (await db(
+    `SELECT t.*, i.filename AS import_filename
+     FROM tenants t LEFT JOIN imports i ON i.id = t.source_import_id
+     ${buildingId ? 'WHERE t.building_id = $1' : ''}
+     ORDER BY t.company_name`,
+    buildingId ? [buildingId] : [],
+  )) as any[];
+  return rows.map(toTenant);
+}
+
 export async function createTenant(input: {
   building_id: string;
   company_name: string;

@@ -21,6 +21,7 @@ import {
   formatNumber,
   formatRent,
   formatSf,
+  monthsUntil,
 } from '@/components/ui/Money';
 import SourceInfo from '@/components/ui/SourceInfo';
 import {
@@ -45,6 +46,21 @@ const HAND_KEPT: SourceNote = {
   detail:
     'Hand-authored by this team. Nothing on the landlord rows is a public record — it is what we ' +
     'know, kept up to date by whoever last edited it.',
+};
+
+/**
+ * The occupancy rows aggregate across tenancies that each arrived differently —
+ * some off a roster, some from the CRM, some typed in — so the honest answer
+ * for the row as a whole is what they all have in common rather than any one
+ * of them. The individual tenancy's own marker is on its card on the map.
+ */
+const OCCUPANCY_SOURCE: SourceNote = {
+  kind: 'manual',
+  label: 'Tenant records held here',
+  detail:
+    'Counted from the tenancies recorded against this building — imported from a roster, synced ' +
+    'from Salesforce, or entered by hand. Tenancies are not public record, so this is as complete ' +
+    'as what we have put in, and no more.',
 };
 
 interface Column {
@@ -246,6 +262,19 @@ const SPACE_ROWS: Row[] = [
   // addresses are never displayed anywhere in this product.
 ];
 
+/** Our clients in this building. */
+function clientsIn(c: Column) {
+  return (c.building.tenants ?? []).filter((t) => t.relationship === 'client');
+}
+
+/** Tenancies expiring inside a year — the reason to watch a building. */
+function rollingIn(c: Column) {
+  return (c.building.tenants ?? []).filter((t) => {
+    const months = monthsUntil(t.lease_expiration);
+    return months !== null && months >= 0 && months <= 12;
+  });
+}
+
 /** The best stop of a given mode, or null when there is none within range. */
 function bestOfMode(c: Column, mode: string): NearbyStop | null {
   return c.transit?.find((s) => s.mode === mode) ?? null;
@@ -366,6 +395,93 @@ const TRANSIT_ROWS: Row[] = [
         <div>
           <p className="tabular font-semibold text-ink">{within.length}</p>
           <p className="mt-0.5 text-xs leading-snug text-muted">{parts.join(' · ')}</p>
+        </div>
+      );
+    },
+    tall: true,
+  },
+];
+
+/**
+ * Who else is in the building.
+ *
+ * This is the question that follows every availability — "what else is in that
+ * tower, and when does it roll" — and side by side is where it is actually
+ * decided. A building with three leases expiring inside a year is a different
+ * proposition from one with none, and that difference is invisible until two
+ * of them are next to each other.
+ */
+const OCCUPANCY_ROWS: Row[] = [
+  {
+    key: 'occ_clients',
+    label: 'Our clients here',
+    best: 'max',
+    numeric: (c) => clientsIn(c).length || null,
+    compareKey: (c) => clientsIn(c).map((t) => t.company_name).sort().join('|'),
+    source: () => OCCUPANCY_SOURCE,
+    render: (c) => {
+      const clients = clientsIn(c);
+      if (clients.length === 0) return DASH;
+      return (
+        <div className="space-y-1">
+          {clients.map((t) => (
+            <p key={t.id} className="text-[13px] font-semibold leading-snug text-ink">
+              {t.company_name}
+              {t.floors ? (
+                <span className="font-normal text-muted"> · {t.floors}</span>
+              ) : null}
+            </p>
+          ))}
+        </div>
+      );
+    },
+    tall: true,
+  },
+  {
+    key: 'occ_tenants',
+    label: 'Tenants recorded',
+    compareKey: (c) => String((c.building.tenants ?? []).length),
+    source: () => OCCUPANCY_SOURCE,
+    render: (c) => {
+      const tenants = c.building.tenants ?? [];
+      if (tenants.length === 0) {
+        return <span className="text-subtle">None recorded</span>;
+      }
+      // The three largest by size, because a stacking plan is read from the
+      // anchor tenants down and a list of forty is not read at all.
+      const top = [...tenants].sort((a, b) => (b.sf ?? 0) - (a.sf ?? 0)).slice(0, 3);
+      return (
+        <div>
+          <p className="tabular font-semibold text-ink">{tenants.length}</p>
+          <p className="mt-0.5 text-xs leading-snug text-muted">
+            {top.map((t) => t.company_name).join(' · ')}
+            {tenants.length > top.length ? ' …' : ''}
+          </p>
+        </div>
+      );
+    },
+    tall: true,
+  },
+  {
+    key: 'occ_rolling',
+    label: 'Leases rolling in 12 mo',
+    // More is better here, which is the opposite of most rows on this table:
+    // a lease about to roll is an opportunity, not a defect.
+    best: 'max',
+    numeric: (c) => rollingIn(c).length || null,
+    compareKey: (c) => rollingIn(c).map((t) => t.company_name).sort().join('|'),
+    source: () => OCCUPANCY_SOURCE,
+    render: (c) => {
+      const rolling = rollingIn(c);
+      if (rolling.length === 0) return DASH;
+      return (
+        <div>
+          <p className="tabular font-semibold text-ink">{rolling.length}</p>
+          <p className="mt-0.5 text-xs leading-snug text-muted">
+            {rolling
+              .map((t) => `${t.company_name} (${formatMonthYear(t.lease_expiration) ?? '—'})`)
+              .join(' · ')}
+          </p>
         </div>
       );
     },
@@ -902,6 +1018,7 @@ export default function CompareView({
               <tbody>
                 {renderSection('Space', SPACE_ROWS)}
                 {renderSection('Transit', TRANSIT_ROWS, true)}
+                {renderSection('Occupancy', OCCUPANCY_ROWS, true)}
                 {renderSection('Landlord', LANDLORD_ROWS, true)}
               </tbody>
             </table>
