@@ -49,7 +49,8 @@ const PHOTOREAL_LOAD_TIMEOUT_MS = 20000;
 import MapLegend from './MapLegend';
 import MapControls from './MapControls';
 import RadiusControl from './RadiusControl';
-import SpacePopup, { type PopupAnchor } from './SpacePopup';
+import SpacePopup from './SpacePopup';
+import DraggableCard from './DraggableCard';
 import TenantPopup from './TenantPopup';
 import { useVisibleBuildings } from './useVisibleBuildings';
 
@@ -443,14 +444,13 @@ type HoverPayload = Partial<BuildingWithSpaces> & {
   building?: BuildingWithSpaces;
   floorNumber?: number;
   portion?: string;
+  /** Which space or tenancy the band stands for, so its size can be read. */
+  recordId?: string;
+  kind?: string;
+  /** How many floors a run of band covers. One, unless it is a block. */
+  floors?: number;
+  label?: string;
 };
-
-interface PopupState {
-  buildingId: string;
-  /** Null while a multi-space building is showing its floor list. */
-  spaceId: string | null;
-  at: PopupAnchor;
-}
 
 /**
  * How to point the camera at one building.
@@ -516,7 +516,6 @@ export default function MapView() {
   // enough to cover the movement, and refiltering mid-gesture would cost more
   // than it saves.
   const [view, setView] = useState<ViewportBounds | null>(null);
-  const [popup, setPopup] = useState<PopupState | null>(null);
   const [photorealCredits, setPhotorealCredits] = useState<string[]>([]);
   const [photorealError, setPhotorealError] = useState<string | null>(null);
   const [photorealModule, setPhotorealModule] = useState<PhotorealModule | null>(null);
@@ -524,15 +523,6 @@ export default function MapView() {
   const [snapshotBusy, setSnapshotBusy] = useState(false);
   const [snapshotStage, setSnapshotStage] = useState<string | null>(null);
   const [snapshotError, setSnapshotError] = useState<string | null>(null);
-  const [transitPopup, setTransitPopup] = useState<{
-    stop: TransitStop;
-    at: PopupAnchor;
-  } | null>(null);
-  const [tenantPopup, setTenantPopup] = useState<{
-    tenantId: string;
-    buildingId: string;
-    at: PopupAnchor;
-  } | null>(null);
   const [photorealDrawn, setPhotorealDrawn] = useState(false);
   // The snapshot waits on this from inside an async function, where a state
   // value captured at call time would never update.
@@ -544,6 +534,9 @@ export default function MapView() {
   const selectedBuildingId = useApp((s) => s.selectedBuildingId);
   const selectedSpaceId = useApp((s) => s.selectedSpaceId);
   const hoveredBuildingId = useApp((s) => s.hoveredBuildingId);
+  const colorOverrides = useApp((s) => s.colorOverrides);
+  const popups = useApp((s) => s.popups);
+
   const radius = useApp((s) => s.radius);
   const photoreal = useApp((s) => s.photoreal);
   const showContext = useApp((s) => s.showContext);
@@ -633,6 +626,22 @@ export default function MapView() {
         : allTransitStops.filter((s) => transitModes.includes(s.mode)),
     [allTransitStops, transitModes],
   );
+
+  /**
+   * Station cards, resolved against the stops currently loaded.
+   *
+   * The store keeps a stop id rather than the stop itself, so a card cannot
+   * outlive the data behind it: pan far enough that a station leaves the
+   * fetched window and its card disappears with it, rather than sitting there
+   * quoting a walk time to somewhere off screen.
+   */
+  const stationCards = useMemo(() => {
+    const byId = new Map((transitStops ?? []).map((s) => [s.id, s]));
+    return popups
+      .filter((w) => w.kind === 'station')
+      .map((w) => ({ w, stop: w.recordId ? byId.get(w.recordId) : undefined }))
+      .filter((x): x is { w: typeof popups[number]; stop: TransitStop } => Boolean(x.stop));
+  }, [popups, transitStops]);
 
   // Walk lines start at the selected building, so they appear the moment a
   // building is clicked and vanish when it is dismissed.
@@ -1011,7 +1020,7 @@ export default function MapView() {
   );
 
   /** deck.gl reports canvas-relative pixels; the popup is viewport-positioned. */
-  const toViewport = useCallback((at: MapPoint): PopupAnchor => {
+  const toViewport = useCallback((at: MapPoint): { x: number; y: number } => {
     const instance = mapRef.current;
     if (!instance) return { x: at.x, y: at.y };
     const rect = instance.getCanvas().getBoundingClientRect();
@@ -1054,7 +1063,8 @@ export default function MapView() {
       // building actually changes — otherwise the band click would undo itself.
       if (state.selectedBuildingId !== buildingId) state.selectBuilding(buildingId);
       state.selectSpace(spaceId);
-      setPopup({ buildingId, spaceId, at: toViewport(at) });
+      const p = toViewport(at);
+      state.openPopup({ kind: 'space', buildingId, recordId: spaceId, x: p.x, y: p.y });
     };
 
     overlay.setProps({
@@ -1064,9 +1074,9 @@ export default function MapView() {
       // from "clicked a building".
       onClick: (info: PickingInfo) => {
         if (info.object) return;
-        setPopup(null);
-        setTransitPopup(null);
-    setTenantPopup(null);
+        // Pinned cards survive: a click on empty map is "I am done with the
+        // one I was reading", not "throw away the two I set aside".
+        useApp.getState().closeUnpinnedPopups();
         useApp.getState().selectBuilding(null);
       },
       layers: buildLayers({
@@ -1090,7 +1100,13 @@ export default function MapView() {
         view,
         transitStops,
         transitOrigin,
-        onTransitClick: (stop, at) => setTransitPopup({ stop, at: toViewport(at) }),
+        colorOverrides,
+        onTransitClick: (stop, at) => {
+          const p = toViewport(at);
+          useApp
+            .getState()
+            .openPopup({ kind: 'station', buildingId: '', recordId: stop.id, x: p.x, y: p.y });
+        },
         onBuildingClick: (id, at) => {
           const state = useApp.getState();
           state.selectBuilding(id);
@@ -1102,11 +1118,16 @@ export default function MapView() {
           const only = actives.length === 1 ? actives[0].id : null;
           if (only) state.selectSpace(only);
 
-          setPopup({ buildingId: id, spaceId: only, at: toViewport(at) });
+          const p = toViewport(at);
+          state.openPopup({ kind: 'space', buildingId: id, recordId: only, x: p.x, y: p.y });
         },
         onSpaceClick: openSpace,
-        onTenantClick: (tenantId, buildingId, at) =>
-          setTenantPopup({ tenantId, buildingId, at: toViewport(at) }),
+        onTenantClick: (tenantId, buildingId, at) => {
+          const p = toViewport(at);
+          useApp
+            .getState()
+            .openPopup({ kind: 'tenant', buildingId, recordId: tenantId, x: p.x, y: p.y });
+        },
         occupancyKinds,
         onHover: (id) => useApp.getState().setHovered(id),
         photorealLayer: activePhotorealLayer,
@@ -1133,6 +1154,7 @@ export default function MapView() {
     transitStops,
     transitOrigin,
     occupancyKinds,
+    colorOverrides,
     toViewport,
   ]);
 
@@ -1245,8 +1267,7 @@ export default function MapView() {
 
   const showEmpty = !loading && !error && buildings.length === 0;
   useEffect(() => {
-    setTransitPopup(null);
-    setTenantPopup(null);
+    useApp.getState().closeUnpinnedPopups();
   }, [selectedBuildingId, showTransit]);
 
   // --- One panel at a time.
@@ -1260,12 +1281,8 @@ export default function MapView() {
   const compareOpen = useApp((s) => s.compareOpen);
   useEffect(() => {
     if (!compareOpen) return;
-    setPopup(null);
-    setTransitPopup(null);
-    setTenantPopup(null);
+    useApp.getState().closeUnpinnedPopups();
   }, [compareOpen]);
-
-  const closePopup = useCallback(() => setPopup(null), []);
 
   return (
     <div className="relative h-full w-full bg-surface-sunken">
@@ -1397,52 +1414,52 @@ export default function MapView() {
         </div>
       )}
 
-      {transitPopup && (
-        <div
-          className="pointer-events-auto fixed z-40 w-64 -translate-x-1/2 -translate-y-full rounded-card border border-hairline bg-white p-3 shadow-float"
-          style={{ left: transitPopup.at.x, top: transitPopup.at.y - 12 }}
-          onClick={() => setTransitPopup(null)}
+      {/* The station card, in the same shell as every other map card: a
+          station is a thing you click on the map, so dragging and pinning it
+          have to work the same way. Pinning one beside a building card is how
+          "how far is this floor from Grand Central" gets answered without
+          losing either half of the question. */}
+      {stationCards.map(({ w, stop }) => (
+        <DraggableCard
+          key={w.id}
+          id={w.id}
+          pinned={w.pinned}
+          anchor={{ x: w.x, y: w.y }}
+          width={272}
+          ariaLabel={`${stop.name} station details`}
+          title={MODE_LABEL[stop.mode]}
+          onClose={() => useApp.getState().closePopup(w.id)}
         >
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-            {MODE_LABEL[transitPopup.stop.mode]}
-          </p>
-          <p className="mt-1 flex items-center gap-1 text-sm font-semibold leading-snug text-ink">
-            {transitPopup.stop.name}
-            <SourceInfo
-              label="this station"
-              note={transitSource('name', transitPopup.stop.mode)}
-            />
-          </p>
-          {transitPopup.stop.routes.length > 0 && (
-            <p className="mt-1.5 flex flex-wrap items-center gap-1">
-              {transitPopup.stop.routes.map((r) => (
-                <span
-                  key={r}
-                  className="rounded bg-midnight px-1.5 py-0.5 text-[11px] font-bold text-white"
-                >
-                  {r}
+          <div className="p-3">
+            <p className="flex items-center gap-1 text-sm font-semibold leading-snug text-ink">
+              {stop.name}
+              <SourceInfo label="this station" note={transitSource('name', stop.mode)} />
+            </p>
+            {stop.routes.length > 0 && (
+              <p className="mt-1.5 flex flex-wrap items-center gap-1">
+                {stop.routes.map((r) => (
+                  <span
+                    key={r}
+                    className="rounded bg-midnight px-1.5 py-0.5 text-[11px] font-bold text-white"
+                  >
+                    {r}
+                  </span>
+                ))}
+                <SourceInfo label="these routes" note={transitSource('routes', stop.mode)} />
+              </p>
+            )}
+            {transitOrigin && (
+              <p className="mt-2 flex items-center gap-1 text-xs font-medium text-body">
+                <span>
+                  About {walkMinutes(metersBetween(transitOrigin, [stop.lon, stop.lat]))} min
+                  walk from the selected building
                 </span>
-              ))}
-              <SourceInfo
-                label="these routes"
-                note={transitSource('routes', transitPopup.stop.mode)}
-              />
-            </p>
-          )}
-          {transitOrigin && (
-            <p className="mt-2 flex items-center gap-1 text-xs font-medium text-body">
-              <span>
-                About{' '}
-                {walkMinutes(
-                  metersBetween(transitOrigin, [transitPopup.stop.lon, transitPopup.stop.lat]),
-                )}{' '}
-                min walk from the selected building
-              </span>
-              <SourceInfo label="this walk time" note={transitSource('walk_time')} />
-            </p>
-          )}
-        </div>
-      )}
+                <SourceInfo label="this walk time" note={transitSource('walk_time')} />
+              </p>
+            )}
+          </div>
+        </DraggableCard>
+      ))}
 
       {showTransit && transitError && (
         <div className="pointer-events-none absolute inset-x-0 top-16 z-20 flex justify-center">
@@ -1452,28 +1469,36 @@ export default function MapView() {
         </div>
       )}
 
-      {tenantPopup && (
-        <TenantPopup
-          key={tenantPopup.tenantId}
-          tenantId={tenantPopup.tenantId}
-          buildingId={tenantPopup.buildingId}
-          at={tenantPopup.at}
-          onClose={() => setTenantPopup(null)}
-        />
-      )}
-
-      {popup && (
-        <SpacePopup
-          key={popup.buildingId}
-          buildingId={popup.buildingId}
-          spaceId={popup.spaceId}
-          at={popup.at}
-          onClose={closePopup}
-          onSelectSpace={(spaceId) => {
-            useApp.getState().selectSpace(spaceId);
-            setPopup((prev) => (prev ? { ...prev, spaceId } : prev));
-          }}
-        />
+      {/* Every open card. Pinning is what allows there to be more than one:
+          two floors in the same tower, or the same floor in two towers, is the
+          question this map exists to answer and it used to take two clicks and
+          a memory. */}
+      {popups.filter((w) => w.kind !== 'station').map((w) =>
+        w.kind === 'tenant' ? (
+          <TenantPopup
+            key={w.id}
+            popupId={w.id}
+            pinned={w.pinned}
+            tenantId={w.recordId ?? ''}
+            buildingId={w.buildingId}
+            at={{ x: w.x, y: w.y }}
+            onClose={() => useApp.getState().closePopup(w.id)}
+          />
+        ) : (
+          <SpacePopup
+            key={w.id}
+            popupId={w.id}
+            pinned={w.pinned}
+            buildingId={w.buildingId}
+            spaceId={w.recordId}
+            at={{ x: w.x, y: w.y }}
+            onClose={() => useApp.getState().closePopup(w.id)}
+            onSelectSpace={(spaceId) => {
+              useApp.getState().selectSpace(spaceId);
+              useApp.getState().setPopupRecord(w.id, spaceId);
+            }}
+          />
+        ),
       )}
     </div>
   );
@@ -1503,12 +1528,48 @@ function buildTooltip(info: PickingInfo): { html: string; style: Record<string, 
       `<div style="color:#DCE4EF">${escapeHtml(building.building_name)}</div>`,
     );
   }
+  /**
+   * Hovering a band answers "what is that stripe", and until now it answered
+   * only half of it: which floor, and nothing about the space itself. The
+   * size is the first thing anyone asks next — a broker scanning a tower is
+   * looking for a floor plate that fits a headcount, not for floor 14 — so it
+   * belongs on the hover rather than behind a click.
+   */
   if (object.floorNumber !== undefined) {
     const portion = object.portion === 'partial' ? 'Partial' : 'Entire';
+    const run =
+      object.floors && object.floors > 1
+        ? `${object.floorNumber}–${object.floorNumber + object.floors - 1}`
+        : `${object.floorNumber}`;
     lines.push(
-      `<div style="color:${BRAND.goldenrod};font-weight:600">${portion} floor ${object.floorNumber}</div>`,
+      `<div style="color:${BRAND.goldenrod};font-weight:600">${portion} floor ${run}</div>`,
     );
+
+    const space = object.recordId
+      ? building.spaces?.find((s) => s.id === object.recordId)
+      : undefined;
+
+    if (space) {
+      const parts: string[] = [];
+      if (space.sf !== null) parts.push(`${space.sf.toLocaleString('en-US')} SF`);
+      parts.push(
+        space.asking_rent_withheld || space.asking_rent_psf === null
+          ? 'rent on request'
+          : `$${space.asking_rent_psf}/SF`,
+      );
+      if (space.floor_label) parts.unshift(escapeHtml(space.floor_label));
+      lines.push(
+        `<div style="color:#FFFFFF;font-weight:600;font-size:14px">${parts.join(
+          ' · ',
+        )}</div>`,
+      );
+    } else if (object.label) {
+      // A tenancy rather than an availability: no asking rent to show, but the
+      // company name is the answer to the same question.
+      lines.push(`<div style="color:#DCE4EF">${escapeHtml(object.label)}</div>`);
+    }
   }
+
   lines.push(
     `<div style="color:#DCE4EF">${building.spaceCount} space${
       building.spaceCount === 1 ? '' : 's'

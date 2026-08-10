@@ -5,6 +5,7 @@
  * Usage: node shoot.mjs <outdir> <prefix> [--states=all|quick]
  */
 import { chromium } from 'playwright';
+import { openMapChrome } from './harness.mjs';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -35,8 +36,7 @@ async function shot(name) {
 
 await page.goto('http://localhost:3111/map', { waitUntil: 'domcontentloaded' });
 // Wait for the map canvas and for buildings to arrive (sidebar cards render).
-await page.waitForSelector('.maplibregl-map canvas', { timeout: 30000 });
-await page.waitForSelector('text=100 Park Avenue', { timeout: 30000 });
+await openMapChrome(page);
 await sleep(6000); // opening fitAll + context fetch + first paint
 
 await shot('dark-wide');
@@ -59,8 +59,12 @@ if (statesArg === 'all') {
   await page.getByRole('button', { name: 'Hide transit stops' }).click();
   await sleep(800);
 
-  // Light theme, same close frame.
-  await page.getByRole('button', { name: 'Switch to the light map' }).click();
+  // The map opens LIGHT now, so the theme button reads "switch to the dark
+  // map" from the start. Naming the destination rather than assuming the
+  // starting state keeps this working whichever way the default goes.
+  const themeButton = (to) => page.getByRole('button', { name: `Switch to the ${to} map` });
+
+  if ((await themeButton('light').count()) > 0) await themeButton('light').click();
   await sleep(4000);
   await shot('light-close');
 
@@ -69,8 +73,8 @@ if (statesArg === 'all') {
   await sleep(4000);
   await shot('light-wide');
 
-  // Back to dark for a straight-down high-pitch street-level look.
-  await page.getByRole('button', { name: 'Switch to the dark map' }).click();
+  // Dark, for a straight-down high-pitch street-level look.
+  if ((await themeButton('dark').count()) > 0) await themeButton('dark').click();
   await sleep(2500);
   for (let i = 0; i < 2; i++) {
     await page.getByRole('button', { name: 'Raise the view angle' }).click();

@@ -134,9 +134,69 @@ export const OCCUPIED_DARK: { entire: RGBA; partial: RGBA; legend: string } = {
   legend: '#8494B5',
 };
 
-export function occupancyColors(kind: string, theme: MapTheme) {
+// ---------------------------------------------------------------------------
+// Colours the user has changed
+// ---------------------------------------------------------------------------
+
+/**
+ * Overrides, as hex. Anything unset falls through to the defaults above.
+ *
+ * Every default here was chosen against the whole frame — Goldenrod is loud
+ * because availability is the subject, teal is teal because nothing else on
+ * the map is blue-green, occupied is translucent because twelve floors of it
+ * would otherwise replace the tower. Handing those over is a real risk, and it
+ * is still right: a broker on somebody else's projector, or in front of a
+ * colour-blind client, can see something we cannot, and telling them the
+ * default is fine does not make it legible in the room they are standing in.
+ *
+ * The one thing not offered is the ability to turn availability down. Opacity,
+ * stripe thickness and draw order are what actually enforce "availability is
+ * the loudest thing on screen"; only the hue is exposed, so a different colour
+ * still arrives at full strength, still thickest, still drawn last.
+ */
+export interface ColorOverrides {
+  available?: string;
+  client?: string;
+  occupied?: string;
+  selectedBuilding?: string;
+  selectedSpace?: string;
+  scaleLow?: string;
+  scaleHigh?: string;
+}
+
+/** The alpha pair a band kind is drawn at, kept whatever the hue becomes. */
+const BAND_ALPHA: Record<string, { entire: number; partial: number }> = {
+  available: { entire: 240, partial: 155 },
+  client: { entire: 235, partial: 160 },
+  occupied: { entire: 112, partial: 88 },
+};
+
+export function occupancyColors(
+  kind: string,
+  theme: MapTheme,
+  overrides?: ColorOverrides,
+) {
+  const custom = overrides?.[kind as 'available' | 'client' | 'occupied'];
+  if (custom) {
+    const alpha = BAND_ALPHA[kind] ?? BAND_ALPHA.available;
+    return {
+      entire: rgba(custom, alpha.entire),
+      partial: rgba(custom, alpha.partial),
+      legend: custom,
+    };
+  }
   if (kind === 'occupied' && theme === 'dark') return OCCUPIED_DARK;
   return OCCUPANCY_COLORS[kind] ?? OCCUPANCY_COLORS.available;
+}
+
+/** The building currently clicked. */
+export function selectedBuildingColor(overrides?: ColorOverrides): RGBA {
+  return overrides?.selectedBuilding ? rgba(overrides.selectedBuilding, 255) : SELECTED_COLOR;
+}
+
+/** The band for the space currently clicked, within its building. */
+export function selectedSpaceColor(overrides?: ColorOverrides): RGBA {
+  return overrides?.selectedSpace ? rgba(overrides.selectedSpace, 255) : SELECTED_COLOR;
 }
 
 /**
@@ -195,7 +255,7 @@ export function sampleStops(stops: ColorStop[], value: number): RGB {
   return stops[stops.length - 1].color;
 }
 
-export function stopsForMode(mode: ColorMode): ColorStop[] {
+function baseStops(mode: ColorMode): ColorStop[] {
   switch (mode) {
     case 'rent':
       return RENT_STOPS;
@@ -206,6 +266,35 @@ export function stopsForMode(mode: ColorMode): ColorStop[] {
     case 'class':
       return CLASS_STOPS;
   }
+}
+
+export function stopsForMode(mode: ColorMode, overrides?: ColorOverrides): ColorStop[] {
+  const stops = baseStops(mode);
+
+  // The user picks the two ends and the middle is interpolated, rather than
+  // asking for five colours. Every ramp here is already a two-end idea — cool
+  // to hot, pale to deep, now to never — and the buckets in between only have
+  // to be ordered, which an interpolation guarantees and five hand-picked
+  // colours do not.
+  //
+  // Class is categorical: A, B, C and unknown are not a scale, so a gradient
+  // across them would invent an ordering the data does not carry.
+  const { scaleLow, scaleHigh } = overrides ?? {};
+  if (mode === 'class' || (!scaleLow && !scaleHigh)) return stops;
+
+  const low = scaleLow ?? cssHex(stops[0].color);
+  const high = scaleHigh ?? cssHex(stops[stops.length - 1].color);
+  const last = Math.max(1, stops.length - 1);
+
+  return stops.map((stop, i) => ({
+    ...stop,
+    color: rgb(mix(low, high, i / last)),
+  }));
+}
+
+/** RGB triple back to hex, so a default end can be fed to `mix`. */
+function cssHex([r, g, b]: RGB): string {
+  return `#${[r, g, b].map((n) => n.toString(16).padStart(2, '0')).join('')}`;
 }
 
 /** Months from today until the soonest available space, null if unknown. */
@@ -244,27 +333,31 @@ const UNKNOWN: RGBA = rgba('#8D98AE', 205);
 export function colorForBuilding(
   building: BuildingWithSpaces,
   mode: ColorMode,
+  overrides?: ColorOverrides,
 ): RGBA {
+  // Sampled from the same stops the legend draws, so a recoloured ramp moves
+  // the towers and the swatch bar together. They are the same statement.
+  const stops = stopsForMode(mode, overrides);
   switch (mode) {
     case 'rent': {
       const rent = building.minRent ?? building.maxRent;
       if (rent === null || rent === undefined) return UNKNOWN;
-      const [r, g, b] = sampleStops(RENT_STOPS, rent);
+      const [r, g, b] = sampleStops(stops, rent);
       return [r, g, b, BUILDING_ALPHA];
     }
     case 'sf': {
       if (!building.totalAvailableSf) return UNKNOWN;
-      const [r, g, b] = sampleStops(SF_STOPS, building.totalAvailableSf);
+      const [r, g, b] = sampleStops(stops, building.totalAvailableSf);
       return [r, g, b, BUILDING_ALPHA];
     }
     case 'availability': {
       const months = monthsUntilAvailable(building);
       if (months === null) return UNKNOWN;
-      const [r, g, b] = sampleStops(AVAILABILITY_STOPS, months);
+      const [r, g, b] = sampleStops(stops, months);
       return [r, g, b, BUILDING_ALPHA];
     }
     case 'class': {
-      const [r, g, b] = CLASS_STOPS[classIndex(building)].color;
+      const [r, g, b] = stops[classIndex(building)].color;
       return [r, g, b, BUILDING_ALPHA];
     }
   }
@@ -275,8 +368,8 @@ export function cssRgb(color: RGB | RGBA): string {
 }
 
 /** CSS gradient for a legend swatch bar; categorical modes get hard edges. */
-export function gradientForMode(mode: ColorMode): string {
-  const stops = stopsForMode(mode);
+export function gradientForMode(mode: ColorMode, overrides?: ColorOverrides): string {
+  const stops = stopsForMode(mode, overrides);
   if (mode === 'class') {
     const n = stops.length;
     const segments = stops.map((s, i) => {

@@ -9,6 +9,7 @@ import SourceInfo from '@/components/ui/SourceInfo';
 import type { SourceNote } from '@/lib/provenance';
 import SpaceCard, { formatSf } from './SpaceCard';
 import RadiusResults from './RadiusResults';
+import { RailHideButton } from '@/components/map/RailToggle';
 
 /**
  * The counts in this header are the one number on screen with no source at
@@ -100,6 +101,7 @@ export default function ResultsSidebar() {
   const loading = useApp((s) => s.loading);
   const error = useApp((s) => s.error);
   const resetFilters = useApp((s) => s.resetFilters);
+  const setRightRailOpen = useApp((s) => s.setRightRailOpen);
 
   const [sort, setSort] = useState<SortKey>('rent-asc');
 
@@ -147,6 +149,7 @@ export default function ResultsSidebar() {
         </div>
 
         <label className="flex items-center gap-2">
+          <RailHideButton side="right" label="results" onClick={() => setRightRailOpen(false)} />
           <span className="text-[10px] font-semibold uppercase tracking-[0.09em] text-muted">
             Sort
           </span>

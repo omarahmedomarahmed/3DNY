@@ -16,6 +16,7 @@
  * in the sidebar.
  */
 import { chromium } from 'playwright';
+import { openMapChrome } from './harness.mjs';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -59,8 +60,7 @@ async function clickTower() {
 }
 
 await page.goto('http://localhost:3111/map', { waitUntil: 'domcontentloaded' });
-await page.waitForSelector('.maplibregl-map canvas', { timeout: 30000 });
-await page.waitForSelector('text=100 Park Avenue', { timeout: 30000 });
+await openMapChrome(page);
 await sleep(6000);
 
 // Fly onto a known tower so the centre of the frame is its massing.

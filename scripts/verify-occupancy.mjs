@@ -12,6 +12,7 @@
  * than unconfigured.
  */
 import { chromium } from 'playwright';
+import { openMapChrome, openFilters } from './harness.mjs';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -43,7 +44,7 @@ await page.screenshot({ path: join(outdir, 'tenant-import.png') });
 
 // --- The map: three kinds, filterable, clickable.
 await page.goto('http://localhost:3111/map', { waitUntil: 'domcontentloaded' });
-await page.waitForSelector('text=100 Park Avenue', { timeout: 30000 });
+await openMapChrome(page);
 await sleep(6000);
 check('the legend lists all three band kinds',
   (await page.getByRole('button', { name: /available space on the towers/ }).count()) > 0 &&
@@ -83,7 +84,9 @@ if (opened) {
 // --- A tenant name is a way into the map ---------------------------------
 
 await page.goto('http://localhost:3111/map', { waitUntil: 'domcontentloaded' });
-await page.waitForSelector('text=100 Park Avenue', { timeout: 30000 });
+await openMapChrome(page);
+// The search box lives in the filter rail, which no longer opens by default.
+await openFilters(page);
 await sleep(6000);
 const before = await page.locator('article').count();
 await page.getByPlaceholder(/Address, building, tenant/).fill('Kestrel');

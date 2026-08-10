@@ -3,6 +3,7 @@
 import { create } from 'zustand';
 import { EMPTY_FILTERS } from '@/types';
 import type { TimeOfDay } from '@/components/map/atmosphere';
+import type { ColorOverrides } from '@/components/map/colors';
 import type {
   BuildingWithSpaces,
   ColorMode,
@@ -23,6 +24,29 @@ interface RadiusSelection {
   /** Radius in miles. Brokers think in quarter-miles, not metres. */
   miles: number;
   originBuildingId: string | null;
+}
+
+// The shape lives beside the defaults it overrides, in `colors.ts`, so the two
+// cannot drift apart.
+export type { ColorOverrides };
+
+/** One popup on the map: which card, where it sits, and whether it is pinned. */
+export interface PopupWindow {
+  id: string;
+  kind: 'space' | 'tenant' | 'station';
+  /** Empty for a station, which belongs to no building. */
+  buildingId: string;
+  /** Space id, tenant id, or transit stop id, by kind. */
+  recordId: string | null;
+  /** Viewport pixels. Updated as the card is dragged. */
+  x: number;
+  y: number;
+  /**
+   * A pinned card survives the next click on the map, so a second card can be
+   * opened beside it. Exactly one card is unpinned at a time — the one you are
+   * still reading — and it is the one that closes when you click away.
+   */
+  pinned: boolean;
 }
 
 interface AppState {
@@ -79,6 +103,29 @@ interface AppState {
   /** Building ids currently inside the map viewport, driving the sidebar. */
   visibleBuildingIds: string[];
 
+  /**
+   * Whether the two rails are on screen. Both start closed.
+   *
+   * The map is the product. Opening on filters down one side and a results
+   * list down the other leaves about half the window for the thing everyone
+   * in the room is actually looking at, and in a meeting the first thing a
+   * broker did was collapse them both by hand. So that is the starting state,
+   * and each comes back with one large button.
+   */
+  leftRailOpen: boolean;
+  rightRailOpen: boolean;
+  /** The control stack starts collapsed to a single button for the same reason. */
+  controlsOpen: boolean;
+  /** The legend, and the band section within it, can each be put away. */
+  legendOpen: boolean;
+  bandsSectionOpen: boolean;
+
+  /** Colours the user has changed. Empty means every default applies. */
+  colorOverrides: ColorOverrides;
+
+  /** Every card open on the map, in the order they were opened. */
+  popups: PopupWindow[];
+
   loadBuildings: () => Promise<void>;
   replaceBuilding: (b: BuildingWithSpaces) => void;
   updateSpace: (spaceId: string, patch: Partial<Space>) => void;
@@ -107,6 +154,24 @@ interface AppState {
 
   setRadius: (r: RadiusSelection | null) => void;
   setVisibleBuildingIds: (ids: string[]) => void;
+
+  setLeftRailOpen: (open: boolean) => void;
+  setRightRailOpen: (open: boolean) => void;
+  setControlsOpen: (open: boolean) => void;
+  setLegendOpen: (open: boolean) => void;
+  setBandsSectionOpen: (open: boolean) => void;
+
+  setColorOverride: (key: keyof ColorOverrides, value: string | null) => void;
+  resetColorOverrides: () => void;
+
+  /** Opens a card, replacing whichever card is not pinned. */
+  openPopup: (p: Omit<PopupWindow, 'id' | 'pinned'>) => void;
+  movePopup: (id: string, x: number, y: number) => void;
+  togglePopupPinned: (id: string) => void;
+  closePopup: (id: string) => void;
+  /** What a click on empty map does: closes everything still unpinned. */
+  closeUnpinnedPopups: () => void;
+  setPopupRecord: (id: string, recordId: string | null) => void;
 }
 
 export const useApp = create<AppState>((set, get) => ({
@@ -118,7 +183,11 @@ export const useApp = create<AppState>((set, get) => ({
   colorMode: 'rent',
   photoreal: false,
   showContext: false,
-  mapTheme: 'dark',
+  // Light. Dark was the default on the argument that these maps are shown in
+  // dim rooms on projectors — true of some meetings and not of the laptop
+  // screen where most of the work happens, and a first-time viewer opening a
+  // black map does not read it as a deliberate choice.
+  mapTheme: 'light',
   timeOfDay: null,
   showTransit: false,
   transitModes: [],
@@ -134,6 +203,15 @@ export const useApp = create<AppState>((set, get) => ({
 
   radius: null,
   visibleBuildingIds: [],
+
+  leftRailOpen: false,
+  rightRailOpen: false,
+  controlsOpen: false,
+  legendOpen: true,
+  bandsSectionOpen: true,
+
+  colorOverrides: {},
+  popups: [],
 
   async loadBuildings() {
     set({ loading: true, error: null });
@@ -281,6 +359,86 @@ export const useApp = create<AppState>((set, get) => ({
 
   setVisibleBuildingIds(visibleBuildingIds) {
     set({ visibleBuildingIds });
+  },
+
+  setLeftRailOpen(leftRailOpen) {
+    set({ leftRailOpen });
+  },
+
+  setRightRailOpen(rightRailOpen) {
+    set({ rightRailOpen });
+  },
+
+  setControlsOpen(controlsOpen) {
+    set({ controlsOpen });
+  },
+
+  setLegendOpen(legendOpen) {
+    set({ legendOpen });
+  },
+
+  setBandsSectionOpen(bandsSectionOpen) {
+    set({ bandsSectionOpen });
+  },
+
+  setColorOverride(key, value) {
+    const next = { ...get().colorOverrides };
+    if (value === null) delete next[key];
+    else next[key] = value;
+    set({ colorOverrides: next });
+  },
+
+  resetColorOverrides() {
+    set({ colorOverrides: {} });
+  },
+
+  openPopup(p) {
+    // One unpinned card at a time. Opening a second while the first is still
+    // unpinned replaces it — otherwise clicking around the map silently
+    // accumulates cards nobody asked to keep. Pinning is the deliberate act
+    // that says "keep this one while I go and find another".
+    const kept = get().popups.filter((w) => w.pinned);
+
+    // The same record clicked twice is the card already on screen, not a
+    // second copy of it.
+    const already = kept.find(
+      (w) => w.kind === p.kind && w.buildingId === p.buildingId && w.recordId === p.recordId,
+    );
+    if (already) {
+      set({ popups: kept });
+      return;
+    }
+
+    set({
+      popups: [
+        ...kept,
+        { ...p, id: `${p.kind}:${p.buildingId}:${p.recordId ?? ''}:${kept.length}`, pinned: false },
+      ],
+    });
+  },
+
+  movePopup(id, x, y) {
+    set({ popups: get().popups.map((w) => (w.id === id ? { ...w, x, y } : w)) });
+  },
+
+  togglePopupPinned(id) {
+    set({
+      popups: get().popups.map((w) => (w.id === id ? { ...w, pinned: !w.pinned } : w)),
+    });
+  },
+
+  closePopup(id) {
+    set({ popups: get().popups.filter((w) => w.id !== id) });
+  },
+
+  closeUnpinnedPopups() {
+    const popups = get().popups.filter((w) => w.pinned);
+    if (popups.length === get().popups.length) return;
+    set({ popups });
+  },
+
+  setPopupRecord(id, recordId) {
+    set({ popups: get().popups.map((w) => (w.id === id ? { ...w, recordId } : w)) });
   },
 }));
 

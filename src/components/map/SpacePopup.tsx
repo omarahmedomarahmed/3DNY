@@ -1,26 +1,29 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useMemo } from 'react';
 import Link from 'next/link';
 
 import { useApp } from '@/lib/store';
 import { DateText, Rent, Sf } from '@/components/ui/Money';
-import SourceInfo, { isInsideSourcePopover } from '@/components/ui/SourceInfo';
+import SourceInfo from '@/components/ui/SourceInfo';
 import { buildingSource, spaceOriginNote, spaceSource } from '@/lib/provenance';
 import type { BuildingWithSpaces, Space } from '@/types';
+import DraggableCard from './DraggableCard';
 
 /**
  * The card that opens when a floor band or a building is clicked.
  *
  * It is a *floating* card anchored to the click rather than a docked panel:
  * the point of clicking a specific stripe on a specific tower is that the
- * answer appears next to the thing you pointed at. It closes on the next click
- * anywhere else, so it never has to be dismissed deliberately.
+ * answer appears next to the thing you pointed at.
+ *
+ * Where it sits, how it is dragged, and whether it survives the next click
+ * all belong to `DraggableCard` — this file is only the contents. That split
+ * is what lets a tenant card behave identically without either of them
+ * knowing about the other.
  */
 
-/** Gap between the pointer and the card, and the minimum viewport margin. */
-const OFFSET = 14;
-const MARGIN = 12;
+/** How wide the card is. Placement and dragging belong to DraggableCard. */
 const MAX_WIDTH = 330;
 
 export interface PopupAnchor {
@@ -30,6 +33,9 @@ export interface PopupAnchor {
 }
 
 interface SpacePopupProps {
+  /** The card's id in the store, so drag and pin address the right one. */
+  popupId: string;
+  pinned: boolean;
   buildingId: string;
   /** Null means "the building was clicked" — show its floor list instead. */
   spaceId: string | null;
@@ -74,13 +80,14 @@ function Row({
 }
 
 export default function SpacePopup({
+  popupId,
+  pinned,
   buildingId,
   spaceId,
   at,
   onClose,
   onSelectSpace,
 }: SpacePopupProps) {
-  const cardRef = useRef<HTMLDivElement | null>(null);
   const buildings = useApp((s) => s.buildings);
   const compare = useApp((s) => s.compare);
   const addToCompare = useApp((s) => s.addToCompare);
@@ -108,74 +115,20 @@ export default function SpacePopup({
     return notes.every((n) => n.label === notes[0].label) ? notes[0] : null;
   }, [spaces]);
 
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
-
-  // Measure after render but before paint, so the card never flashes at an
-  // off-screen position on its way to the clamped one.
-  useLayoutEffect(() => {
-    const el = cardRef.current;
-    if (!el) return;
-    const w = el.offsetWidth;
-    const h = el.offsetHeight;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-
-    // Prefer down-right of the pointer; flip to the other side when that would
-    // run off the edge, then hard-clamp so it is always fully on screen.
-    let left = at.x + OFFSET;
-    if (left + w > vw - MARGIN) left = at.x - OFFSET - w;
-    left = Math.min(Math.max(left, MARGIN), Math.max(MARGIN, vw - w - MARGIN));
-
-    let top = at.y + OFFSET;
-    if (top + h > vh - MARGIN) top = at.y - OFFSET - h;
-    top = Math.min(Math.max(top, MARGIN), Math.max(MARGIN, vh - h - MARGIN));
-
-    setPos({ left, top });
-  }, [at.x, at.y, spaceId, buildingId, spaces.length]);
-
-  // Close on any click that did not land inside the card. Capture phase so it
-  // runs before deck.gl's own canvas handler: when the click *is* on another
-  // band, both handlers run inside the same native event, React batches them,
-  // and the reopen wins — so the popup moves rather than blinking shut.
-  useEffect(() => {
-    const onDocClick = (e: MouseEvent) => {
-      const el = cardRef.current;
-      if (el && e.target instanceof Node && el.contains(e.target)) return;
-      // A source popover is portalled to the body, so it is technically
-      // outside this card. Reading where a number came from must not close the
-      // card the number is on.
-      if (isInsideSourcePopover(e.target)) return;
-      onClose();
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('click', onDocClick, true);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('click', onDocClick, true);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [onClose]);
 
   if (!building) return null;
 
   const inCompare = space ? compare.some((c) => c.spaceId === space.id) : false;
 
   return (
-    <div
-      ref={cardRef}
-      role="dialog"
-      aria-label={`${building.address_display || 'Building'} details`}
-      style={{
-        position: 'fixed',
-        left: pos?.left ?? at.x + OFFSET,
-        top: pos?.top ?? at.y + OFFSET,
-        width: MAX_WIDTH,
-        maxWidth: `calc(100vw - ${MARGIN * 2}px)`,
-        visibility: pos ? 'visible' : 'hidden',
-      }}
-      className="z-50 overflow-hidden rounded-card border border-hairline bg-white shadow-float"
+    <DraggableCard
+      id={popupId}
+      pinned={pinned}
+      anchor={at}
+      width={MAX_WIDTH}
+      ariaLabel={`${building.address_display || 'Building'} details`}
+      title={space ? space.floor_label || 'Floor' : 'Building'}
+      onClose={onClose}
     >
       <header className="flex items-start gap-2 border-b border-hairline px-4 py-3">
         <div className="min-w-0 flex-1">
@@ -221,28 +174,6 @@ export default function SpacePopup({
             </p>
           )}
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          title="Close"
-          className="-mr-1 -mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-surface-sunken hover:text-ink"
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.2"
-            strokeLinecap="round"
-            aria-hidden="true"
-            focusable="false"
-          >
-            <line x1="6" y1="6" x2="18" y2="18" />
-            <line x1="18" y1="6" x2="6" y2="18" />
-          </svg>
-        </button>
       </header>
 
       {space ? (
@@ -395,6 +326,6 @@ export default function SpacePopup({
           Full details
         </Link>
       </footer>
-    </div>
+    </DraggableCard>
   );
 }

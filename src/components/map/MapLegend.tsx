@@ -1,9 +1,11 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useApp } from '@/lib/store';
 import type { ColorMode, OccupancyKind } from '@/types';
 import { OCCUPANCY_COLORS, cssRgb, gradientForMode, stopsForMode } from './colors';
+import { BRAND } from '@/lib/brand';
+import ColorPicker from './ColorPicker';
 
 /**
  * The three things a band can mean, in the order they matter.
@@ -53,13 +55,56 @@ const CAPTIONS: Record<ColorMode, string> = {
   sf: 'Total available SF',
 };
 
+/** A section head that folds its own contents away. */
+function SectionToggle({
+  label,
+  open,
+  onToggle,
+}: {
+  label: string;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      className="flex w-full items-center gap-1.5 text-left text-[11px] font-semibold uppercase tracking-[0.09em] text-body transition-colors hover:text-ink"
+    >
+      <svg
+        width="10"
+        height="10"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        className={open ? '' : '-rotate-90'}
+      >
+        <polyline points="5,9 12,16 19,9" />
+      </svg>
+      {label}
+    </button>
+  );
+}
+
 export default function MapLegend() {
   const colorMode = useApp((s) => s.colorMode);
   const setColorMode = useApp((s) => s.setColorMode);
   const occupancyKinds = useApp((s) => s.occupancyKinds);
   const toggleOccupancyKind = useApp((s) => s.toggleOccupancyKind);
   const buildings = useApp((s) => s.buildings);
-  const stops = stopsForMode(colorMode);
+  const legendOpen = useApp((s) => s.legendOpen);
+  const setLegendOpen = useApp((s) => s.setLegendOpen);
+  const bandsSectionOpen = useApp((s) => s.bandsSectionOpen);
+  const setBandsSectionOpen = useApp((s) => s.setBandsSectionOpen);
+  const colorOverrides = useApp((s) => s.colorOverrides);
+  const resetColorOverrides = useApp((s) => s.resetColorOverrides);
+  const [colorsOpen, setColorsOpen] = useState(false);
+  const stops = stopsForMode(colorMode, colorOverrides);
 
   /**
    * How many of each there are to show. A toggle that turns on nothing is a
@@ -81,8 +126,41 @@ export default function MapLegend() {
     return { available, client, occupied } as Record<OccupancyKind, number>;
   }, [buildings]);
 
+  // Closed, the legend is a single pill in the corner. It is a reference, not
+  // a control panel: once someone knows gold means available they stop reading
+  // it, and it is sitting on the bottom-left of the map the whole time.
+  if (!legendOpen) {
+    return (
+      <button
+        type="button"
+        onClick={() => setLegendOpen(true)}
+        className="pointer-events-auto absolute bottom-4 left-4 z-10 flex items-center gap-2 rounded-card border border-hairline-strong bg-white px-3.5 py-2.5 text-[13px] font-semibold text-midnight shadow-float transition-colors hover:border-midnight hover:bg-goldenrod-50"
+      >
+        <span
+          className="h-3.5 w-3.5 shrink-0 rounded-sm border border-hairline-strong"
+          style={{ background: colorOverrides.available ?? OCCUPANCY_COLORS.available.legend }}
+        />
+        Legend
+      </button>
+    );
+  }
+
   return (
     <div className="pointer-events-auto absolute bottom-4 left-4 z-10 w-80 rounded-card border border-hairline-strong bg-white p-3.5 text-sm shadow-float">
+      <div className="mb-2.5 flex items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.09em] text-body">
+          Legend
+        </span>
+        <button
+          type="button"
+          onClick={() => setLegendOpen(false)}
+          aria-label="Hide the legend"
+          className="rounded border border-hairline-strong px-2 py-1 text-[11px] font-semibold text-midnight transition-colors hover:border-midnight hover:bg-goldenrod-50"
+        >
+          Hide
+        </button>
+      </div>
+
       {/* Segmented control: one active segment, no ambiguity about the mode. */}
       <div
         role="group"
@@ -127,7 +205,7 @@ export default function MapLegend() {
         <>
           <div
             className="h-4 w-full rounded-sm border border-hairline-strong"
-            style={{ background: gradientForMode(colorMode) }}
+            style={{ background: gradientForMode(colorMode, colorOverrides) }}
           />
           <div className="tabular mt-1.5 flex justify-between text-[11px] font-semibold text-body">
             {stops.map((s) => (
@@ -143,9 +221,14 @@ export default function MapLegend() {
           colour from the row that defines it is direct manipulation rather
           than a switch somewhere else that changes what the legend means. */}
       <div className="mt-3 border-t border-hairline pt-2.5">
-        <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.09em] text-body">
-          Bands on the towers
+        <div className="mb-1.5">
+          <SectionToggle
+            label="Bands on the towers"
+            open={bandsSectionOpen}
+            onToggle={() => setBandsSectionOpen(!bandsSectionOpen)}
+          />
         </div>
+        {bandsSectionOpen && (
         <ul className="space-y-0.5">
           {BAND_KINDS.map((k) => {
             const on = occupancyKinds.includes(k.id);
@@ -178,7 +261,10 @@ export default function MapLegend() {
                 >
                   <span
                     className="h-3.5 w-3.5 shrink-0 rounded-sm border border-hairline-strong"
-                    style={{ background: on ? k.color : 'transparent' }}
+                    // The recoloured swatch, not the built-in one — the legend
+                    // is a key, and a key that shows a colour the towers are
+                    // no longer drawn in is worse than no key.
+                    style={{ background: on ? colorOverrides[k.id] ?? k.color : 'transparent' }}
                   />
                   <span
                     className={
@@ -195,11 +281,85 @@ export default function MapLegend() {
             );
           })}
         </ul>
-        {counts.client + counts.occupied === 0 ? (
+        )}
+        {bandsSectionOpen && counts.client + counts.occupied === 0 ? (
           <p className="mt-1.5 px-1.5 text-[11px] leading-snug text-subtle">
             No tenant data yet — import a roster or sync Salesforce.
           </p>
         ) : null}
+      </div>
+
+      {/* Colours. Folded away by default: this is a thing you set once for a
+          room or a client and then forget, not part of reading the map. */}
+      <div className="mt-3 border-t border-hairline pt-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <SectionToggle
+            label="Colours"
+            open={colorsOpen}
+            onToggle={() => setColorsOpen(!colorsOpen)}
+          />
+          {Object.keys(colorOverrides).length > 0 ? (
+            <button
+              type="button"
+              onClick={resetColorOverrides}
+              className="shrink-0 text-[11px] font-semibold text-brightblue transition-colors hover:text-midnight"
+            >
+              Reset all
+            </button>
+          ) : null}
+        </div>
+
+        {colorsOpen && (
+          <ul className="mt-2 space-y-2">
+            <ColorPicker
+              label="Available space"
+              hint="The band for space on the market."
+              which="available"
+              fallback={OCCUPANCY_COLORS.available.legend}
+            />
+            <ColorPicker
+              label="Cresa clients"
+              hint="Floors our clients hold."
+              which="client"
+              fallback={OCCUPANCY_COLORS.client.legend}
+            />
+            <ColorPicker
+              label="Occupied"
+              hint="Everyone else in the building."
+              which="occupied"
+              fallback={OCCUPANCY_COLORS.occupied.legend}
+            />
+            <ColorPicker
+              label="Selected building"
+              hint="The tower you have clicked."
+              which="selectedBuilding"
+              fallback={BRAND.warmOrange}
+            />
+            <ColorPicker
+              label="Selected floor"
+              hint="The one band you have clicked, within that tower."
+              which="selectedSpace"
+              fallback={BRAND.warmOrange}
+            />
+            {colorMode !== 'class' && (
+              <>
+                <ColorPicker
+                  label="Scale, low end"
+                  hint={`Cheapest, smallest or soonest — whichever ${CAPTIONS[colorMode].toLowerCase()} means.`}
+                  which="scaleLow"
+                  fallback={cssHexOf(stopsForMode(colorMode)[0].color)}
+                />
+                <ColorPicker
+                  label="Scale, high end"
+                  which="scaleHigh"
+                  fallback={cssHexOf(
+                    stopsForMode(colorMode)[stopsForMode(colorMode).length - 1].color,
+                  )}
+                />
+              </>
+            )}
+          </ul>
+        )}
       </div>
 
       <div className="mt-3 border-t border-hairline pt-2.5 text-[11px] leading-snug text-muted">
@@ -208,4 +368,9 @@ export default function MapLegend() {
       </div>
     </div>
   );
+}
+
+/** A default ramp end as hex, so the swatch shows what it is replacing. */
+function cssHexOf([r, g, b]: readonly [number, number, number]): string {
+  return `#${[r, g, b].map((n) => n.toString(16).padStart(2, '0')).join('')}`;
 }

@@ -9,6 +9,7 @@ import RangeFilter from './RangeFilter';
 import MultiSelect from './MultiSelect';
 import DateFilter from './DateFilter';
 import QuickFilters from './QuickFilters';
+import { RailHideButton } from '@/components/map/RailToggle';
 
 // ---------------------------------------------------------------------------
 // Date helpers — everything the rail emits is an ISO YYYY-MM-DD string.
@@ -174,7 +175,10 @@ export default function FilterRail() {
   const setFilters = useApp((s) => s.setFilters);
   const resetFilters = useApp((s) => s.resetFilters);
 
-  const [collapsed, setCollapsed] = useState(false);
+  // Open/closed lives in the store rather than here: the map page decides
+  // whether this rail is on screen at all, and the button that brings it back
+  // floats over the map, not inside a rail that is not rendered.
+  const setLeftRailOpen = useApp((s) => s.setLeftRailOpen);
   const [moreOpen, setMoreOpen] = useState(false);
 
   const options = useMemo(() => filterOptions(buildings ?? []), [buildings]);
@@ -184,33 +188,6 @@ export default function FilterRail() {
   const today = useMemo(() => new Date(), []);
   const todayIso = toIso(today);
   const nextYear = today.getFullYear() + 1;
-
-  if (collapsed) {
-    return (
-      <div className="flex h-full w-12 shrink-0 flex-col items-center gap-3 border-r border-hairline bg-white py-3">
-        <button
-          type="button"
-          onClick={() => setCollapsed(false)}
-          title="Show filters"
-          aria-label="Show filters"
-          className="rounded-full border border-hairline-strong bg-white p-1.5 text-muted transition-colors hover:border-midnight hover:text-ink"
-        >
-          <Chevron direction="right" />
-        </button>
-        {count > 0 ? (
-          <span
-            className="rounded-full bg-goldenrod px-2 py-0.5 text-[11px] font-semibold tabular text-midnight"
-            title={`${count} active filters`}
-          >
-            {count}
-          </span>
-        ) : null}
-        <span className="mt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted [writing-mode:vertical-rl]">
-          Filters
-        </span>
-      </div>
-    );
-  }
 
   return (
     <aside className="flex h-full w-80 shrink-0 flex-col border-r border-hairline bg-white text-body">
@@ -233,15 +210,7 @@ export default function FilterRail() {
               Clear all
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={() => setCollapsed(true)}
-            title="Hide filters"
-            aria-label="Hide filters"
-            className="rounded-full p-1 text-muted transition-colors hover:bg-surface-alt hover:text-ink"
-          >
-            <Chevron direction="left" />
-          </button>
+          <RailHideButton side="left" label="filters" onClick={() => setLeftRailOpen(false)} />
         </div>
       </header>
 

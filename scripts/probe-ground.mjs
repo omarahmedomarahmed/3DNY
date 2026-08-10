@@ -1,6 +1,7 @@
 /** Reports what the streetscape API is asked for, and what it returns, as the
  * camera moves from the opening frame to a selected building. */
 import { chromium } from 'playwright';
+import { openMapChrome } from './harness.mjs';
 
 const browser = await chromium.launch({
   executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
@@ -23,8 +24,7 @@ page.on('response', async (res) => {
 });
 
 await page.goto('http://localhost:3111/map', { waitUntil: 'domcontentloaded' });
-await page.waitForSelector('.maplibregl-map canvas', { timeout: 30000 });
-await page.waitForSelector('text=100 Park Avenue', { timeout: 30000 });
+await openMapChrome(page);
 await sleep(7000);
 console.log('--- selecting a building ---');
 await page.getByRole('button', { name: /100 Park Avenue/ }).first().click();
