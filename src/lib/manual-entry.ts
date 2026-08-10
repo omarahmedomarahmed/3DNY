@@ -81,7 +81,18 @@ async function buildingById(id: string): Promise<Building | null> {
  */
 export async function resolveAddress(address: string): Promise<ResolvedAddress> {
   const db = sql();
-  const match = await geocodeAddress(address);
+
+  /**
+   * One address, so it can afford to wait.
+   *
+   * The default deadline is tuned for an import geocoding a hundred addresses
+   * at once, where a slow service turns seconds into minutes. This is a single
+   * lookup somebody has explicitly asked for by typing an address, and
+   * Geosearch routinely takes five to nine seconds. Timing out at four told
+   * them a real building did not exist and sent them to pick it off the map by
+   * hand — which is a worse thing to do to them than making them wait.
+   */
+  const match = await geocodeAddress(address, { timeoutMs: 10_000 });
 
   // Both spellings: the one typed and the one the city returned. A building
   // created from a sheet is keyed on whichever of those the sheet used, so

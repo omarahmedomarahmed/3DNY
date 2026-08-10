@@ -148,6 +148,7 @@ figure, says that too.
 | Kind of value | What the marker says |
 |---|---|
 | Rent, size, floor, dates, listing broker | The sheet it was imported from, by filename and date |
+| The same, loaded by the landlord loader | The landlord's own listing page, by name and date, with a link straight to it |
 | Address, building name, class, submarket | Also the sheet — these are how the market describes a building, not what the city records |
 | BIN, BBL, coordinates | The city's address index, and whether the match was confirmed |
 | Outline, roof height | NYC Building Footprints, with the 2014 survey caveat |
@@ -324,12 +325,101 @@ So the routes that actually work, in order of coverage:
 | Route | Coverage | How it gets in |
 |---|---|---|
 | CoStar / CompStak export under your subscription | Effectively the whole market | Save as CSV, import with **replace** on |
+| **The landlord loader** (below) | Four large landlords, ~310 listings, no rents | `npx tsx scripts/load-landlord-availability.ts` |
 | Your own weekly availability sheets | Your inventory, authoritative | The normal import |
 | A landlord or brokerage feed you have a relationship with | That landlord's stack | Import, or the by-hand form |
 
-All three land in the same tables through the same matcher. Nothing in this
+All of them land in the same tables through the same matcher. Nothing in this
 repo scrapes a licensed source, and nothing invents a listing: a rent that
 cannot be verified is stored as **withheld**, never as a number.
+
+---
+
+## The landlord loader
+
+```bash
+npx tsx scripts/load-landlord-availability.ts --dry-run   # look, write nothing
+npx tsx scripts/load-landlord-availability.ts             # merge
+npx tsx scripts/load-landlord-availability.ts --replace    # this run IS the inventory
+```
+
+An owner with an empty floor publishes the floor, the size and a phone number,
+because that is how the floor gets leased. That makes a landlord's own page the
+best public source there is for the two facts this map is built on — which
+floor, and how big.
+
+### What is in it
+
+| Landlord | Page | Listings | Buildings |
+|---|---|---|---|
+| SL Green Realty Corp. | `slgreen.com/availabilities` | 166 | 23 |
+| Rudin Management Company | `rudin.com/availability` | 56 | 11 |
+| The Durst Organization | `durst.org/availabilities` | 60 | 8 |
+| Empire State Realty Trust | `esrtreit.com/availabilities` | 29 | 10 |
+
+**311 listings across 52 buildings, about 5.2M SF.** For scale, Colliers counts
+66.2M SF available across Manhattan — so this is roughly 8% of the market, and
+it is the large-landlord, Class-A end of it. It is not "every building in
+Manhattan", and the gap is not a bug in the loader: the rest of the market
+either does not publish, or publishes only through CoStar.
+
+### Not one of them quotes a rent
+
+Every listing on all four reads *"Upon Request"*. That is how Manhattan office
+space is marketed, not a gap in the parser. The rows come in with
+`asking_rent_withheld` set, the map's rent colour mode shows them as grey
+rather than inventing a position on the scale, and the filter rail's
+withheld-rents hint now reads the live proportion — because a checkbox that
+would take 312 listings down to one should not be labelled "roughly half".
+
+### What it refuses to do
+
+- **Guess a building.** Several are marketed under a name rather than a number
+  — *One Five One*, *5 Grand Central East*. Those resolve through a table in
+  `landlord-feeds.ts`, each entry verified against that building's own page on
+  the landlord's site. A slug that is not in the table produces no listing at
+  all, and the run says which ones it skipped.
+- **Stamp a date nobody published.** `date_added` stays null. No page says when
+  a space came to market, and the column is part of the spaces natural key, so
+  a run date would both invent a fact and re-insert the whole market weekly.
+  The consequence is deliberate and worth knowing: **landlord listings do not
+  appear under "Added in 3 months"**, because nothing here knows when they were
+  added.
+- **Replace on a partial run.** Rudin's site returned 503 mid-run while this was
+  being built. Replacing on the strength of the other three would have taken all
+  56 of their availabilities off the map because a web server had a bad minute,
+  and the map would have looked fine. A run with any feed missing merges and
+  says so.
+- **Overrule a person.** Spaces typed in by hand are never retired, the same
+  rule that makes a `manual` field stamp win everywhere else.
+- **Be a nuisance.** Every request identifies itself, and each feed waits the
+  crawl delay its site asks for — ten seconds for SL Green, which publishes
+  `Crawl-delay: 10`. Rudin asks for nothing in `robots.txt` and started
+  resetting connections when crawled at two seconds a page, so it waits fifteen.
+  None of the four disallows these pages; they are published to be read.
+
+### When a landlord redesigns their site
+
+These are somebody else's templates and they will change without warning. The
+failure mode that matters is silent: a parser that returns nothing reads on the
+map as *"this landlord has no space available"*, not as *"this is broken"*. So
+the loader treats an empty first page as an error and stops, and
+`tests/landlord-feeds.test.ts` parses a captured copy of each real page —
+chosen for the awkward records, not the tidy ones: a space below street level,
+a floor number welded to a wing letter, a size given as a range, a building in
+Brooklyn.
+
+Three bugs that pass came out of exactly those:
+
+- A size range is *this floor* to *the largest contiguous block it can join*.
+  Taking the high end charged the whole block to every component floor, and
+  733 Third Avenue read as 441,625 SF available when barely a quarter is free.
+- `5,728 - 5,728` fell through to the plain size parser, which strips
+  punctuation — 57,285,728 SF, on a map whose header total had looked plausible
+  the run before.
+- `Lower Level Suite 1` and `Partial Ground Floor 3` each carry a digit that is
+  a unit number. Read as a floor, they put a Goldenrod band on a leased floor
+  for space that is under the pavement.
 
 ---
 

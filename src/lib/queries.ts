@@ -243,6 +243,16 @@ export async function upsertBuilding(input: {
   submarket: string | null;
   submarketCluster: string | null;
   matchConfidence: string;
+  /**
+   * What told us this building exists. Defaults to `sheet`, which is where
+   * every building came from until the landlord loader.
+   *
+   * Only the fields whose value the source actually supplied get stamped —
+   * address, name, class, submarket. The BIN, the outline and the floor count
+   * still come from the city whatever created the row, and must keep saying
+   * so.
+   */
+  sourceKind?: string;
 }): Promise<string> {
   const db = sql();
   const normalized = normalizeAddress(input.addressDisplay);
@@ -251,12 +261,54 @@ export async function upsertBuilding(input: {
       ? `SRID=4326;POINT(${input.lon} ${input.lat})`
       : null;
 
+  /**
+   * "Off a sheet" is what the resolver assumes for these fields, so a building
+   * that came from somewhere else has to say so on the row. Written only for a
+   * non-sheet source, so the ordinary import keeps stamping nothing and the
+   * popover keeps naming the sheet by filename.
+   *
+   * The merge below puts the EXISTING stamp on the right of `||`, so it wins.
+   * That is the whole design in one operator: this fills in a field carrying
+   * no stamp and can never overwrite one that has — including a `manual`
+   * stamp, which outranks every source in this app. It also means a building
+   * already on the map picks up its provenance the next time the loader runs,
+   * rather than needing a migration.
+   *
+   * One imprecision, stated because it is not obvious: no stamp is how the
+   * resolver spells "off a sheet". So a building first created by a sheet and
+   * later seen in a landlord feed comes out credited to the landlord. It is
+   * not a false claim — the landlord does publish that address for that
+   * building — but it is a coarser answer than the row-level provenance on
+   * the spaces, which stays exact per listing.
+   */
+  const supplied: [string, unknown][] = [
+    ['address_display', input.addressDisplay],
+    ['building_name', input.buildingName],
+    ['class', input.class],
+    ['submarket', input.submarket],
+    ['submarket_cluster', input.submarketCluster],
+  ];
+  const stamp =
+    input.sourceKind && input.sourceKind !== 'sheet'
+      ? Object.fromEntries(
+          supplied
+            // Only what this source actually said. A landlord page states no
+            // building class, so stamping `class` put "read off the landlord's
+            // page" beside a value that page never mentioned — a marker
+            // claiming a source for a field its source is silent on is worse
+            // than no marker at all.
+            .filter(([, value]) => value !== null && value !== undefined && value !== '')
+            .map(([field]) => [field, { kind: input.sourceKind, at: new Date().toISOString() }]),
+        )
+      : null;
+
   const rows = (await db(
     `INSERT INTO buildings (
        address_normalized, address_display, building_name, bin, bbl,
-       centroid, class, submarket, submarket_cluster, match_confidence
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       centroid, class, submarket, submarket_cluster, match_confidence, field_sources
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, COALESCE($11::jsonb, '{}'::jsonb))
      ON CONFLICT (address_normalized) DO UPDATE SET
+       field_sources     = COALESCE($11::jsonb, '{}'::jsonb) || buildings.field_sources,
        building_name     = COALESCE(EXCLUDED.building_name, buildings.building_name),
        bin               = COALESCE(EXCLUDED.bin, buildings.bin),
        bbl               = COALESCE(EXCLUDED.bbl, buildings.bbl),
@@ -279,6 +331,7 @@ export async function upsertBuilding(input: {
       input.submarket,
       input.submarketCluster,
       input.matchConfidence,
+      stamp ? JSON.stringify(stamp) : null,
     ],
   )) as any[];
 
@@ -523,6 +576,7 @@ export async function commitImport(
         submarket: row.submarket,
         submarketCluster: row.submarketCluster,
         matchConfidence: row.match.confidence,
+        sourceKind: opts.sourceKind,
       }));
 
     const result = (await db(
