@@ -562,10 +562,34 @@ export default function MapView() {
     [timeOfDay, mapTheme],
   );
 
-  const allFiltered = useMemo(
-    () => applyFilters(buildings, filters),
-    [buildings, filters],
-  );
+  const allFiltered = useMemo(() => {
+    const matching = applyFilters(buildings, filters);
+
+    // A building can be worth drawing with nothing available in it.
+    //
+    // `applyFilters` keeps a building only if one of its spaces passes, which
+    // is right for an availability map and wrong the moment occupancy is
+    // switched on: a tower where we placed a client but hold no listing was
+    // dropped before its band could be drawn, so the one building a broker
+    // most wants to point at was the one missing. Same for a building added by
+    // hand that has no space on it yet.
+    //
+    // Only kinds actually being shown count, so this cannot resurrect
+    // buildings for a layer that is switched off.
+    const wanted = new Set(occupancyKinds.filter((k) => k !== 'available'));
+    if (wanted.size === 0) return matching;
+
+    const seen = new Set(matching.map((b) => b.id));
+    const extra = buildings.filter((b) => {
+      if (seen.has(b.id)) return false;
+      return (b.tenants ?? []).some(
+        (t) =>
+          (t.floor_numbers ?? []).length > 0 &&
+          wanted.has(t.relationship === 'client' ? 'client' : 'occupied'),
+      );
+    });
+    return extra.length > 0 ? [...matching, ...extra] : matching;
+  }, [buildings, filters, occupancyKinds]);
 
   /**
    * "Isolate" narrows the map to what is being discussed: the buildings inside

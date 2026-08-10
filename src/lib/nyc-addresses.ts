@@ -89,10 +89,28 @@ const ORDINAL_WORDS: [RegExp, string][] = [
  * Manhattan streets with two names in daily use. A sheet may carry either.
  * Applied before everything else, on the raw uppercased text.
  */
+/**
+ * Streets with two names, collapsed onto one.
+ *
+ * Both directions matter, and that is the trap. A broker types "1211 Avenue of
+ * the Americas"; the city's own record for that building says
+ * "AVE OF THE AMERICAS" — abbreviated — while for other buildings on the same
+ * street it says "6 AVE". Matching only the spelled-out form meant the alias
+ * fired on what was typed and not on what the city returned, so the two
+ * normalised to different strings and one of Manhattan's best-known addresses
+ * came back unmatched.
+ *
+ * So each entry has to accept every spelling of BOTH names and land them all
+ * on one token. `AVE(NUE)?` rather than `AVENUE`, throughout.
+ */
 const STREET_ALIASES: [RegExp, string][] = [
-  [/\bAVENUE\s+OF\s+THE\s+AMERICAS\b/g, '6 AVENUE'],
+  [/\bAVE(NUE)?\s+OF\s+THE\s+AMERICAS\b/g, '6 AVENUE'],
   [/\bFASHION\s+AVE(NUE)?\b/g, '7 AVENUE'],
-  [/\bPARK\s+AVENUE\s+SOUTH\b/g, 'PARK AVENUE S'],
+  [/\bPARK\s+AVE(NUE)?\s+SOUTH\b/g, 'PARK AVENUE S'],
+  // The other renamed avenues the city files under a vanity name.
+  [/\bMALCOLM\s+X\s+BLVD\b/g, 'LENOX AVENUE'],
+  [/\bADAM\s+CLAYTON\s+POWELL\s+(JR\.?\s+)?BLVD\b/g, '7 AVENUE'],
+  [/\bFREDERICK\s+DOUGLASS\s+BLVD\b/g, '8 AVENUE'],
 ];
 
 /**

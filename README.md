@@ -11,6 +11,7 @@ Built to be used live in a tenant meeting.
 ## What it does
 
 - **Drop a CSV → the map updates.** The weekly "Space Added This Week" sheet imports as-is, no reformatting.
+- **Or add one by hand.** A single building, or a single floor, from its address — no spreadsheet. Through the same matcher, the same floor parser and the same tables, so a hand-added building is not a lesser kind of building. A building may exist with nothing available in it: you know the tower before you know what is free in it.
 - **A city we draw ourselves.** The default view needs no API key, no billing and no tile server: our own streets, kerbs, pavements, parks, rivers, street trees, subway entrances and buildings, all from free NYC and MTA open data. See [The city, and where it comes from](#the-city-and-where-it-comes-from).
 - **Photorealistic mode.** An optional camera toggle swaps our massing for Google's photographed 3D imagery — real facades and rooftops. Off by default, needs a Google Cloud key, and bills per use; availability bands draw over the imagery so they stay readable. It is an alternative, never a dependency: nothing in the default map relies on it. See SETUP.md.
 - **The real city around them.** Every other building in view is drawn from NYC's footprint and roof-height records, so your towers stand inside Manhattan instead of floating in an empty plane. Scenery only — it is never clickable, coloured or labelled.
@@ -200,7 +201,7 @@ for the same reason and with a test to hold it.
 | Plan | Complete — [PLAN.md](./PLAN.md) |
 | Build | Complete and deployable |
 | Production build | Passing |
-| Tests | 341 passing — parser against both real sheets, plus transit, photoreal gating, streetscape and label layout, roofscape geometry, atmosphere and both shaders' picking guards, entrance placement, street-network routing, station deduplication, the fallback geocoder's address normalisation, the compare set's lifecycle, the source resolver's field-by-field answers, how people write floors, the occupancy bands' hierarchy, the Salesforce field mapping, and two guards that hold rules a comment cannot: that no UI file references a named agent, and that every dismiss-on-outside-click surface exempts the source popover |
+| Tests | 347 passing — parser against both real sheets, plus transit, photoreal gating, streetscape and label layout, roofscape geometry, atmosphere and both shaders' picking guards, entrance placement, street-network routing, station deduplication, the fallback geocoder's address normalisation, the compare set's lifecycle, the source resolver's field-by-field answers, how people write floors, the occupancy bands' hierarchy, the Salesforce field mapping, and two guards that hold rules a comment cannot: that no UI file references a named agent, and that every dismiss-on-outside-click surface exempts the source popover |
 | Coverage | Midtown + Midtown South |
 
 ### Verifying it by looking at it
@@ -218,6 +219,7 @@ against the live database, and every assertion is on the thing itself:
 | `node scripts/shoot.mjs <dir> <tag>` | Both themes, wide and close, with and without transit. |
 | `node scripts/shoot-ground.mjs`, `shoot-atmosphere.mjs`, `shoot-stations.mjs` | The ground plane, the four hours, and the subway entrances. |
 | `node scripts/verify-snapshot.mjs <dir>` | Stack Snapshot is produced for real and the PNG inspected: composed at 2x, and no blank filler band. |
+| `node scripts/verify-add-by-hand.mjs <dir>` | An address already on the map is recognised **before** anything is created and the create button stays disabled; a new one reports the BIN it resolved to; an unreal one is refused with a reason; and a building's own page offers the same form without asking for an address. |
 | `node scripts/verify-occupancy.mjs <dir>` | The three band kinds are listed, filterable and clickable on the real map; availability cannot be switched off; a tenant name finds its building; Compare answers "what else is in that tower"; and an unconfigured Salesforce fails with a remedy rather than just a failure. |
 | `node scripts/verify-sources.mjs <dir>` | The source markers are reachable on the map, on a station, on the building page and in compare; opening one does **not** close the card it sits on; only one opens at a time; and the sheet, the city and the hand-kept transit table give different answers where they should. |
 
@@ -406,6 +408,7 @@ src/lib/provenance.ts     Where every value on screen came from — one resolver
 src/lib/floor-list.ts     "12-14", "Ground", "Suite 402" → the floors a band can be drawn on
 src/lib/tenant-import.ts  Puts a roster of tenancies onto buildings, creating any it has not seen
 src/lib/salesforce.ts     The CRM sync, converging on the same rows the CSV importer makes
+src/lib/manual-entry.ts   One building or one floor from an address, with the file taken out
 src/components/ui/SourceInfo.tsx  The circled "i", and the helper every dismissible surface must call
 scripts/verify-*.mjs      Behaviour checks that assert on the thing itself
 scripts/shoot-*.mjs       Screenshot harnesses for visual verification
