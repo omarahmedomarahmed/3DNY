@@ -28,18 +28,35 @@ import type { MatchConfidence } from '@/types';
 const GEOSEARCH = 'https://geosearch.planninglabs.nyc/v2/search';
 
 /**
- * Once Geosearch has failed, stop calling it for the rest of the process.
+ * Once Geosearch has failed, stop calling it — but only for a while.
  *
  * An import geocodes every unique address, and each address tries several
  * candidate spellings. Against a service that is down, that is dozens of
- * requests all waiting for the same timeout — an import that should take
- * seconds instead takes minutes to arrive at the same answer.
+ * requests all waiting for the same timeout: an import that should take
+ * seconds instead takes minutes to arrive at the same answer. So the first
+ * failure trips a breaker and the rest of the run uses AddressPoint.
+ *
+ * The breaker EXPIRES, and that part was missing. It was a plain boolean, so
+ * one bad moment took Geosearch out for the life of the process — on a server
+ * that stays up for days, a single timeout during Tuesday's import meant every
+ * lookup for the rest of the week silently used the fallback. Nothing looked
+ * broken; the answers were just coming from the second-best source, and the
+ * explanation on every match said "previously unreachable" about something
+ * that had recovered hours ago.
+ *
+ * A minute is long enough to cover an import, short enough that the next piece
+ * of work gets the authoritative source back.
  */
-let geosearchDown = false;
+const GEOSEARCH_BREAKER_MS = 60_000;
+let geosearchDownUntil = 0;
+
+function geosearchIsDown(): boolean {
+  return Date.now() < geosearchDownUntil;
+}
 
 /** Test seam: lets a run start from a known state. */
 export function resetGeosearchHealth(): void {
-  geosearchDown = false;
+  geosearchDownUntil = 0;
 }
 
 export interface GeocodeResult {
@@ -172,9 +189,9 @@ export async function geocodeAddress(
 
   const candidates = addressCandidates(address);
   let nearest: { feature: GeosearchFeature; candidate: string } | null = null;
-  let geosearchError: string | null = geosearchDown ? 'previously unreachable' : null;
+  let geosearchError: string | null = geosearchIsDown() ? 'unreachable a moment ago' : null;
 
-  for (let i = 0; i < candidates.length && !geosearchDown; i++) {
+  for (let i = 0; i < candidates.length && !geosearchIsDown(); i++) {
     const candidate = candidates[i];
     let features: GeosearchFeature[];
     try {
@@ -182,7 +199,7 @@ export async function geocodeAddress(
     } catch (err) {
       // Do not give up on the address — try the other source below. But do
       // stop asking this one, for this address and every later one.
-      geosearchDown = true;
+      geosearchDownUntil = Date.now() + GEOSEARCH_BREAKER_MS;
       geosearchError = (err as Error).message;
       break;
     }

@@ -11,6 +11,7 @@ import SourceInfo from '@/components/ui/SourceInfo';
 import { buildingSource, type SourceNote } from '@/lib/provenance';
 import EditDrawer, { type EditTarget } from '@/components/edit/EditDrawer';
 import SpaceTable from './SpaceTable';
+import AddSpace from './AddSpace';
 import SpaceDetail from './SpaceDetail';
 import TenantTable from './TenantTable';
 import LandlordPanel from './LandlordPanel';
@@ -269,7 +270,11 @@ export default function BuildingProfile({ buildingId }: { buildingId: string }) 
         </div>
       </header>
 
-      <Section id="spaces" title={`Available Spaces (${activeSpaces.length})`}>
+      <Section
+        id="spaces"
+        title={`Available Spaces (${activeSpaces.length})`}
+        action={<AddSpace buildingId={building.id} />}
+      >
         <SpaceTable building={building} />
       </Section>
 

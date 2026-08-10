@@ -104,3 +104,33 @@ describe('houseNumberCandidates', () => {
     expect(houseNumberCandidates('145')).toEqual(['145']);
   });
 });
+
+describe('a street with two names lands on one', () => {
+  /**
+   * The trap this exists for: a broker types "Avenue of the Americas", and the
+   * city's record for that same building says "AVE OF THE AMERICAS" while its
+   * record for the building next door says "6 AVE". An alias that only matches
+   * the spelled-out form fires on what was typed and not on what came back, so
+   * the two normalise to different strings and one of the best-known addresses
+   * in Manhattan comes back unmatched.
+   */
+  const groups: [string, string[]][] = [
+    ['Sixth Avenue', ['Avenue of the Americas', 'AVE OF THE AMERICAS', 'AVENUE OF THE AMERICAS', '6 Avenue', '6 AVE', '6th Ave']],
+    ['Seventh Avenue', ['Fashion Avenue', 'FASHION AVE', '7 Avenue', '7 AVE']],
+    ['Park Avenue South', ['Park Avenue South', 'PARK AVE SOUTH', 'Park Ave S']],
+    ['Lenox Avenue', ['Malcolm X Blvd', 'MALCOLM X BLVD', 'Lenox Avenue', 'LENOX AVE']],
+    ['Eighth Avenue', ['Frederick Douglass Blvd', '8 Avenue', '8 AVE']],
+  ];
+
+  for (const [name, spellings] of groups) {
+    it(`${name}: every spelling normalises the same`, () => {
+      const seen = spellings.map((s) => normalizeStreetName(s));
+      expect(new Set(seen).size, `${name} → ${JSON.stringify(seen)}`).toBe(1);
+    });
+  }
+
+  it('still keeps genuinely different streets apart', () => {
+    expect(normalizeStreetName('6 Avenue')).not.toBe(normalizeStreetName('7 Avenue'));
+    expect(normalizeStreetName('Park Avenue')).not.toBe(normalizeStreetName('Park Avenue South'));
+  });
+});

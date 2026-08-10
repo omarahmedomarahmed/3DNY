@@ -6,6 +6,7 @@ import { useApp } from '@/lib/store';
 import type { MatchedRow } from '@/types';
 import AppHeader from '@/components/shell/AppHeader';
 import TenantImport from '@/components/import/TenantImport';
+import AddByHand from '@/components/import/AddByHand';
 import { DotMotif } from '@/components/brand/Logo';
 import DropZone, { type ImportCounts, type ParseResponse } from '@/components/import/DropZone';
 import ImportPreview from '@/components/import/ImportPreview';
@@ -452,6 +453,8 @@ export default function ImportPage() {
             their own block rather than another stage in the availability
             wizard — nobody importing a weekly sheet should have to walk past
             a CRM sync to finish it. */}
+        <AddByHand />
+
         <TenantImport />
       </div>
     </main>
