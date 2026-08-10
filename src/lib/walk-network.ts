@@ -156,15 +156,149 @@ export function nearestNode(
  * Returns null rather than a guess when either end is nowhere near a street,
  * so the caller can fall back deliberately.
  */
+/** The closest point on a segment to `p`, and how far away that is. */
+function projectOnSegment(
+  p: [number, number],
+  a: [number, number],
+  b: [number, number],
+): { point: [number, number]; meters: number } {
+  // Longitude is compressed by latitude, so a straight metric projection in
+  // raw degrees leans the foot of the perpendicular east or west. Scaling
+  // longitude by cos(lat) makes the local plane square enough for a block.
+  const k = Math.cos((p[1] * Math.PI) / 180) || 1;
+  const ax = a[0] * k;
+  const ay = a[1];
+  const bx = b[0] * k;
+  const by = b[1];
+  const px = p[0] * k;
+  const py = p[1];
+
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lengthSq = dx * dx + dy * dy;
+  const t = lengthSq === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lengthSq));
+  const point: [number, number] = [(ax + t * dx) / k, ay + t * dy];
+  return { point, meters: metersBetween(p, point) };
+}
+
+/**
+ * The point on the street directly in front of a building.
+ *
+ * `nearestNode` answers a different question — which VERTEX of the centreline
+ * network is closest — and the difference is what the walk lines looked wrong
+ * for. A vertex is usually an intersection, so the route began at the
+ * building's centroid, struck out diagonally across the block to the corner,
+ * and only then turned onto the street. Every walk from that building started
+ * with a leg through the middle of the building.
+ *
+ * This projects the building onto the nearest street SEGMENT instead, which
+ * lands on the kerb the doorway actually opens onto. The route then starts
+ * there rather than inside the block, and its first turn is at the point a
+ * person would really be standing.
+ *
+ * Returns the foot of the perpendicular plus the two ends of the segment it
+ * fell on, because routing has to continue from a node and either end may be
+ * the one that leads toward the destination.
+ */
+export function streetFrontage(
+  graph: WalkGraph,
+  point: [number, number],
+  maxMeters = MAX_SNAP_M,
+): { point: [number, number]; ends: string[] } | null {
+  const cx = Math.floor(point[0] / graph.cellSize);
+  const cy = Math.floor(point[1] / graph.cellSize);
+
+  let best: { point: [number, number]; ends: string[] } | null = null;
+  let bestDist = Infinity;
+  const seen = new Set<string>();
+
+  for (let ring = 0; ring <= 2; ring++) {
+    for (let dx = -ring; dx <= ring; dx++) {
+      for (let dy = -ring; dy <= ring; dy++) {
+        if (ring > 0 && Math.abs(dx) !== ring && Math.abs(dy) !== ring) continue;
+        const keys = graph.cells.get(`${cx + dx},${cy + dy}`);
+        if (!keys) continue;
+
+        for (const key of keys) {
+          const a = graph.nodes.get(key)!;
+          for (const [next] of graph.edges.get(key) ?? []) {
+            // Each edge is stored in both directions; measuring it twice is
+            // just work, and the pair key is cheaper than the projection.
+            const pair = key < next ? `${key}|${next}` : `${next}|${key}`;
+            if (seen.has(pair)) continue;
+            seen.add(pair);
+
+            const b = graph.nodes.get(next)!;
+            const hit = projectOnSegment(point, a, b);
+            if (hit.meters < bestDist) {
+              bestDist = hit.meters;
+              best = { point: hit.point, ends: [key, next] };
+            }
+          }
+        }
+      }
+    }
+    if (best && bestDist <= graph.cellSize * 111_000 * ring) break;
+  }
+
+  return best && bestDist <= maxMeters ? best : null;
+}
+
+/** Total length of a polyline, in metres. */
+function pathMeters(path: [number, number][]): number {
+  let total = 0;
+  for (let i = 1; i < path.length; i++) total += metersBetween(path[i - 1], path[i]);
+  return total;
+}
+
 export function routeOnStreets(
   graph: WalkGraph,
   from: [number, number],
   to: [number, number],
 ): [number, number][] | null {
-  const start = nearestNode(graph, from);
   const goal = nearestNode(graph, to);
-  if (!start || !goal) return null;
+  if (!goal) return null;
+
+  // Start on the kerb in front of the building rather than at its centroid.
+  // Both ends of that segment are tried because the foot of the perpendicular
+  // is usually mid-block, and only one of the two directions leads toward the
+  // stop — picking the geometrically nearer end would send half the routes the
+  // long way round the block.
+  const frontage = streetFrontage(graph, from);
+  if (frontage) {
+    let best: [number, number][] | null = null;
+    let bestMeters = Infinity;
+
+    for (const end of frontage.ends) {
+      const legs = routeBetween(graph, end, goal);
+      if (!legs) continue;
+      const candidate: [number, number][] = [frontage.point, ...legs, to];
+      const meters = pathMeters(candidate);
+      if (meters < bestMeters) {
+        bestMeters = meters;
+        best = candidate;
+      }
+    }
+    if (best) return best;
+  }
+
+  // No street close enough to project onto — fall back to the old behaviour
+  // rather than drawing nothing. A line from the centroid is imperfect; no
+  // line at all loses the walk time beside it.
+  const start = nearestNode(graph, from);
+  if (!start) return null;
   if (start === goal) return [from, graph.nodes.get(start)!, to];
+  const legs = routeBetween(graph, start, goal);
+  return legs ? [from, ...legs, to] : null;
+}
+
+/** A* between two graph nodes. Returns the node coordinates, ends included. */
+function routeBetween(
+  graph: WalkGraph,
+  start: string,
+  goal: string,
+): [number, number][] | null {
+  if (start === goal) return [graph.nodes.get(start)!];
 
   const goalPoint = graph.nodes.get(goal)!;
   const cameFrom = new Map<string, string>();
@@ -203,10 +337,7 @@ export function routeOnStreets(
     if (at === start) break;
   }
   path.reverse();
-
-  // The stubs from the doorway to the kerb and from the kerb to the entrance
-  // are part of the walk, and without them the line starts in mid-air.
-  return [from, ...path, to];
+  return path;
 }
 
 /** Graphs are cached per fetched road payload — building one is not cheap. */

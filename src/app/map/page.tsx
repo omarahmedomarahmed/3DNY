@@ -9,6 +9,8 @@ import FilterRail from '@/components/filters/FilterRail';
 import ResultsSidebar from '@/components/sidebar/ResultsSidebar';
 import ComparePanel from '@/components/compare/ComparePanel';
 import { DotMotif } from '@/components/brand/Logo';
+import { RailShowButton } from '@/components/map/RailToggle';
+import { activeFilterCount } from '@/lib/filters';
 
 // deck.gl and MapLibre touch `window` at module scope, so the map can only be
 // loaded in the browser.
@@ -26,12 +28,24 @@ export default function MapPage() {
   const buildings = useApp((s) => s.buildings);
   const loading = useApp((s) => s.loading);
   const error = useApp((s) => s.error);
+  const leftRailOpen = useApp((s) => s.leftRailOpen);
+  const rightRailOpen = useApp((s) => s.rightRailOpen);
+  const setLeftRailOpen = useApp((s) => s.setLeftRailOpen);
+  const setRightRailOpen = useApp((s) => s.setRightRailOpen);
+  const filters = useApp((s) => s.filters);
 
   useEffect(() => {
     void loadBuildings();
   }, [loadBuildings]);
 
   const empty = !loading && !error && buildings.length === 0;
+
+  // Both rails are closed to begin with, so their buttons are the only sign
+  // either exists. The counts are what make them worth pressing: "Filters 3"
+  // says something is currently narrowing the map, and "Spaces 312" says how
+  // much is behind the other one.
+  const filterCount = activeFilterCount(filters);
+  const spaceCount = buildings.reduce((sum, b) => sum + (b.spaces?.length ?? 0), 0);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-white">
@@ -47,10 +61,35 @@ export default function MapPage() {
       )}
 
       <div className="flex min-h-0 flex-1">
-        <FilterRail />
+        {/* Not rendered when closed rather than shrunk to a strip. A rail that
+            is present but narrow still takes width from the map and still
+            reads as a piece of chrome to work around; the point of closing it
+            is that the map gets the whole window. */}
+        {leftRailOpen && (
+          <div className="w-80 shrink-0">
+            <FilterRail />
+          </div>
+        )}
 
         <main className="relative min-w-0 flex-1">
           <MapView />
+
+          {!leftRailOpen && (
+            <RailShowButton
+              side="left"
+              label="Filters"
+              badge={filterCount}
+              onClick={() => setLeftRailOpen(true)}
+            />
+          )}
+          {!rightRailOpen && (
+            <RailShowButton
+              side="right"
+              label="Spaces"
+              badge={spaceCount}
+              onClick={() => setRightRailOpen(true)}
+            />
+          )}
 
           {/* Compare lives ON the map: a floating panel over the towers it
               describes, not a page takeover that replaces them. */}
@@ -86,7 +125,11 @@ export default function MapPage() {
           )}
         </main>
 
-        <ResultsSidebar />
+        {rightRailOpen && (
+          <div className="w-[26rem] shrink-0">
+            <ResultsSidebar />
+          </div>
+        )}
       </div>
     </div>
   );

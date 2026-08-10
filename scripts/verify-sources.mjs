@@ -15,6 +15,7 @@
  * role and accessible name, never on text that also appears in the sidebar.
  */
 import { chromium } from 'playwright';
+import { openMapChrome } from './harness.mjs';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -93,8 +94,7 @@ async function aimAt(lon, lat, zoom = 18) {
 // --- On the map ------------------------------------------------------------
 
 await page.goto('http://localhost:3111/map', { waitUntil: 'domcontentloaded' });
-await page.waitForSelector('.maplibregl-map canvas', { timeout: 30000 });
-await page.waitForSelector('text=100 Park Avenue', { timeout: 30000 });
+await openMapChrome(page);
 await sleep(6000);
 
 await page.getByRole('button', { name: /100 Park Avenue/ }).first().click();
@@ -283,8 +283,7 @@ await page.screenshot({ path: join(outdir, 'sources-building.png'), fullPage: fa
 // --- In compare ------------------------------------------------------------
 
 await page.goto('http://localhost:3111/map', { waitUntil: 'domcontentloaded' });
-await page.waitForSelector('.maplibregl-map canvas', { timeout: 30000 });
-await page.waitForSelector('text=100 Park Avenue', { timeout: 30000 });
+await openMapChrome(page);
 await sleep(5000);
 
 // Adding to compare opens the panel by itself, so there is no launcher to

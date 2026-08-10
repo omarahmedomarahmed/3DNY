@@ -8,6 +8,7 @@
  * atmosphere pass has failed regardless of how good the sky looks.
  */
 import { chromium } from 'playwright';
+import { openMapChrome } from './harness.mjs';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -23,8 +24,7 @@ page.on('pageerror', (e) => console.log('[pageerror]', String(e).slice(0, 300)))
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 await page.goto('http://localhost:3111/map', { waitUntil: 'domcontentloaded' });
-await page.waitForSelector('.maplibregl-map canvas', { timeout: 30000 });
-await page.waitForSelector('text=100 Park Avenue', { timeout: 30000 });
+await openMapChrome(page);
 await sleep(6000);
 
 // Surrounding city on, a building selected, and a low camera — the busiest,

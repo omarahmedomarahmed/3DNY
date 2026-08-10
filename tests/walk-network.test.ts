@@ -139,14 +139,43 @@ describe('routeOnStreets', () => {
     expect(length).toBeLessThan(420);
   });
 
-  it('starts at the origin and ends at the destination', () => {
+  it('starts on the street in front of the building, not inside the block', () => {
     const g = buildWalkGraph(grid());
+    // Three metres inside the corner of a block — a doorway, effectively.
     const from: [number, number] = [-73.98 + east(3), LAT + north(3)];
     const to: [number, number] = [-73.98 + east(197), LAT + north(3)];
     const path = routeOnStreets(g, from, to)!;
-    // Without the stubs from doorway to kerb the line starts in mid-air.
-    expect(path[0]).toEqual(from);
+
+    // It does NOT start at the building. A line from the centroid to the
+    // nearest intersection crosses the block it is standing on, which is the
+    // one place a person definitely cannot walk.
+    expect(path[0]).not.toEqual(from);
+
+    // It starts on a street: on this grid every street is an axis line
+    // through the corner, so the frontage lies on one of them.
+    const [lon, lat] = path[0];
+    const onStreet =
+      Math.abs(metersBetween([lon, lat], [lon, LAT])) < 1 ||
+      Math.abs(metersBetween([lon, lat], [-73.98, lat])) < 1;
+    expect(onStreet).toBe(true);
+
+    // And close by — this is the kerb outside the door, not a corner two
+    // blocks away.
+    expect(metersBetween(from, path[0])).toBeLessThan(30);
+
+    // The destination end is untouched: you walk to the door of the station,
+    // not to the kerb outside it.
     expect(path[path.length - 1]).toEqual(to);
+  });
+
+  it('falls back to the building itself when no street is near enough', () => {
+    // A lone road 500m away, well past the snap limit.
+    const g = buildWalkGraph(grid());
+    const from: [number, number] = [-73.98 + east(900), LAT + north(900)];
+    const to: [number, number] = [-73.98 + east(197), LAT];
+    // Nothing to project onto and nothing to route from: no line, rather than
+    // a straight one drawn across half of Manhattan.
+    expect(routeOnStreets(g, from, to)).toBeNull();
   });
 
   it('takes the shorter way round when the block is not square', () => {

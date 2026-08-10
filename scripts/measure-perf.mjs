@@ -12,6 +12,7 @@
  * costs nothing and tells you nothing.
  */
 import { chromium } from 'playwright';
+import { openMapChrome } from './harness.mjs';
 
 const browser = await chromium.launch({
   executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
@@ -69,8 +70,7 @@ async function spin(seconds) {
 }
 
 await page.goto('http://localhost:3111/map', { waitUntil: 'domcontentloaded' });
-await page.waitForSelector('.maplibregl-map canvas', { timeout: 30000 });
-await page.waitForSelector('text=100 Park Avenue', { timeout: 30000 });
+await openMapChrome(page);
 await sleep(7000);
 
 console.log('\nSoftware rasteriser (SwiftShader) — a pessimistic floor, not a prediction.\n');

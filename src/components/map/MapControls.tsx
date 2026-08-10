@@ -44,14 +44,32 @@ interface MapControlsProps {
   snapshotBusy: boolean;
 }
 
+/**
+ * One tool, with a sentence about what it does.
+ *
+ * A `title` attribute was the only explanation these had, which means it did
+ * not exist: it takes a second of hovering, never appears on a touch screen,
+ * and is invisible on a projector. Fifteen unlabelled icons in a column is a
+ * puzzle, and the two that matter most in a meeting — isolate, and stack
+ * snapshot — are the two nobody guesses.
+ *
+ * So the explainer is a pill that opens to the LEFT of the stack on hover or
+ * keyboard focus. Left, because the stack is pinned to the right edge and a
+ * tooltip on the right would be off screen. It carries the name in bold and a
+ * sentence under it, and it is `pointer-events-none` so it can never sit
+ * between the cursor and the button it describes.
+ */
 function ControlButton({
   label,
+  hint,
   onClick,
   disabled,
   active = false,
   children,
 }: {
   label: string;
+  /** One sentence: what pressing this does, and when you would want it. */
+  hint?: string;
   onClick: (event?: React.MouseEvent) => void;
   disabled?: boolean;
   /** Renders the pressed state, for buttons that toggle rather than act. */
@@ -59,22 +77,33 @@ function ControlButton({
   children: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      onClick={(event) => onClick(event)}
-      disabled={disabled}
-      aria-label={label}
-      aria-pressed={active || undefined}
-      title={label}
-      className={
-        'flex h-9 w-9 items-center justify-center border-b border-hairline transition-colors last:border-b-0 focus:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:text-subtle disabled:hover:bg-white ' +
-        (active
-          ? 'bg-midnight text-goldenrod hover:bg-midnight-700'
-          : 'text-midnight hover:bg-goldenrod-50')
-      }
-    >
-      {children}
-    </button>
+    <div className="group relative">
+      <button
+        type="button"
+        onClick={(event) => onClick(event)}
+        disabled={disabled}
+        aria-label={label}
+        aria-pressed={active || undefined}
+        title={label}
+        className={
+          'flex h-9 w-9 items-center justify-center border-b border-hairline transition-colors last:border-b-0 focus:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:text-subtle disabled:hover:bg-white ' +
+          (active
+            ? 'bg-midnight text-goldenrod hover:bg-midnight-700'
+            : 'text-midnight hover:bg-goldenrod-50')
+        }
+      >
+        {children}
+      </button>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute right-full top-1/2 z-30 mr-2 hidden w-60 -translate-y-1/2 rounded-card border border-hairline-strong bg-white p-2.5 text-left shadow-float group-hover:block group-focus-within:block"
+      >
+        <span className="block text-[12px] font-semibold leading-snug text-ink">{label}</span>
+        {hint ? (
+          <span className="mt-0.5 block text-[11px] leading-snug text-muted">{hint}</span>
+        ) : null}
+      </span>
+    </div>
   );
 }
 
@@ -122,11 +151,41 @@ export default function MapControls({
   const toggleTransitMode = useApp((s) => s.toggleTransitMode);
   const isolateSelection = useApp((s) => s.isolateSelection);
   const setIsolateSelection = useApp((s) => s.setIsolateSelection);
+  const controlsOpen = useApp((s) => s.controlsOpen);
+  const setControlsOpen = useApp((s) => s.setControlsOpen);
+
+  /**
+   * Closed, the stack is one button.
+   *
+   * Fifteen icons stacked down the right edge is a column of chrome about a
+   * third of the window tall, and in a meeting almost all of it is untouched —
+   * the camera gets moved, and the rest is set once. So it folds away to a
+   * single square and the map keeps the edge, which is the same bargain the
+   * two rails make.
+   */
+  if (!controlsOpen) {
+    return (
+      <div className="pointer-events-auto absolute right-4 top-20 z-20">
+        <ControlButton
+          label="Map tools"
+          hint="Zoom, rotate, tilt, transit, time of day, theme and the stack snapshot."
+          onClick={() => setControlsOpen(true)}
+        >
+          {/* Sliders: the standard mark for "the controls are in here". */}
+          <Icon>
+            <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+            <circle cx="16" cy="7" r="2.2" />
+            <circle cx="10" cy="17" r="2.2" />
+          </Icon>
+        </ControlButton>
+      </div>
+    );
+  }
 
   return (
     <>
       {showTransit && (
-        <div className="pointer-events-auto absolute right-16 top-4 z-20 flex flex-col gap-1 rounded-card border border-hairline bg-white p-1.5 shadow-raised">
+        <div className="pointer-events-auto absolute right-16 top-20 z-20 flex flex-col gap-1 rounded-card border border-hairline bg-white p-1.5 shadow-raised">
           {TRANSIT_FILTERS.map((f) => {
             // No selection means everything is shown, so every chip reads as on.
             const on = transitModes.length === 0 || transitModes.includes(f.mode);
@@ -152,15 +211,35 @@ export default function MapControls({
         </div>
       )}
 
-    <div className="pointer-events-auto absolute right-4 top-4 z-20 flex flex-col overflow-hidden rounded-card border border-hairline bg-white shadow-raised">
-      <ControlButton label="Zoom in" disabled={!map} onClick={() => map?.zoomIn()}>
+    <div className="pointer-events-auto absolute right-4 top-20 z-20 flex flex-col overflow-hidden rounded-card border border-hairline bg-white shadow-raised">
+      <ControlButton
+        label="Close the tools"
+        hint="Folds this column away so the map has the whole window. The tools button brings it back."
+        onClick={() => setControlsOpen(false)}
+      >
+        <Icon>
+          <polyline points="9,5 16,12 9,19" />
+        </Icon>
+      </ControlButton>
+
+      <ControlButton
+        label="Zoom in"
+        hint="Closer. Floor bands appear at about zoom 14.5 and name-plates just above that."
+        disabled={!map}
+        onClick={() => map?.zoomIn()}
+      >
         <Icon>
           <line x1="12" y1="5" x2="12" y2="19" />
           <line x1="5" y1="12" x2="19" y2="12" />
         </Icon>
       </ControlButton>
 
-      <ControlButton label="Zoom out" disabled={!map} onClick={() => map?.zoomOut()}>
+      <ControlButton
+        label="Zoom out"
+        hint="Further out. Past the band threshold the towers stay, the stripes do not."
+        disabled={!map}
+        onClick={() => map?.zoomOut()}
+      >
         <Icon>
           <line x1="5" y1="12" x2="19" y2="12" />
         </Icon>
@@ -171,6 +250,7 @@ export default function MapControls({
           building to face the room should not have to know a shortcut. */}
       <ControlButton
         label="Rotate left"
+        hint="Swings the camera thirty degrees anticlockwise, so a tower can be turned to face the room."
         disabled={!map}
         onClick={() => map?.easeTo({ bearing: (map.getBearing() ?? 0) - 30, duration: 400 })}
       >
@@ -182,6 +262,7 @@ export default function MapControls({
 
       <ControlButton
         label="Rotate right"
+        hint="Swings the camera thirty degrees clockwise. Right-drag on the map does the same thing."
         disabled={!map}
         onClick={() => map?.easeTo({ bearing: (map.getBearing() ?? 0) + 30, duration: 400 })}
       >
@@ -196,6 +277,7 @@ export default function MapControls({
           between two fixed positions. MapLibre caps pitch at 85. */}
       <ControlButton
         label="Raise the view angle"
+        hint="Tips the camera toward street level in ten-degree steps, which is where the height of a tower reads."
         disabled={!map}
         onClick={() =>
           map?.easeTo({
@@ -214,6 +296,7 @@ export default function MapControls({
 
       <ControlButton
         label="Lower the view angle"
+        hint="Tips the camera back toward straight down, which is where the street grid reads."
         disabled={!map}
         onClick={() =>
           map?.easeTo({
@@ -231,6 +314,7 @@ export default function MapControls({
 
       <ControlButton
         label="Reset north and tilt"
+        hint="Puts north back at the top and the camera back to its opening angle."
         disabled={!map}
         onClick={() => map?.easeTo({ bearing: 0, pitch: HOME_PITCH, duration: 600 })}
       >
@@ -243,6 +327,7 @@ export default function MapControls({
 
       <ControlButton
         label="Fit to all buildings"
+        hint="Frames every loaded building at once, however far apart they are."
         disabled={!map || !canFitAll}
         onClick={onFitAll}
       >
@@ -259,6 +344,7 @@ export default function MapControls({
           building selected, dashed walk lines and minutes to the nearest few. */}
       <ControlButton
         label={showTransit ? 'Hide transit stops' : 'Show transit stops and walk times'}
+        hint="Every subway, bus, ferry and rail stop in view. With a building selected, dashed walk lines and the minutes to the nearest few."
         active={showTransit}
         disabled={!map}
         onClick={() => setShowTransit(!showTransit)}
@@ -282,6 +368,7 @@ export default function MapControls({
             ? 'Show all buildings again'
             : 'Show only the selection, or what is inside the radius'
         }
+        hint="Hides everything except the selected building, or everything outside the radius. For showing one option without the rest of the market around it."
         active={isolateSelection}
         disabled={!map}
         onClick={() => setIsolateSelection(!isolateSelection)}
@@ -305,6 +392,7 @@ export default function MapControls({
             ? 'Stack snapshot of the selected building (hold Shift for photorealistic)'
             : 'Select a building first, then take a stack snapshot'
         }
+        hint="Writes a PNG of the selected building with every available floor and the landlord beside it. Hold Shift for photorealistic imagery."
         disabled={!map || !canSnapshot}
         active={snapshotBusy}
         onClick={(event) => onStackSnapshot(Boolean(event?.shiftKey))}
@@ -322,6 +410,7 @@ export default function MapControls({
           a menu: it is a thing you flick through while talking. */}
       <ControlButton
         label={`Time of day: ${ATMOSPHERE[activeTime].label}. Click for the next hour`}
+        hint="Moves the real sun, the sky and the distance haze. Cycles through the hours — something to flick through while talking."
         disabled={!map}
         onClick={() => {
           const i = TIME_ORDER.indexOf(activeTime);
@@ -340,6 +429,7 @@ export default function MapControls({
           on projectors, where a white basemap washes the buildings out. */}
       <ControlButton
         label={mapTheme === 'dark' ? 'Switch to the light map' : 'Switch to the dark map'}
+        hint="Light is the default. Dark reads better in a dim room on a projector, where a white basemap washes the towers out."
         disabled={!map}
         onClick={() => setMapTheme(mapTheme === 'dark' ? 'light' : 'dark')}
       >
@@ -365,6 +455,7 @@ export default function MapControls({
             ? 'Hide buildings with nothing available'
             : 'Show the surrounding city'
         }
+        hint="Brings back every building with nothing available, in grey, for orientation. Off by default — the clean map is the one that gets shown to a client."
         active={showContext}
         disabled={!map}
         onClick={() => setShowContext(!showContext)}
@@ -383,6 +474,7 @@ export default function MapControls({
       {photorealAvailable() && (
         <ControlButton
           label={photoreal ? 'Switch to plain massing' : 'Switch to photorealistic buildings'}
+          hint="Swaps the grey massing for Google's photography. Only over Manhattan and only close in."
           active={photoreal}
           disabled={!map}
           onClick={() => setPhotoreal(!photoreal)}

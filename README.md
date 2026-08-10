@@ -182,6 +182,37 @@ one marker when every column gives the same answer. The Stack Snapshot is a
 PNG that gets forwarded and cannot carry an affordance at all, so it prints the
 same facts in its footer.
 
+### The map opens as a map
+
+Both rails are closed, the tool stack is folded to one button, and the basemap
+is light. Everything is one press away — a large **Filters** button top-left, a
+large **Spaces** button top-right, both carrying a count so the button says
+what is behind it.
+
+This is not minimalism for its own sake. A filter rail down one side and a
+results list down the other leaves about half the window for the thing everyone
+in the meeting is actually looking at, and the first thing a broker did on
+opening it was collapse both by hand. Dark was the default on the argument that
+these maps are shown in dim rooms on projectors — true of some meetings and not
+of the laptop where the work happens.
+
+Four more things follow from the same idea:
+
+- **The legend folds**, whole or in parts. "Bands on the towers" has its own
+  toggle, because once you know gold means available you stop reading it.
+- **Every tool explains itself.** Hovering one opens a pill with its name and a
+  sentence. Fifteen unlabelled icons is a puzzle, and a `title` attribute is
+  invisible on a projector and absent on a touch screen.
+- **Cards drag, and pin.** Any card opened from the map — a building, a floor,
+  a tenancy, a station — can be dragged by its header and pinned. A pinned card
+  survives the click that opens the next one, so two floors in the same tower,
+  or the same floor in two towers, can sit side by side. Exactly one card is
+  ever unpinned; that one closes on a click away, so clicking around a tower
+  never leaves a trail.
+- **The colours can be changed** — the band for available space, for clients,
+  for occupied floors, the selected building, the selected floor, and both ends
+  of the colour ramp. See below for what that deliberately does not include.
+
 ### The one rule
 
 A Goldenrod band on the 14th floor is the loudest thing on screen. Everything
@@ -191,8 +222,14 @@ all** to the availability bands, so a band is at full contrast at any distance;
 roof furniture takes the colour of the building it stands on rather than
 introducing a second colour at the top of a silhouette; and the Compare
 launcher on the map canvas is deliberately not Goldenrod, because on the map
-Goldenrod means available space and nothing else — as are the source markers,
-for the same reason and with a test to hold it.
+Goldenrod means available space and nothing else — as are the source markers
+and the two rail buttons, for the same reason and with a test to hold it.
+
+The colour controls hand over the **hue** and nothing else. Opacity, stripe
+thickness and draw order are what actually enforce this rule — availability is
+drawn last, thickest and at full opacity — so a recoloured band still arrives
+loudest. That is the difference between letting someone adapt the map to their
+room and letting them break it.
 
 ---
 
@@ -203,8 +240,8 @@ for the same reason and with a test to hold it.
 | Plan | Complete — [PLAN.md](./PLAN.md) |
 | Build | Complete and deployable |
 | Production build | Passing |
-| Tests | 347 passing — parser against both real sheets, plus transit, photoreal gating, streetscape and label layout, roofscape geometry, atmosphere and both shaders' picking guards, entrance placement, street-network routing, station deduplication, the fallback geocoder's address normalisation, the compare set's lifecycle, the source resolver's field-by-field answers, how people write floors, the occupancy bands' hierarchy, the Salesforce field mapping, and two guards that hold rules a comment cannot: that no UI file references a named agent, and that every dismiss-on-outside-click surface exempts the source popover |
-| Coverage | Midtown + Midtown South |
+| Tests | 390 passing — parser against both real sheets, plus transit, photoreal gating, streetscape and label layout, roofscape geometry, atmosphere and both shaders' picking guards, entrance placement, street-network routing, station deduplication, the fallback geocoder's address normalisation, the compare set's lifecycle, the source resolver's field-by-field answers, how people write floors, the occupancy bands' hierarchy, the Salesforce field mapping, and two guards that hold rules a comment cannot: that no UI file references a named agent, and that every dismiss-on-outside-click surface exempts the source popover |
+| Coverage | 53 buildings, 312 availabilities, read from four landlords' own pages |
 
 ### Verifying it by looking at it
 

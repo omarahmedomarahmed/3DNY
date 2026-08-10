@@ -10,6 +10,7 @@
  * PNG — its pixel size, and whether its bottom edge is a flat empty strip.
  */
 import { chromium } from 'playwright';
+import { openMapChrome } from './harness.mjs';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -34,8 +35,7 @@ function check(name, ok, detail = '') {
 }
 
 await page.goto('http://localhost:3111/map', { waitUntil: 'domcontentloaded' });
-await page.waitForSelector('.maplibregl-map canvas', { timeout: 30000 });
-await page.waitForSelector('text=100 Park Avenue', { timeout: 30000 });
+await openMapChrome(page);
 await sleep(6000);
 
 await page.getByRole('button', { name: /100 Park Avenue/ }).first().click();

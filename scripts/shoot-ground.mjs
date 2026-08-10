@@ -4,6 +4,7 @@
  * harness frames buildings; this one frames what they stand on.
  */
 import { chromium } from 'playwright';
+import { openMapChrome } from './harness.mjs';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -42,8 +43,7 @@ async function topDown() {
 }
 
 await page.goto('http://localhost:3111/map', { waitUntil: 'domcontentloaded' });
-await page.waitForSelector('.maplibregl-map canvas', { timeout: 30000 });
-await page.waitForSelector('text=100 Park Avenue', { timeout: 30000 });
+await openMapChrome(page);
 await sleep(7000);
 
 // Select a building so the camera sits over Midtown at street-reading zoom,

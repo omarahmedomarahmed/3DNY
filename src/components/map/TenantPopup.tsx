@@ -1,13 +1,14 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useMemo } from 'react';
 import Link from 'next/link';
 
 import { useApp } from '@/lib/store';
 import { DateText, Sf } from '@/components/ui/Money';
-import SourceInfo, { isInsideSourcePopover } from '@/components/ui/SourceInfo';
+import SourceInfo from '@/components/ui/SourceInfo';
 import { tenantSource } from '@/lib/provenance';
 import { formatFloorList } from '@/lib/floor-list';
+import DraggableCard from './DraggableCard';
 import type { BuildingWithSpaces, Tenant } from '@/types';
 
 /**
@@ -29,6 +30,9 @@ const MARGIN = 12;
 const WIDTH = 320;
 
 export interface TenantPopupProps {
+  /** The card's id in the store, so drag and pin address the right one. */
+  popupId: string;
+  pinned: boolean;
   tenantId: string;
   buildingId: string;
   at: { x: number; y: number };
@@ -61,8 +65,14 @@ const RELATIONSHIP: Record<string, { label: string; className: string }> = {
   },
 };
 
-export default function TenantPopup({ tenantId, buildingId, at, onClose }: TenantPopupProps) {
-  const cardRef = useRef<HTMLDivElement | null>(null);
+export default function TenantPopup({
+  popupId,
+  pinned,
+  tenantId,
+  buildingId,
+  at,
+  onClose,
+}: TenantPopupProps) {
   const buildings = useApp((s) => s.buildings);
 
   const building = useMemo<BuildingWithSpaces | null>(
@@ -74,46 +84,6 @@ export default function TenantPopup({ tenantId, buildingId, at, onClose }: Tenan
     [building, tenantId],
   );
 
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
-
-  useLayoutEffect(() => {
-    const el = cardRef.current;
-    if (!el) return;
-    const w = el.offsetWidth;
-    const h = el.offsetHeight;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-
-    let left = at.x + OFFSET;
-    if (left + w > vw - MARGIN) left = at.x - OFFSET - w;
-    left = Math.min(Math.max(left, MARGIN), Math.max(MARGIN, vw - w - MARGIN));
-
-    let top = at.y + OFFSET;
-    if (top + h > vh - MARGIN) top = at.y - OFFSET - h;
-    top = Math.min(Math.max(top, MARGIN), Math.max(MARGIN, vh - h - MARGIN));
-
-    setPos({ left, top });
-  }, [at.x, at.y, tenantId]);
-
-  // Same rule as every other card on this map: any click that did not land
-  // inside closes it, capture phase so it runs before deck.gl's own handler.
-  useEffect(() => {
-    const onDocClick = (e: MouseEvent) => {
-      const el = cardRef.current;
-      if (el && e.target instanceof Node && el.contains(e.target)) return;
-      if (isInsideSourcePopover(e.target)) return;
-      onClose();
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('click', onDocClick, true);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('click', onDocClick, true);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [onClose]);
 
   if (!building || !tenant) return null;
 
@@ -121,19 +91,14 @@ export default function TenantPopup({ tenantId, buildingId, at, onClose }: Tenan
   const floors = formatFloorList(tenant.floor_numbers ?? []) || tenant.floors || '—';
 
   return (
-    <div
-      ref={cardRef}
-      role="dialog"
-      aria-label={`${tenant.company_name} tenancy details`}
-      style={{
-        position: 'fixed',
-        left: pos?.left ?? at.x + OFFSET,
-        top: pos?.top ?? at.y + OFFSET,
-        width: WIDTH,
-        maxWidth: `calc(100vw - ${MARGIN * 2}px)`,
-        visibility: pos ? 'visible' : 'hidden',
-      }}
-      className="z-50 overflow-hidden rounded-card border border-hairline bg-white shadow-float"
+    <DraggableCard
+      id={popupId}
+      pinned={pinned}
+      anchor={at}
+      width={WIDTH}
+      ariaLabel={`${tenant.company_name} tenancy details`}
+      title="Tenant"
+      onClose={onClose}
     >
       <header className="flex items-start gap-2 border-b border-hairline px-4 py-3">
         <div className="min-w-0 flex-1">
@@ -158,28 +123,6 @@ export default function TenantPopup({ tenantId, buildingId, at, onClose }: Tenan
             {building.address_display}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          title="Close"
-          className="-mr-1 -mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-surface-sunken hover:text-ink"
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.2"
-            strokeLinecap="round"
-            aria-hidden="true"
-            focusable="false"
-          >
-            <line x1="6" y1="6" x2="18" y2="18" />
-            <line x1="18" y1="6" x2="6" y2="18" />
-          </svg>
-        </button>
       </header>
 
       <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 px-4 py-3">
@@ -219,6 +162,6 @@ export default function TenantPopup({ tenantId, buildingId, at, onClose }: Tenan
           Full details
         </Link>
       </footer>
-    </div>
+    </DraggableCard>
   );
 }

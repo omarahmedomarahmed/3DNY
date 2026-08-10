@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp, useCompareDetails } from '@/lib/store';
 import { isInsideSourcePopover } from '@/components/ui/SourceInfo';
 import CompareView from './CompareView';
@@ -89,6 +89,7 @@ export default function ComparePanel() {
   const details = useCompareDetails();
   const cardRef = useRef<HTMLDivElement | null>(null);
   const hydratedFromUrl = useRef(false);
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
 
   // A shared ?compare=... link has to resolve once the buildings arrive.
   useEffect(() => {
@@ -131,18 +132,53 @@ export default function ComparePanel() {
     };
   }, [compareOpen, setCompareOpen]);
 
+  /**
+   * How big the comparison is, once someone has said.
+   *
+   * Null means "the default", which is most of the map — right for four
+   * spaces with every row showing, and far more than is wanted for two. The
+   * size is deliberately not persisted anywhere: it is a per-meeting
+   * adjustment, like the camera angle, not a preference.
+   */
+  const onResizeStart = useCallback((e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const panel = (e.currentTarget as HTMLElement).parentElement;
+    if (!panel) return;
+    const rect = panel.getBoundingClientRect();
+    const startX = e.clientX;
+    const startY = e.clientY;
+
+    const onMove = (ev: PointerEvent) => {
+      // Grows rightward and upward, because the panel is anchored to its
+      // bottom-left corner — moving the grip up has to make it taller, not
+      // move it. Floors are what stop it collapsing to something unreadable
+      // and the viewport is what stops it growing off screen.
+      const w = Math.max(360, Math.min(rect.width + (ev.clientX - startX), window.innerWidth - 32));
+      const h = Math.max(240, Math.min(rect.height - (ev.clientY - startY), window.innerHeight - 96));
+      setSize({ w, h });
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }, []);
+
   if (compare.length === 0) return null;
 
   return (
     <>
-      {/* Minimised, Compare is a chip at the top left — the one corner of the
-          map with no chrome in it. The control stack and the transit filters
-          are top right, the legend is bottom left, the radius control bottom
-          right. */}
+      {/* Minimised, Compare is a chip below the Filters button on the left.
+          The very top corners belong to the two rail buttons — they are the
+          only way back to a hidden rail, so nothing else may sit on them. */}
       {!compareOpen && (
         <div
           data-compare-launcher
-          className="pointer-events-none absolute left-4 top-4 z-[60] flex"
+          className="pointer-events-none absolute left-4 top-20 z-[60] flex"
         >
           <CompareChip count={compare.length} open={false} onOpen={() => setCompareOpen(true)} />
         </div>
@@ -166,8 +202,42 @@ export default function ComparePanel() {
           (z-40). Those used to render ON TOP of the comparison, which is what
           made the panel feel like the thing in the background. */}
       {compareOpen && (
-        <div className="pointer-events-none absolute bottom-4 left-4 right-16 top-16 z-[60] flex">
+        <div
+          className="pointer-events-none absolute bottom-4 left-4 z-[60] flex"
+          style={{
+            width: size?.w ?? 'calc(100% - 5rem)',
+            height: size?.h ?? 'calc(100% - 5rem)',
+          }}
+        >
           <CompareView variant="panel" panelRef={cardRef} onClose={() => setCompareOpen(false)} />
+
+          {/* Resize, from the corner opposite the anchor.
+              The panel is pinned bottom-left, so the top-right corner is the
+              only one that can move both dimensions — and dragging up-and-right
+              to grow is the direction that matches what you see happen. */}
+          <button
+            type="button"
+            onPointerDown={onResizeStart}
+            aria-label="Resize the comparison"
+            title="Drag to resize"
+            className="pointer-events-auto absolute -top-1 -right-1 z-10 flex h-6 w-6 cursor-nesw-resize items-center justify-center rounded-full border border-hairline-strong bg-white text-muted shadow-card transition-colors hover:border-midnight hover:text-ink"
+          >
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="14,4 20,4 20,10" />
+              <polyline points="10,20 4,20 4,14" />
+              <line x1="20" y1="4" x2="4" y2="20" />
+            </svg>
+          </button>
         </div>
       )}
 

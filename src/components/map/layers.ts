@@ -43,6 +43,9 @@ import {
   HOVER_COLOR,
   occupancyColors,
   SELECTED_COLOR,
+  selectedBuildingColor,
+  selectedSpaceColor,
+  type ColorOverrides,
   TRANSIT_COLORS,
   walkColors,
   colorForBuilding,
@@ -106,6 +109,8 @@ export interface BuildLayersOptions {
   showContext?: boolean;
   /** Dark or light basemap. Only the recessive colours change with it. */
   theme?: MapTheme;
+  /** Colours the user has changed. Empty or absent means every default holds. */
+  colorOverrides?: ColorOverrides;
   /** The hour the city is lit at, which drives sun, sky and distance haze. */
   atmosphere?: AtmospherePreset;
   /** What the camera can see, so ground geometry off screen is not drawn. */
@@ -337,6 +342,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
     photorealLayer = null,
     showContext = false,
     theme = 'dark',
+    colorOverrides,
     atmosphere = ATMOSPHERE[DEFAULT_TIME[theme]],
     streetscape = null,
     view = null,
@@ -354,6 +360,15 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
   // A stable string for deck.gl's updateTriggers: a Set is a new object every
   // render, so passing it directly would rebuild every band on every frame.
   const kindKey = [...kinds].sort().join(',');
+
+  // Same problem, same fix: `colorOverrides` is a fresh object on every render
+  // of the store, so it cannot be an updateTrigger itself. Its contents can.
+  const overrideKey = colorOverrides
+    ? Object.entries(colorOverrides)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => `${k}:${v}`)
+        .join('|')
+    : '';
 
   const filteredIds = new Set(filtered.map((b) => b.id));
   const palette = themeColors(theme);
@@ -517,9 +532,9 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
    * building.
    */
   const buildingFill = (b: BuildingWithSpaces): RGBA => {
-    if (b.id === selectedBuildingId) return SELECTED_COLOR;
+    if (b.id === selectedBuildingId) return selectedBuildingColor(colorOverrides);
     if (b.id === hoveredBuildingId) {
-      const [r, g, bl] = colorForBuilding(b, colorMode);
+      const [r, g, bl] = colorForBuilding(b, colorMode, colorOverrides);
       // Pull the hovered building toward Goldenrod. On the old dark theme
       // this lifted toward white; on a white basemap that would erase it.
       return [
@@ -529,7 +544,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         255,
       ];
     }
-    return colorForBuilding(b, colorMode);
+    return colorForBuilding(b, colorMode, colorOverrides);
   };
 
   layers.push(
@@ -573,7 +588,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         return false;
       },
       updateTriggers: {
-        getFillColor: [colorMode, selectedBuildingId, hoveredBuildingId, active.length, theme],
+        getFillColor: [colorMode, selectedBuildingId, hoveredBuildingId, active.length, theme, overrideKey],
         getElevation: [active.length, photoreal],
       },
     }),
@@ -726,9 +741,9 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         getElevation: (d) => d.heightM,
         getFillColor: (d): RGBA => {
           if (d.kind === 'available' && d.recordId === selectedSpaceId) {
-            return SELECTED_COLOR;
+            return selectedSpaceColor(colorOverrides);
           }
-          const colors = occupancyColors(d.kind, theme);
+          const colors = occupancyColors(d.kind, theme, colorOverrides);
           return d.portion === 'partial' ? colors.partial : colors.entire;
         },
         onClick: (info: PickingInfo<BandDatum>) => {
@@ -751,7 +766,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         // thing on screen — the same trade already made for the name-plates.
         ...(photoreal ? { parameters: { depthCompare: 'always' as const } } : {}),
         updateTriggers: {
-          getFillColor: [selectedSpaceId, colorMode, theme, kindKey],
+          getFillColor: [selectedSpaceId, colorMode, theme, kindKey, overrideKey],
           getElevation: [bands.length],
           getPolygon: [bands.length, selectedBuildingId, showAllBands, kindKey],
         },
@@ -971,7 +986,22 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
           backgroundPadding: [7, 4, 7, 4],
           getTextAnchor: 'middle',
           getAlignmentBaseline: 'bottom',
-          getPixelOffset: [0, -8],
+          /**
+           * Clear of the roof, not resting on it.
+           *
+           * Eight pixels put the pill's baseline right against the parapet, so
+           * close in it read as painted on the roof — and worse, it sat on top
+           * of the water tanks and bulkheads the roofscape draws, which are
+           * the details that make a tower recognisable from the air. Lifting
+           * it leaves a visible gap of sky between the building and its name,
+           * which is what a callout is supposed to look like.
+           *
+           * Pixels rather than metres deliberately: a metre offset would make
+           * the gap grow as you zoom in and vanish as you zoom out, so the one
+           * view where the label matters most is the one where it drifts off
+           * into the sky.
+           */
+          getPixelOffset: [0, -34],
           parameters: { depthCompare: 'always' },
           updateTriggers: {
             getText: [colorMode, active.length],

@@ -11,6 +11,7 @@
  * Exits non-zero on the first failure, so it can gate a commit.
  */
 import { chromium } from 'playwright';
+import { openMapChrome } from './harness.mjs';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -41,8 +42,7 @@ async function panelCount() {
 }
 
 await page.goto('http://localhost:3111/map', { waitUntil: 'domcontentloaded' });
-await page.waitForSelector('.maplibregl-map canvas', { timeout: 30000 });
-await page.waitForSelector('text=100 Park Avenue', { timeout: 30000 });
+await openMapChrome(page);
 await sleep(6000);
 
 check('panel is absent before anything is compared', !(await panelVisible()));
@@ -136,9 +136,11 @@ const shared = page.url();
 check('the shareable link carries the compare set', /[?&]compare=[^&]+/.test(shared));
 
 await page.goto(shared, { waitUntil: 'domcontentloaded' });
+// Deliberately NOT openMapChrome here. Opening a rail or the tool stack is a
+// click on the map, and a click on the map is exactly what dismisses the
+// comparison — the harness would be testing its own setup out of existence.
 await page.waitForSelector('.maplibregl-map canvas', { timeout: 30000 });
-await page.waitForSelector('text=100 Park Avenue', { timeout: 30000 });
-await sleep(6000);
+await sleep(7000);
 check('a shared link reopens the same comparison', (await panelCount()) === 2);
 await page.screenshot({ path: join(outdir, 'compare-shared.png') });
 
