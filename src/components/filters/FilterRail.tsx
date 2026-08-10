@@ -132,6 +132,24 @@ function ToggleGroup<T extends string>({ options, selected, onChange }: ToggleGr
 }
 
 /** Advanced filters live behind the disclosure; this is their own tally. */
+/**
+ * What unticking "include withheld rents" would actually cost.
+ *
+ * The hint used to read "roughly half of listings withhold rent", which was
+ * true of the leasing team's sheets and is not remotely true of a market read
+ * off landlord pages — those quote a rent essentially never. A broker who
+ * unticks the box on a map where 99% is withheld watches it empty, and the
+ * sentence that was supposed to warn them said the opposite.
+ */
+function withheldNote(share: number, total: number): string {
+  if (total === 0) return 'Listings that quote no asking rent.';
+  const pct = Math.round(share * 100);
+  if (pct >= 95) return `Almost every listing loaded (${pct}%) quotes no asking rent.`;
+  if (pct >= 60) return `${pct}% of listings loaded quote no asking rent.`;
+  if (pct === 0) return 'Every listing loaded quotes an asking rent.';
+  return `${pct}% of listings loaded withhold their rent.`;
+}
+
 function advancedCount(f: Filters): number {
   let n = 0;
   if (f.floorMin !== null || f.floorMax !== null) n++;
@@ -268,7 +286,7 @@ export default function FilterRail() {
             <span>
               Include withheld rents
               <span className="mt-0.5 block text-sm font-normal leading-snug text-muted">
-                Roughly half of listings withhold rent.
+                {withheldNote(options.withheldShare, options.spaceCount)}
               </span>
             </span>
           </label>

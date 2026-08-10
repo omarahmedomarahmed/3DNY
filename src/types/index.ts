@@ -131,6 +131,15 @@ export interface Space {
    */
   import_filename?: string | null;
   import_uploaded_at?: string | null;
+  /**
+   * What kind of thing that import was — `sheet` for an uploaded spreadsheet,
+   * `landlord` for a run of the landlord loader. Open, like a field stamp: a
+   * kind nothing here recognises still renders, rather than passing itself off
+   * as a sheet.
+   */
+  import_source_kind?: string | null;
+  /** The page the figures were read off, when the import has one. */
+  import_source_url?: string | null;
   /** Fields written after the row was created — see FieldSourceStamp. */
   field_sources?: FieldSources;
   notes: string | null;

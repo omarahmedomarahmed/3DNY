@@ -103,6 +103,15 @@ export function buildPresets(now: Date): Preset[] {
       label: 'Added this week',
       patch: { addedAfter: toIso(addDays(now, -7)) },
     },
+    {
+      // The window a broker means by "what's on the market now". Anything that
+      // came available longer ago than this is either still sitting for a
+      // reason worth knowing, or the sheet it arrived on has gone stale — and
+      // both are questions you ask deliberately rather than by default.
+      id: 'added-quarter',
+      label: 'Added in 3 months',
+      patch: { addedAfter: toIso(addMonths(now, -3)) },
+    },
   ];
 }
 

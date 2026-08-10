@@ -43,6 +43,8 @@ import type { Building, FieldSourceStamp, Landlord, Space } from '@/types';
 export type SourceKind =
   /** An availability sheet uploaded through the importer. */
   | 'sheet'
+  /** Read off a landlord's own published availability page. */
+  | 'landlord'
   /** Typed or corrected by someone on this team, in this app. */
   | 'manual'
   /** Synced from the CRM. Nothing writes this yet; the resolver handles it. */
@@ -73,6 +75,14 @@ export const SOURCES: Record<SourceKind, SourceDataset> = {
   sheet: {
     name: 'Imported sheet',
     blurb: 'Read from an availability sheet uploaded to this app. It is a claim by whoever compiled the sheet, not a public record.',
+  },
+  landlord: {
+    name: 'Landlord’s own listing',
+    blurb:
+      'Read off the page the building’s owner publishes to market the space. It is the landlord ' +
+      'speaking about their own building, so the floor and the size are as good as this gets ' +
+      'short of a broker’s call — but it is marketing, and it is only as current as the day they ' +
+      'last updated it.',
   },
   manual: {
     name: 'Entered here',
@@ -276,11 +286,31 @@ export function spaceOriginNote(space: Space): SourceNote {
     };
   }
 
-  const sheet = space.import_filename ?? `import ${space.source_import_id.slice(0, 8)}`;
+  const name = space.import_filename ?? `import ${space.source_import_id.slice(0, 8)}`;
   const when = formatSourceDate(space.import_uploaded_at ?? space.date_added);
+  const kind = space.import_source_kind ?? 'sheet';
+
+  // A landlord run is not a sheet and must not read as one. Nobody compiled
+  // it, nobody could have retyped a number into it, and it carries a public
+  // URL — so the popover offers the page itself, which is the strongest form
+  // of provenance in the product: go and look.
+  if (kind === 'landlord') {
+    return {
+      kind: 'landlord',
+      label: when ? `${name}, read ${when}` : name,
+      detail: SOURCES.landlord.blurb,
+      href: space.import_source_url ?? undefined,
+      at: space.import_uploaded_at ?? undefined,
+    };
+  }
+
+  if (kind !== 'sheet') {
+    return stampNote({ kind, at: space.import_uploaded_at ?? undefined, ref: name });
+  }
+
   return {
     kind: 'sheet',
-    label: when ? `${sheet}, imported ${when}` : sheet,
+    label: when ? `${name}, imported ${when}` : name,
     detail: SOURCES.sheet.blurb,
     at: space.import_uploaded_at ?? undefined,
   };

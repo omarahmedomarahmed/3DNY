@@ -108,6 +108,17 @@ await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.42);
 await sleep(1600);
 check('clicking a tower still opens the space popup', (await popupOpen()) > 0);
 
+// A building with several available floors opens as a list of floors, not as
+// one floor's card, and the list carries only the address and the shared
+// origin. Real market data made that the common case — buildings here now
+// average four availabilities and some carry thirty — so drill into a floor
+// before counting. The card is what has to be marked up.
+const floorList = page.locator(`${POPUP} ul li button`);
+if ((await floorList.count()) > 0) {
+  await floorList.first().click();
+  await sleep(700);
+}
+
 const markers = page.locator(`${POPUP} button[aria-label^="Where "]`);
 const markerCount = await markers.count();
 check('the space popup carries source markers', markerCount >= 4, `${markerCount} markers`);
@@ -189,6 +200,16 @@ if ((await walkBtn.count()) > 0) {
 
 // Ferry landings and PATH have no maintained open dataset, so they are a
 // hand-kept table in transit.ts and must not claim the MTA published them.
+// A stop is only drawn when it is within its mode's reach of the SELECTED
+// building, so which building is selected decides whether a rail terminal is
+// on screen at all. Pick one at Grand Central rather than whichever tower
+// happened to be under the earlier click.
+const nearRail = page.getByRole('button', { name: /60 E 42nd Street/ });
+if ((await nearRail.count()) > 0) {
+  await nearRail.first().click();
+  await sleep(3000);
+}
+
 const handKept = stops.find((s) => s.mode === 'rail' || s.mode === 'path' || s.mode === 'ferry');
 if (handKept) {
   const text = await stationSource(handKept, 'Where this station came from');

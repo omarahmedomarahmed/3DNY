@@ -4,6 +4,7 @@ import {
   normalizeStreetName,
   splitHouseAndStreet,
 } from '../src/lib/nyc-addresses';
+import { addressCandidates } from '../src/lib/address-matcher';
 
 /**
  * The fallback geocoder's string handling.
@@ -132,5 +133,42 @@ describe('a street with two names lands on one', () => {
   it('still keeps genuinely different streets apart', () => {
     expect(normalizeStreetName('6 Avenue')).not.toBe(normalizeStreetName('7 Avenue'));
     expect(normalizeStreetName('Park Avenue')).not.toBe(normalizeStreetName('Park Avenue South'));
+  });
+});
+
+/**
+ * The candidate spellings an address is tried under.
+ *
+ * Manhattan writes its best-known towers as words — One Vanderbilt, One
+ * Madison, One Battery Park Plaza — and the city indexes every one of them
+ * under the digit. This is not a guess about which building is meant: "One"
+ * and "1" are the same house number, and the city confirms the building
+ * either way. Without it, a landlord feed that spells the number loses the
+ * building entirely.
+ */
+describe('addressCandidates', () => {
+  it('spells a leading number word as a digit', () => {
+    expect(addressCandidates('One Battery Park Plaza')).toContain('1 Battery Park Plaza');
+    expect(addressCandidates('One Vanderbilt Avenue')).toContain('1 Vanderbilt Avenue');
+    expect(addressCandidates('Two Penn Plaza')).toContain('2 Penn Plaza');
+  });
+
+  it('keeps the original spelling first', () => {
+    expect(addressCandidates('One Madison Avenue')[0]).toBe('One Madison Avenue');
+  });
+
+  it('leaves a number word that is part of a street name alone', () => {
+    // A street named for a number is not a house number.
+    expect(addressCandidates('One Hundred Eleventh Street')).toEqual([
+      'One Hundred Eleventh Street',
+    ]);
+    // And a word that merely starts with one is not a number word at all.
+    expect(addressCandidates('Stone Street')).toEqual(['Stone Street']);
+  });
+
+  it('still tries both ends of an address range', () => {
+    const out = addressCandidates('22-30 Little W 12th Street');
+    expect(out).toContain('22 Little W 12th Street');
+    expect(out).toContain('30 Little W 12th Street');
   });
 });

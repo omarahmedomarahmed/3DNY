@@ -94,6 +94,25 @@ function isManhattan(f: GeosearchFeature): boolean {
 }
 
 /**
+ * A house number spelled as a word, at the front of an address.
+ *
+ * Manhattan's best-known towers are marketed this way — One Vanderbilt, One
+ * Madison, One Battery Park Plaza, Two Penn Plaza — and the city indexes every
+ * one of them under the digit. Nothing in the address is being guessed at
+ * here: "One" and "1" are the same house number, and the city confirms the
+ * building either way.
+ *
+ * Only at the start, and only when a street follows. "One" inside a name —
+ * "One Hundred Eleventh Street" — is not a house number, and neither is the
+ * "one" in "Stone Street".
+ */
+const NUMBER_WORDS: Record<string, string> = {
+  one: '1', two: '2', three: '3', four: '4', five: '5',
+  six: '6', seven: '7', eight: '8', nine: '9', ten: '10',
+  eleven: '11', twelve: '12',
+};
+
+/**
  * `22-30 Little W 12th Street` → ['22-30 …', '22 …', '30 …'].
  * The city indexes some ranges under the low number and some under the high,
  * so try the literal string first and then each end.
@@ -101,6 +120,15 @@ function isManhattan(f: GeosearchFeature): boolean {
 export function addressCandidates(address: string): string[] {
   const trimmed = address.trim();
   const out = [trimmed];
+
+  const word = trimmed.match(/^([A-Za-z]+)\s+(\S.*)$/);
+  if (word) {
+    const digit = NUMBER_WORDS[word[1].toLowerCase()];
+    // "One Hundred Eleventh Street" is a street name, not house number one.
+    if (digit && !/^(hundred|thousand)\b/i.test(word[2])) {
+      out.push(`${digit} ${word[2]}`);
+    }
+  }
 
   const range = trimmed.match(/^(\d+)\s*-\s*(\d+)\s+(.*)$/);
   if (range) {
@@ -141,11 +169,15 @@ function unmatched(reason: string): GeocodeResult {
  */
 const GEOSEARCH_TIMEOUT_MS = 4000;
 
-async function query(text: string, signal?: AbortSignal): Promise<GeosearchFeature[]> {
+async function query(
+  text: string,
+  signal?: AbortSignal,
+  timeoutMs = GEOSEARCH_TIMEOUT_MS,
+): Promise<GeosearchFeature[]> {
   const url = `${GEOSEARCH}?text=${encodeURIComponent(`${text}, Manhattan, NY`)}&size=5`;
 
   const timer = new AbortController();
-  const timeout = setTimeout(() => timer.abort(), GEOSEARCH_TIMEOUT_MS);
+  const timeout = setTimeout(() => timer.abort(), timeoutMs);
   // Honour the caller's cancellation as well as our own deadline.
   const onAbort = () => timer.abort();
   signal?.addEventListener('abort', onAbort);
@@ -160,7 +192,7 @@ async function query(text: string, signal?: AbortSignal): Promise<GeosearchFeatu
     return json.features ?? [];
   } catch (err) {
     if ((err as Error).name === 'AbortError' && !signal?.aborted) {
-      throw new Error(`Geosearch did not answer within ${GEOSEARCH_TIMEOUT_MS / 1000}s`);
+      throw new Error(`Geosearch did not answer within ${timeoutMs / 1000}s`);
     }
     throw err;
   } finally {
@@ -178,16 +210,29 @@ function usableBin(bin: string | undefined): string | null {
 
 export async function geocodeAddress(
   address: string,
-  opts: { signal?: AbortSignal } = {},
+  opts: {
+    signal?: AbortSignal;
+    /**
+     * How long to wait for Geosearch. The default is tuned for somebody
+     * sitting in front of an import; a batch job with nobody waiting should
+     * pass something generous, because the authoritative source answering
+     * slowly still beats the fallback answering fast and short.
+     */
+    timeoutMs?: number;
+  } = {},
 ): Promise<GeocodeResult> {
-  if (!/\d/.test(address)) {
+  // Candidates first: "One Battery Park Plaza" has no digit in it and every
+  // one of its candidate spellings does. Rejecting on the raw string threw
+  // away the towers Manhattan spells out — One Vanderbilt, One Madison —
+  // before the spellings that resolve them had been generated.
+  const candidates = addressCandidates(address);
+  if (!candidates.some((c) => /\d/.test(c))) {
     return unmatched(
       'No street number in the address — pick the building on the map once and ' +
         'it will be remembered for every future import.',
     );
   }
 
-  const candidates = addressCandidates(address);
   let nearest: { feature: GeosearchFeature; candidate: string } | null = null;
   let geosearchError: string | null = geosearchIsDown() ? 'unreachable a moment ago' : null;
 
@@ -195,7 +240,7 @@ export async function geocodeAddress(
     const candidate = candidates[i];
     let features: GeosearchFeature[];
     try {
-      features = await query(candidate, opts.signal);
+      features = await query(candidate, opts.signal, opts.timeoutMs);
     } catch (err) {
       // Do not give up on the address — try the other source below. But do
       // stop asking this one, for this address and every later one.
@@ -308,6 +353,7 @@ const GEOCODE_CONCURRENCY = 4;
 export async function geocodeAll(
   addresses: string[],
   onProgress?: (done: number, total: number) => void,
+  opts: { timeoutMs?: number } = {},
 ): Promise<Map<string, GeocodeResult>> {
   const unique = [...new Set(addresses)];
   const results = new Map<string, GeocodeResult>();
@@ -319,7 +365,7 @@ export async function geocodeAll(
       const i = next++;
       const address = unique[i];
       try {
-        results.set(address, await geocodeAddress(address));
+        results.set(address, await geocodeAddress(address, { timeoutMs: opts.timeoutMs }));
       } catch (err) {
         // One address failing must never abandon the rest of the sheet.
         results.set(

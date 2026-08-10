@@ -20,6 +20,12 @@ export async function POST(req: Request) {
       filename?: string;
       marketLabel?: string | null;
       rows?: MatchedRow[];
+      /**
+       * Treat this sheet as the whole inventory: everything it does not carry
+       * is taken off the market. For a full market extract, not a weekly
+       * update — see commitImport.
+       */
+      replaceAll?: boolean;
     };
 
     if (!body?.filename) {
@@ -30,7 +36,9 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json(
-      await commitImport(body.filename, body.marketLabel ?? null, body.rows),
+      await commitImport(body.filename, body.marketLabel ?? null, body.rows, {
+        replaceAll: body.replaceAll === true,
+      }),
     );
   } catch (err) {
     return fail(err);

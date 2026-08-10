@@ -1140,7 +1140,7 @@ export default function MapView() {
   // as specks somewhere off to one side; a broker opening this in a meeting
   // should see their availability immediately. Also drives "Fit to all".
   const fitAll = useCallback(
-    (duration = 900) => {
+    (duration = 900, opts: { minZoom?: number } = {}) => {
       const instance = mapRef.current;
       if (!instance) return;
 
@@ -1154,18 +1154,29 @@ export default function MapView() {
 
       const lons = points.map((p) => p[0]);
       const lats = points.map((p) => p[1]);
-      instance.fitBounds(
-        [
-          [Math.min(...lons), Math.min(...lats)],
-          [Math.max(...lons), Math.max(...lats)],
-        ],
-        // Room for the filter rail and results sidebar, which overlay the edges.
-        {
-          padding: { top: 90, bottom: 140, left: 80, right: 80 },
-          maxZoom: 16.4,
-          duration,
-        },
-      );
+      const bounds: [[number, number], [number, number]] = [
+        [Math.min(...lons), Math.min(...lats)],
+        [Math.max(...lons), Math.max(...lats)],
+      ];
+      // Room for the filter rail and results sidebar, which overlay the edges.
+      const framing = {
+        padding: { top: 90, bottom: 140, left: 80, right: 80 },
+        maxZoom: 16.4,
+      };
+
+      // `fitBounds` takes a maxZoom and has no matching floor, so a caller that
+      // wants one has to ask what the fit would be and clamp it. Going through
+      // easeTo with the camera it computed keeps the centre identical — only
+      // the zoom is raised.
+      if (opts.minZoom !== undefined) {
+        const camera = instance.cameraForBounds(bounds, framing);
+        if (camera && (camera.zoom ?? 0) < opts.minZoom) {
+          instance.easeTo({ center: camera.center, zoom: opts.minZoom, duration });
+          return;
+        }
+      }
+
+      instance.fitBounds(bounds, { ...framing, duration });
     },
     [buildings],
   );
@@ -1175,7 +1186,23 @@ export default function MapView() {
     if (framed.current) return;
     if (!mapRef.current || buildingPoints(buildings).length === 0) return;
     framed.current = true;
-    fitAll();
+    /**
+     * Opening zoom has a floor, and "Fit to all" does not.
+     *
+     * With a couple of dozen Midtown towers, fitting everything opened on
+     * legible city. With the market loaded the inventory runs from Fulton
+     * Street to West 57th, and fitting that put the whole island on screen:
+     * every tower a two-pixel speck, no floor bands (they start at 14.5), no
+     * street names, nothing anyone could read aloud. Technically the right
+     * frame and useless as a first impression.
+     *
+     * So the automatic frame stops zooming out at the point where a building
+     * still looks like a building, and shows the densest part of the
+     * inventory. The button beside the compass is unclamped and still fits
+     * literally everything — because someone who presses "Fit to all" is
+     * asking for the extent, not for legibility.
+     */
+    fitAll(900, { minZoom: 13.2 });
   }, [buildings, fitAll]);
 
   // --- Fly to the selection so its floor bands come into view.

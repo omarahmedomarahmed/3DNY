@@ -162,10 +162,14 @@ export function filterOptions(buildings: BuildingWithSpaces[]) {
   let rentMax = -Infinity;
   let sfMin = Infinity;
   let sfMax = -Infinity;
+  let spaceCount = 0;
+  let withheldCount = 0;
 
   for (const b of buildings) {
     if (b.submarket_cluster) submarketClusters.add(b.submarket_cluster);
     for (const s of b.spaces) {
+      spaceCount++;
+      if (s.asking_rent_psf === null) withheldCount++;
       if (s.space_use) spaceUses.add(s.space_use);
       if (s.leasing_company) leasingCompanies.add(s.leasing_company);
       if (s.asking_rent_psf !== null) {
@@ -187,5 +191,17 @@ export function filterOptions(buildings: BuildingWithSpaces[]) {
     submarketClusters: sorted(submarketClusters),
     rentRange: Number.isFinite(rentMin) ? ([rentMin, rentMax] as [number, number]) : null,
     sfRange: Number.isFinite(sfMin) ? ([sfMin, sfMax] as [number, number]) : null,
+    /**
+     * How much of what is loaded quotes no asking rent.
+     *
+     * This used to be a sentence under the checkbox reading "roughly half".
+     * That was true of the leasing team's own sheets and is nowhere near true
+     * of a market read off landlord pages, where essentially everything says
+     * "Upon Request" — unticking the box would take 312 listings down to one.
+     * A filter that can empty the map has to say so from the data rather than
+     * from what was true when the copy was written.
+     */
+    withheldShare: spaceCount === 0 ? 0 : withheldCount / spaceCount,
+    spaceCount,
   };
 }
