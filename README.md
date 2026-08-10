@@ -545,6 +545,37 @@ key so it cannot be spent by anyone who views the page.
 Only `DATABASE_URL` is genuinely required. Photos and the detailed basemap are optional —
 the app runs and demos without them.
 
+### Trying something on a branch
+
+The Vercel project is connected to this repository, so **every branch gets its
+own deployment** as soon as it is pushed, at a URL derived from the branch
+name:
+
+```
+main                → cresa-git-main-<team>.vercel.app
+claude/spaces-lab   → cresa-git-claude-spaces-lab-<team>.vercel.app
+```
+
+That is what makes an idea reviewable before anyone decides whether it belongs
+in the product: push the branch, open its URL, look at it on a real screen with
+real data, and merge only if it earns it.
+
+Two things worth knowing before reading a preview:
+
+- **A preview only has data if the environment variables are shared with the
+  Preview environment.** Vercel scopes each variable to Production, Preview and
+  Development separately, and a `DATABASE_URL` set for Production alone leaves
+  every preview showing an empty map with a setup prompt — which looks like a
+  broken branch rather than a missing variable.
+- **Previews share the production database.** There is one Neon database
+  behind all of them, so a branch that writes — an import, a replace run, an
+  edit — writes to the same rows the production map reads. Anything
+  destructive belongs on a Neon branch of its own first.
+
+Vercel skips a build when a branch points at a commit it has already deployed,
+so a branch cut from `main` and pushed unchanged produces no preview until it
+carries at least one commit of its own.
+
 ---
 
 ## Not in this version
