@@ -114,7 +114,14 @@ interface AppState {
    */
   leftRailOpen: boolean;
   rightRailOpen: boolean;
-  /** The control stack starts collapsed to a single button for the same reason. */
+  /**
+   * Whether the tool stack is unfolded. It is, from the start.
+   *
+   * The rails hide because they take a third of the window each. The tools are
+   * one 36px column against an edge, and folding them cost more than it saved:
+   * every camera move — zoom, rotate, tilt — went from one click to two, and
+   * those are the controls someone reaches for constantly while talking.
+   */
   controlsOpen: boolean;
   /** The legend, and the band section within it, can each be put away. */
   legendOpen: boolean;
@@ -206,7 +213,7 @@ export const useApp = create<AppState>((set, get) => ({
 
   leftRailOpen: false,
   rightRailOpen: false,
-  controlsOpen: false,
+  controlsOpen: true,
   legendOpen: true,
   bandsSectionOpen: true,
 
