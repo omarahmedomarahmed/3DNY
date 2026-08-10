@@ -8,6 +8,9 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { neon } from '@neondatabase/serverless';
+import { loadEnvLocal } from './env-local';
+
+loadEnvLocal();
 
 /**
  * Splits a SQL file into executable statements, ignoring semicolons inside

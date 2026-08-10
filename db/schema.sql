@@ -251,3 +251,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS tenants_natural_key_idx
   WHERE salesforce_id IS NULL;
 
 CREATE INDEX IF NOT EXISTS tenants_relationship_idx ON tenants (relationship);
+
+-- ---------------------------------------------------------------------------
+-- Where an import came from.
+--
+-- Everything used to arrive one way — somebody uploaded the leasing team's
+-- weekly sheet — so "which sheet" was the whole of provenance and `filename`
+-- carried it. That is no longer true. A run of the landlord loader is not a
+-- sheet: nobody compiled it, nobody could have retyped a number into it, and
+-- it has a public URL that anyone in the room can open and check against.
+--
+-- Those are different enough that the "i" icon must not describe one as the
+-- other. `source_kind` is the same open string as a field stamp — an unknown
+-- value degrades to "recorded by <kind>" rather than silently reading as a
+-- spreadsheet — and `source_url` is the page the figures were read off.
+-- ---------------------------------------------------------------------------
+ALTER TABLE imports ADD COLUMN IF NOT EXISTS source_kind text NOT NULL DEFAULT 'sheet';
+ALTER TABLE imports ADD COLUMN IF NOT EXISTS source_url  text;

@@ -128,6 +128,8 @@ function toSpace(r: any): Space {
     source_import_id: r.source_import_id,
     import_filename: r.import_filename ?? null,
     import_uploaded_at: r.import_uploaded_at ?? null,
+    import_source_kind: r.import_source_kind ?? null,
+    import_source_url: r.import_source_url ?? null,
     field_sources: toFieldSources(r.field_sources),
     notes: r.notes,
     is_active: r.is_active,
@@ -159,7 +161,8 @@ export async function getBuildingsWithSpaces(): Promise<BuildingWithSpaces[]> {
     // that renders a space can also say which sheet it came from and when.
     // Provenance that needs a second request is provenance that will be
     // missing wherever someone forgot to make it.
-    db(`SELECT s.*, i.filename AS import_filename, i.uploaded_at AS import_uploaded_at
+    db(`SELECT s.*, i.filename AS import_filename, i.uploaded_at AS import_uploaded_at,
+               i.source_kind AS import_source_kind, i.source_url AS import_source_url
         FROM spaces s LEFT JOIN imports i ON i.id = s.source_import_id
         WHERE s.is_active ORDER BY s.floor_number NULLS LAST`),
     // The roster is joined in for the same reason the availability sheet is:
@@ -464,7 +467,13 @@ export async function commitImport(
   filename: string,
   marketLabel: string | null,
   rows: MatchedRow[],
-  opts: { replaceAll?: boolean } = {},
+  opts: {
+    replaceAll?: boolean;
+    /** `sheet` (default) or `landlord` — what the "i" icon will call this. */
+    sourceKind?: string;
+    /** The public page the figures were read off, for a landlord run. */
+    sourceUrl?: string | null;
+  } = {},
 ): Promise<{
   importId: string;
   inserted: number;
@@ -475,8 +484,8 @@ export async function commitImport(
   const db = sql();
 
   const importRows = (await db(
-    `INSERT INTO imports (filename, market_label, row_count, matched_exact, matched_fuzzy, unmatched, status)
-     VALUES ($1,$2,$3,$4,$5,$6,'pending') RETURNING id`,
+    `INSERT INTO imports (filename, market_label, row_count, matched_exact, matched_fuzzy, unmatched, status, source_kind, source_url)
+     VALUES ($1,$2,$3,$4,$5,$6,'pending',$7,$8) RETURNING id`,
     [
       filename,
       marketLabel,
@@ -484,6 +493,8 @@ export async function commitImport(
       rows.filter((r) => r.match.confidence === 'exact').length,
       rows.filter((r) => r.match.confidence === 'fuzzy').length,
       rows.filter((r) => r.match.confidence === 'unmatched').length,
+      opts.sourceKind ?? 'sheet',
+      opts.sourceUrl ?? null,
     ],
   )) as any[];
   const importId = importRows[0].id as string;
@@ -618,6 +629,52 @@ export async function commitImport(
   }
 
   return { importId, inserted, updated, skipped, retired };
+}
+
+/**
+ * Take everything off the market that this run did not carry.
+ *
+ * `commitImport({ replaceAll })` does the same thing for a single sheet, and
+ * that is right when one file is the whole inventory. A landlord run is not
+ * one file: it is four separate imports, one per landlord, so that the "i"
+ * icon can name the right company and link the right page. Replacing inside
+ * each of them would mean the last landlord committed retired the other
+ * three.
+ *
+ * So the retire happens once, after all of them, scoped to the whole run.
+ * Same rule as the single-sheet version — `is_active = false`, never a
+ * delete, because a floor that comes back next month is the same floor and
+ * because deleting would cascade to photographs an import has no business
+ * touching.
+ *
+ * Hand-entered spaces survive. A row with no import behind it was typed by
+ * somebody on this team who knew something the feed does not, and a scrape
+ * does not get to overrule a person — that is the same rule that makes a
+ * `manual` field stamp win over the row's origin everywhere else in the app.
+ * They are counted and reported instead, so a run says what it left alone.
+ */
+export async function retireSpacesOutside(
+  importIds: string[],
+): Promise<{ retired: number; keptByHand: number }> {
+  if (importIds.length === 0) {
+    throw new Error('retireSpacesOutside needs at least one import to keep.');
+  }
+  const db = sql();
+
+  const rows = (await db(
+    `UPDATE spaces SET is_active = false
+     WHERE is_active
+       AND source_import_id IS NOT NULL
+       AND NOT (source_import_id = ANY($1::uuid[]))
+     RETURNING id`,
+    [importIds],
+  )) as { id: string }[];
+
+  const kept = (await db(
+    `SELECT count(*)::int AS n FROM spaces WHERE is_active AND source_import_id IS NULL`,
+  )) as { n: number }[];
+
+  return { retired: rows.length, keptByHand: kept[0]?.n ?? 0 };
 }
 
 // ---------------------------------------------------------------------------
