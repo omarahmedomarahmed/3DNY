@@ -184,10 +184,10 @@ same facts in its footer.
 
 ### The map opens as a map
 
-Both rails are closed, the tool stack is folded to one button, and the basemap
-is light. Everything is one press away — a large **Filters** button top-left, a
-large **Spaces** button top-right, both carrying a count so the button says
-what is behind it.
+Both rails are closed and the basemap is light. Everything is one press away —
+a large **Filters** button top-left, a large **Spaces** button top-right, both
+carrying a count so the button says what is behind it. The tool stack down the
+right edge is open, and folds away if you want the edge back.
 
 This is not minimalism for its own sake. A filter rail down one side and a
 results list down the other leaves about half the window for the thing everyone
@@ -212,6 +212,16 @@ Four more things follow from the same idea:
 - **The colours can be changed** — the band for available space, for clients,
   for occupied floors, the selected building, the selected floor, and both ends
   of the colour ramp. See below for what that deliberately does not include.
+- **The camera tilts all the way to the pavement.** The angle steps through a
+  ladder from straight down to 85°, which is standing in the road looking up a
+  facade — the view that answers whether the 14th floor has light or faces a
+  wall. Both tilt buttons wrap, so neither is ever dead. 85° is MapLibre's own
+  ceiling: past it the horizon is behind the camera and there is nothing to
+  draw.
+- **One big way back.** Once the camera has moved, a wide **Reset the view**
+  button appears at the bottom centre and returns the angle, the bearing and
+  the frame together. The 36-pixel compass in the tool stack does the same
+  thing, and nobody who is lost at 85° finds it.
 
 ### The one rule
 

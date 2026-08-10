@@ -21,8 +21,51 @@ const HOME_PITCH = 50;
 /** Degrees per click of the angle controls. */
 const PITCH_STEP = 10;
 
-/** MapLibre's own ceiling. Past this the horizon fills the frame. */
+/**
+ * MapLibre's own ceiling, and the map is created with it.
+ *
+ * 85° is the camera standing in the street looking up a facade. Past it the
+ * horizon is behind the camera and there is nothing left to draw, which is why
+ * no map offers more — so "keep tilting" wraps around to flat rather than
+ * stopping dead at the top of the range with a button that no longer does
+ * anything.
+ */
 const MAX_PITCH = 85;
+
+/**
+ * Every angle the tilt buttons stop at, flat to street level.
+ *
+ * A fixed ladder rather than "current ± 10", and the reason is animation.
+ * Each press eases over 350ms, so a press that lands mid-ease reads a pitch
+ * partway there — 73.8 rather than 70 — and stepping from that walks the angle
+ * off the grid. On a fast machine the eases finish between presses and it
+ * never shows; on a slow one, or a heavily loaded frame at high pitch, it
+ * does, and the symptom is that the top of the range becomes unreachable.
+ *
+ * Quantising removes the failure mode rather than timing around it: whatever
+ * mid-flight value comes back snaps to the nearest rung and the next press
+ * goes to the one after. 85 is a rung of its own because it is MapLibre's
+ * ceiling and the whole point of the range — the view from the pavement.
+ */
+const PITCH_LADDER = [0, 10, 20, 30, 40, 50, 60, 70, 80, MAX_PITCH];
+
+/**
+ * The next rung, wrapping at both ends.
+ *
+ * Wrapping means neither button is ever dead: keep pressing either one and the
+ * camera runs the whole range and comes round again, which is a dial rather
+ * than a slider jammed against its stop.
+ */
+function cyclePitch(current: number, step: number): number {
+  let nearest = 0;
+  for (let i = 1; i < PITCH_LADDER.length; i++) {
+    if (Math.abs(PITCH_LADDER[i] - current) < Math.abs(PITCH_LADDER[nearest] - current)) {
+      nearest = i;
+    }
+  }
+  const next = nearest + (step > 0 ? 1 : -1);
+  return PITCH_LADDER[(next + PITCH_LADDER.length) % PITCH_LADDER.length];
+}
 
 /** Modes offered as filters, in the order they matter to a tenant. */
 const TRANSIT_FILTERS: { mode: string; label: string; color: string }[] = [
@@ -154,6 +197,12 @@ export default function MapControls({
   const controlsOpen = useApp((s) => s.controlsOpen);
   const setControlsOpen = useApp((s) => s.setControlsOpen);
 
+  /** One rung up or down the ladder, from wherever the camera is now. */
+  const tilt = (step: number) => {
+    if (!map) return;
+    map.easeTo({ pitch: cyclePitch(map.getPitch() ?? 0, step), duration: 350 });
+  };
+
   /**
    * Closed, the stack is one button.
    *
@@ -277,14 +326,9 @@ export default function MapControls({
           between two fixed positions. MapLibre caps pitch at 85. */}
       <ControlButton
         label="Raise the view angle"
-        hint="Tips the camera toward street level in ten-degree steps, which is where the height of a tower reads."
+        hint="Tips toward street level in ten-degree steps, all the way to 85° — standing in the road looking up a facade. Keeps going past the top and comes round to flat."
         disabled={!map}
-        onClick={() =>
-          map?.easeTo({
-            pitch: Math.min(MAX_PITCH, (map.getPitch() ?? 0) + PITCH_STEP),
-            duration: 350,
-          })
-        }
+        onClick={() => tilt(PITCH_STEP)}
       >
         {/* A plane tipping away from the viewer. */}
         <Icon>
@@ -296,14 +340,9 @@ export default function MapControls({
 
       <ControlButton
         label="Lower the view angle"
-        hint="Tips the camera back toward straight down, which is where the street grid reads."
+        hint="Tips back toward straight down, where the street grid reads. Past flat it comes round to street level again."
         disabled={!map}
-        onClick={() =>
-          map?.easeTo({
-            pitch: Math.max(0, (map.getPitch() ?? 0) - PITCH_STEP),
-            duration: 350,
-          })
-        }
+        onClick={() => tilt(-PITCH_STEP)}
       >
         <Icon>
           <path d="M3 9.5 12 6l9 3.5-9 3.5z" />

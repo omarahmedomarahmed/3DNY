@@ -49,12 +49,23 @@ const PHOTOREAL_LOAD_TIMEOUT_MS = 20000;
 import MapLegend from './MapLegend';
 import MapControls from './MapControls';
 import RadiusControl from './RadiusControl';
+import ResetView from './ResetView';
 import SpacePopup from './SpacePopup';
 import DraggableCard from './DraggableCard';
 import TenantPopup from './TenantPopup';
 import { useVisibleBuildings } from './useVisibleBuildings';
 
 const DEFAULT_CENTER: [number, number] = [-73.98, 40.75];
+
+/**
+ * The camera the map opens with, and the one "Reset the view" returns to.
+ *
+ * Named here rather than written twice: the opening pitch, the reset target
+ * and the threshold that decides whether the reset button is worth showing all
+ * have to be the same number, or the button appears on a map nobody has moved.
+ */
+const HOME_PITCH = 50;
+const HOME_BEARING = -20;
 const BAND_LABEL = 'Floor bands appear at zoom ' + BAND_ZOOM_THRESHOLD;
 
 /**
@@ -465,13 +476,29 @@ type HoverPayload = Partial<BuildingWithSpaces> & {
  * worked out first: a broker who has just clicked a building and a broker who
  * is capturing it want exactly the same shot.
  */
+/**
+ * Where to put the camera to look at one building.
+ *
+ * This used to hand the footprint's bounding box to `cameraForBounds` with
+ * heavy asymmetric padding, and it was wrong in a way that was easy to miss
+ * and impossible to unsee: **`cameraForBounds` does not account for pitch.**
+ * It solves for a camera looking straight down, and this map flies at 55°. Add
+ * up to 640px of top padding on a 1000px-tall viewport and the centre it
+ * returns can be a couple of hundred metres from the building — which, at zoom
+ * 17.6, is most of the screen. Clicking the Empire State Building landed the
+ * camera 179m away from it. It looked like the map was flying somewhere at
+ * random, because from the passenger seat that is exactly what it was doing.
+ *
+ * So nothing is solved for. The centre IS the building, the zoom comes from
+ * how big its footprint is, and the headroom a tall tower needs is expressed
+ * as a screen-space offset — which is the one mechanism here that MapLibre
+ * does apply correctly under pitch.
+ */
 function frameBuilding(
   ring: [number, number][],
   heightFt: number,
-): {
-  bounds: [[number, number], [number, number]];
-  padding: { top: number; bottom: number; left: number; right: number };
-} {
+  canvas: { width: number; height: number },
+): { center: [number, number]; zoom: number; offset: [number, number] } {
   let west = 180;
   let south = 90;
   let east = -180;
@@ -482,17 +509,66 @@ function frameBuilding(
     south = Math.min(south, lat);
     north = Math.max(north, lat);
   }
+
+  const center: [number, number] = [(west + east) / 2, (south + north) / 2];
+  const cos = Math.cos((center[1] * Math.PI) / 180);
+
+  // The footprint's larger side, in metres.
+  const spanM = Math.max(
+    (east - west) * 111_320 * cos,
+    (north - south) * 110_540,
+    18,
+  );
+
+  /**
+   * Zoom for the footprint AND for the height, whichever needs more room.
+   *
+   * Footprint alone is what a plan view needs and it is not what this is. A
+   * pitched camera looking at the Empire State Building from close enough to
+   * frame its 130m footprint fills the entire window with wall — the first
+   * version of this did exactly that, and "framed on the building" turned out
+   * to mean "pressed against it". A tall tower has to be further away than a
+   * short one on the same plot.
+   *
+   * So height is converted into the ground span it effectively occupies and
+   * the two constraints compete; the one that needs more distance wins. Both
+   * are solved from the web-mercator ground resolution rather than guessed, so
+   * a five-storey loft and a supertall both arrive whole.
+   */
+  const heightM = Math.max(0, heightFt) * 0.3048;
+  const groundResolution = 156_543.03392 * cos; // metres per pixel at zoom 0
+
+  /** Zoom at which `metres` covers `fraction` of `pixels`. */
+  const zoomFor = (metres: number, fraction: number, pixels: number) =>
+    Math.log2(groundResolution / (metres / (fraction * pixels)));
+
+  const zoom = Math.min(
+    // The plot, across the frame.
+    zoomFor(spanM, 0.33, canvas.width),
+    // The tower, up it. The 1.9 is the slack a pitched, perspective camera
+    // needs, and it is generous on purpose: a vertical face leans toward the
+    // viewer and reads far taller than its own metres would on a flat map, so
+    // the honest conversion is nowhere near one-to-one. Tuned against the
+    // Empire State Building, which at anything tighter has its crown — and the
+    // bands near it — off the top of the frame.
+    zoomFor(Math.max(heightM * 1.9, spanM), 0.62, canvas.height),
+  );
+
+  /**
+   * Push the building below the middle of the frame so its height has sky.
+   *
+   * Positive Y moves the target down the screen. A tall tower drawn at 55°
+   * occupies a lot of vertical space above its own footprint, and centring the
+   * footprint runs the roof — and any availability near the top of it — off
+   * the top edge. Capped at a third of the viewport so a very tall building
+   * cannot push its own base off the bottom.
+   */
+  const headroom = Math.min(canvas.height * 0.22, heightFt * 0.16);
+
   return {
-    bounds: [
-      [west, south],
-      [east, north],
-    ],
-    padding: {
-      top: Math.min(640, Math.max(220, 150 + heightFt * 0.62)),
-      bottom: 150,
-      left: 260,
-      right: 260,
-    },
+    center,
+    zoom: Math.min(17.8, Math.max(15.2, zoom)),
+    offset: [0, Math.round(headroom)],
   };
 }
 
@@ -670,8 +746,23 @@ export default function MapView() {
       style: basemap.style,
       center: parseCenter(process.env.NEXT_PUBLIC_MAP_CENTER),
       zoom: 14,
-      pitch: 50,
-      bearing: -20,
+      pitch: HOME_PITCH,
+      bearing: HOME_BEARING,
+      /**
+       * All the way down to the street.
+       *
+       * MapLibre's default ceiling is 60°, which is a raised view of a block —
+       * not the view from the pavement. The tilt buttons already offered to go
+       * past it and the map silently refused, so pressing "raise the angle"
+       * did nothing and looked broken.
+       *
+       * 85° is the library's own hard maximum and it is the interesting one:
+       * the camera is essentially standing in the street looking up a facade,
+       * which is how anyone actually judges whether the 14th floor has a view
+       * or faces a wall. Past 85 the horizon is behind the camera and there is
+       * nothing to render, which is why no map offers it.
+       */
+      maxPitch: 85,
       antialias: true,
       // Required for Stack Snapshot: without it the basemap's drawing buffer is
       // cleared as soon as the frame is presented, and every capture of it
@@ -966,12 +1057,21 @@ export default function MapView() {
       try {
         // Frame it: tight on the footprint, pitched enough that the stack of
         // floors is visible rather than seen from directly above.
-        const shot = frameBuilding(ring, buildingHeightFt(building));
-        instance.fitBounds(shot.bounds, {
-          padding: shot.padding,
+        const shotCanvas = instance.getCanvas();
+        const shot = frameBuilding(ring, buildingHeightFt(building), {
+          width: shotCanvas.clientWidth || 1200,
+          height: shotCanvas.clientHeight || 800,
+        });
+        // The snapshot DOES fix the angle, unlike a click: it is composing a
+        // picture that leaves the building and gets forwarded, so it has to
+        // look the same whatever the camera happened to be doing.
+        instance.easeTo({
+          center: shot.center,
+          zoom: shot.zoom,
+          offset: shot.offset,
           pitch: 58,
+          bearing: -20,
           duration: 900,
-          maxZoom: 17.4,
         });
         await settle(instance, 1400);
 
@@ -1162,7 +1262,7 @@ export default function MapView() {
   // as specks somewhere off to one side; a broker opening this in a meeting
   // should see their availability immediately. Also drives "Fit to all".
   const fitAll = useCallback(
-    (duration = 900, opts: { minZoom?: number } = {}) => {
+    (duration = 900, opts: { minZoom?: number; pitch?: number; bearing?: number } = {}) => {
       const instance = mapRef.current;
       if (!instance) return;
 
@@ -1170,7 +1270,13 @@ export default function MapView() {
       if (points.length === 0) return;
 
       if (points.length === 1) {
-        instance.easeTo({ center: points[0], zoom: 16.5, pitch: 55, duration });
+        instance.easeTo({
+          center: points[0],
+          zoom: 16.5,
+          pitch: opts.pitch ?? 55,
+          ...(opts.bearing === undefined ? {} : { bearing: opts.bearing }),
+          duration,
+        });
         return;
       }
 
@@ -1181,9 +1287,19 @@ export default function MapView() {
         [Math.max(...lons), Math.max(...lats)],
       ];
       // Room for the filter rail and results sidebar, which overlay the edges.
+      /**
+       * The angle rides along with the frame, in one camera command.
+       *
+       * Resetting used to be an `easeTo` for the angle followed by this for
+       * the frame, and the second interrupted the first partway through — so
+       * "reset the view" left the camera at whatever pitch the first animation
+       * had reached when the second one cut in. One command, one destination.
+       */
       const framing = {
         padding: { top: 90, bottom: 140, left: 80, right: 80 },
         maxZoom: 16.4,
+        ...(opts.pitch === undefined ? {} : { pitch: opts.pitch }),
+        ...(opts.bearing === undefined ? {} : { bearing: opts.bearing }),
       };
 
       // `fitBounds` takes a maxZoom and has no matching floor, so a caller that
@@ -1193,7 +1309,13 @@ export default function MapView() {
       if (opts.minZoom !== undefined) {
         const camera = instance.cameraForBounds(bounds, framing);
         if (camera && (camera.zoom ?? 0) < opts.minZoom) {
-          instance.easeTo({ center: camera.center, zoom: opts.minZoom, duration });
+          instance.easeTo({
+            center: camera.center,
+            zoom: opts.minZoom,
+            ...(opts.pitch === undefined ? {} : { pitch: opts.pitch }),
+            ...(opts.bearing === undefined ? {} : { bearing: opts.bearing }),
+            duration,
+          });
           return;
         }
       }
@@ -1248,17 +1370,20 @@ export default function MapView() {
     const ring = buildingRing(target);
     if (!ring) return;
 
-    const shot = frameBuilding(ring, buildingHeightFt(target));
-    const { center, zoom: targetZoom } = instance.cameraForBounds(shot.bounds, {
-      padding: shot.padding,
-      maxZoom: 17.6,
-    }) ?? { center: undefined, zoom: undefined };
-    if (!center) return;
+    const canvas = instance.getCanvas();
+    const shot = frameBuilding(ring, buildingHeightFt(target), {
+      width: canvas.clientWidth || 1200,
+      height: canvas.clientHeight || 800,
+    });
 
     instance.flyTo({
-      center,
-      zoom: Math.max(targetZoom ?? 17, 16.6),
-      pitch: 55,
+      center: shot.center,
+      zoom: shot.zoom,
+      offset: shot.offset,
+      // The camera's own angle is left alone. Someone who has tilted to street
+      // level to look up a facade has said what they want to see; snapping
+      // back to 55° every time they click the next building takes it away
+      // again, and they have to redo it for every building in the tour.
       speed: 1.1,
       curve: 1.3,
       essential: true,
@@ -1266,8 +1391,26 @@ export default function MapView() {
   }, [selectedBuildingId, buildings]);
 
   const showEmpty = !loading && !error && buildings.length === 0;
+
+  /**
+   * A station card goes stale when the selection moves; a building card does
+   * not.
+   *
+   * This effect used to clear the transit popup alone, and when station cards
+   * joined the shared popup list it became `closeUnpinnedPopups()` — which
+   * fires on `selectedBuildingId`, which is set by the very click that opens a
+   * building's card. The card opened and closed inside one click. What was
+   * left was a building that flew into frame and told you nothing, which is a
+   * far worse bug than the one it was standing in for.
+   *
+   * Only stations, then. Their whole content is "N minutes from the selected
+   * building", so a new selection makes them wrong rather than merely old.
+   */
   useEffect(() => {
-    useApp.getState().closeUnpinnedPopups();
+    const state = useApp.getState();
+    for (const w of state.popups) {
+      if (w.kind === 'station' && !w.pinned) state.closePopup(w.id);
+    }
   }, [selectedBuildingId, showTransit]);
 
   // --- One panel at a time.
@@ -1344,6 +1487,18 @@ export default function MapView() {
             looks like a bug. It comes back when the panel is minimised. */}
         {!compareOpen && <MapLegend />}
         <RadiusControl />
+        <ResetView
+          map={map}
+          home={{ pitch: HOME_PITCH, bearing: HOME_BEARING }}
+          onReset={() => {
+            // Everything at once: the selection is what pulled the camera in,
+            // so leaving it set would have the fly-to effect drag it back the
+            // moment anything re-renders.
+            useApp.getState().selectBuilding(null);
+            useApp.getState().closeUnpinnedPopups();
+            fitAll(900, { minZoom: 13.2, pitch: HOME_PITCH, bearing: HOME_BEARING });
+          }}
+        />
         <MapControls
           map={map}
           onFitAll={() => fitAll(700)}
