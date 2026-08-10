@@ -21,6 +21,8 @@ interface CommitResult {
   inserted: number;
   updated: number;
   skipped: number;
+  /** Listings this sheet did not carry, taken off the market. Replace mode. */
+  retired: number;
 }
 
 const STAGES: { key: Stage; label: string }[] = [
@@ -91,6 +93,28 @@ export default function ImportPage() {
   const [accepted, setAccepted] = useState<Set<number>>(new Set());
   const [skipped, setSkipped] = useState<Set<number>>(new Set());
   const [committing, setCommitting] = useState(false);
+  /**
+   * Whether this sheet IS the inventory, or an update to it.
+   *
+   * Off by default, and deliberately so. A weekly sheet says what changed; a
+   * full market extract says what exists. Getting that backwards in the
+   * dangerous direction — treating an update as the whole market — would take
+   * every listing it does not mention off the map, so the default has to be
+   * the one that cannot do harm.
+   */
+  const [replaceAll, setReplaceAll] = useState(false);
+  /**
+   * How much is on the map right now.
+   *
+   * Shown next to the replace toggle, because "everything not in this file
+   * comes off" means nothing until you know what "everything" is. A number
+   * you recognise is what makes the checkbox a decision rather than a shrug.
+   */
+  const activeSpaceCount = useApp((s) =>
+    s.buildings.length === 0
+      ? null
+      : s.buildings.reduce((n, b) => n + b.spaces.filter((x) => x.is_active).length, 0),
+  );
   const [commitError, setCommitError] = useState<string | null>(null);
   const [result, setResult] = useState<CommitResult | null>(null);
 
@@ -203,6 +227,7 @@ export default function ImportPage() {
           filename: parsed.filename,
           marketLabel: parsed.marketLabel,
           rows: rowsToCommit,
+          replaceAll,
         }),
       });
       const body = (await res.json().catch(() => ({}))) as Partial<CommitResult> & {
@@ -217,6 +242,7 @@ export default function ImportPage() {
         inserted: body.inserted ?? 0,
         updated: body.updated ?? 0,
         skipped: body.skipped ?? 0,
+        retired: body.retired ?? 0,
       });
       setStage('committed');
       void useApp.getState().loadBuildings();
@@ -376,6 +402,38 @@ export default function ImportPage() {
                     : `Commit ${rowsToCommit.length.toLocaleString()} ${rowsToCommit.length === 1 ? 'row' : 'rows'}`}
                 </button>
               </div>
+
+              {/* Merge or replace.
+                  A weekly sheet says what CHANGED; a full market extract says
+                  what EXISTS. Only the second one licenses taking listings off
+                  the map, so this is off by default and states plainly what it
+                  will do to the count in front of you before it does it. */}
+              <label className="mt-3 flex cursor-pointer items-start gap-2.5 border-t border-hairline pt-3">
+                <input
+                  type="checkbox"
+                  checked={replaceAll}
+                  disabled={committing}
+                  onChange={(e) => setReplaceAll(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-goldenrod"
+                />
+                <span className="text-sm leading-5">
+                  <span className="font-semibold text-ink">
+                    This sheet is the whole market, not an update
+                  </span>
+                  <span className="block text-[13px] text-muted">
+                    Every listing this file does not carry comes off the map. Use it for a full
+                    market extract; leave it off for a weekly sheet, which only says what changed.
+                  </span>
+                  {replaceAll && (
+                    <span className="mt-1.5 block rounded bg-warn-surface px-2.5 py-1.5 text-[13px] font-medium text-warn">
+                      {activeSpaceCount === null
+                        ? 'Everything currently on the map that is not in this file will be taken off it.'
+                        : `${activeSpaceCount.toLocaleString()} listing${activeSpaceCount === 1 ? '' : 's'} are on the map now. Any of them not in this file will be taken off it — kept in the record, with photos and notes, but no longer shown as available.`}
+                    </span>
+                  )}
+                </span>
+              </label>
+
               {blockedReason && (
                 <p className="mt-3 border-t border-hairline pt-3 text-sm text-danger">
                   <span className="font-semibold">Commit is off: </span>
@@ -429,6 +487,19 @@ export default function ImportPage() {
                   Skipped
                 </div>
               </div>
+              {/* Only shown when a replace actually took listings off. A
+                  destructive step that reports nothing is a destructive step
+                  nobody notices happened. */}
+              {result.retired > 0 && (
+                <div className="min-w-[7.5rem] flex-1 rounded-card border border-warn/25 bg-warn-surface px-4 py-3">
+                  <div className="tabular text-3xl font-semibold leading-none text-warn">
+                    {result.retired.toLocaleString()}
+                  </div>
+                  <div className="mt-2 text-[10px] font-semibold uppercase leading-tight tracking-[0.09em] text-muted">
+                    Taken off the market
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="mt-7 flex flex-wrap items-center gap-5">

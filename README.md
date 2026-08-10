@@ -24,7 +24,8 @@ Built to be used live in a tenant meeting.
 - **No named agents, anywhere.** The weekly sheet carries the listing broker's name and email. Both are imported and stored, and neither is ever displayed — the firm is shown as "Listing broker", the individual is not. Enforced by a test over every UI file, not just by convention.
 - **Transit.** Every subway station, bus stop, ferry landing, PATH and rail terminal in view. Select a building and dashed lines run to the nearest few with an estimated walk time and the routes that serve them. Walk time is also a compare column.
 - **Radius comps.** Draw a circle around a target building, see every available space inside it.
-- **Filter on anything** in the sheet: lease expiration, asking rent range, SF, floor, class, direct vs sublet, submarket, leasing company, date added.
+- **Filter on anything** in the sheet: lease expiration, asking rent range, SF, floor, class, direct vs sublet, submarket, leasing company, date added. One click for *Added this week* or *Added in 3 months*.
+- **Replace the market, or update it.** A weekly sheet merges. A full market extract can be committed as the whole inventory, retiring everything it does not carry — kept in the record with its photos and notes, not deleted.
 - **Search by who is in the building.** Nobody remembers 100 Park Avenue; everybody remembers who is in it. A tenant name or industry finds the tower.
 - **Edit everything.** Every imported row is editable in-app. Add photos. Correct a bad address match. Update tenants.
 - **Landlord profiles.** Every imported building gets a landlord record created for it automatically, seeded from the city's owner of record and flagged for review — so you edit a landlord rather than create one. Insights, amenities and portfolio numbers are yours to write.
@@ -275,6 +276,60 @@ no terminal commands.
 | Needs a manual map pick | 0 | 1 (`One Soho Sq`) |
 
 Six review decisions on the first import, then zero — every choice is remembered.
+
+---
+
+## Replacing the whole market, rather than updating it
+
+The weekly sheet says what **changed**. A full market extract says what
+**exists**, and only the second one licenses taking listings off the map.
+
+The commit step has a checkbox for that: *"This sheet is the whole market, not
+an update."* Off by default, because getting it backwards in the dangerous
+direction — treating a weekly update as the whole market — would retire every
+listing the update did not happen to mention. When it is on, the panel tells
+you how many listings are on the map right now, before you commit, because
+"everything not in this file comes off" means nothing until you know what
+everything is.
+
+Retired, not deleted. `is_active` goes false; the row, its photographs, its
+notes and its edit history all stay. A space that comes back on the market next
+month is the same space, and a broker who remembers showing it should still be
+able to find it. It also means a replace run against the wrong file is
+recoverable — which a delete would not be.
+
+### Where market-wide availability actually comes from
+
+There is no free, complete, machine-readable source for Manhattan office
+availability, and it is worth being precise about why:
+
+- **Scale.** Colliers counted **66.2M SF available in Manhattan in July 2026**,
+  around 3,500 individual office listings. That is the size of the answer to
+  "every available space in every building".
+- **The comprehensive source is licensed.** CoStar's terms prohibit scraping
+  and redistribution, and they enforce it — including CFAA suits and a $1M
+  settlement with a competitor that systematically copied listings. Any feed
+  from CoStar has to arrive through a subscription and its export, not a
+  crawler.
+- **Landlord sites are partial and rentless.** SL Green — one of the largest
+  Manhattan office landlords — publishes roughly 200 availabilities across 32
+  buildings with address, floor and SF, and **no asking rent at all**: every
+  one reads "Rent: Upon Request".
+- **The good space is not public.** The market's own summary: almost none of
+  the well-priced space in older or off-market buildings ever reaches a public
+  listing site.
+
+So the routes that actually work, in order of coverage:
+
+| Route | Coverage | How it gets in |
+|---|---|---|
+| CoStar / CompStak export under your subscription | Effectively the whole market | Save as CSV, import with **replace** on |
+| Your own weekly availability sheets | Your inventory, authoritative | The normal import |
+| A landlord or brokerage feed you have a relationship with | That landlord's stack | Import, or the by-hand form |
+
+All three land in the same tables through the same matcher. Nothing in this
+repo scrapes a licensed source, and nothing invents a listing: a rent that
+cannot be verified is stored as **withheld**, never as a number.
 
 ---
 

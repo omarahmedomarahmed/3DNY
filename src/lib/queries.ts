@@ -464,7 +464,14 @@ export async function commitImport(
   filename: string,
   marketLabel: string | null,
   rows: MatchedRow[],
-): Promise<{ importId: string; inserted: number; updated: number; skipped: number }> {
+  opts: { replaceAll?: boolean } = {},
+): Promise<{
+  importId: string;
+  inserted: number;
+  updated: number;
+  skipped: number;
+  retired: number;
+}> {
   const db = sql();
 
   const importRows = (await db(
@@ -484,6 +491,7 @@ export async function commitImport(
   let inserted = 0;
   let updated = 0;
   let skipped = 0;
+  let retired = 0;
 
   for (const row of rows) {
     if (row.match.confidence === 'unmatched' && !row.match.buildingId) {
@@ -570,6 +578,35 @@ export async function commitImport(
     else updated++;
   }
 
+  /**
+   * Replace mode: everything this sheet did not carry stops being available.
+   *
+   * The normal import MERGES, which is right for a weekly sheet — it says what
+   * changed, not what exists, and a floor missing from this week's file has
+   * usually just not changed. But a full market extract says the opposite:
+   * it IS the inventory, and anything absent from it has been leased or
+   * withdrawn. Merging one of those leaves last quarter's listings on the map
+   * forever, quietly, with nothing to show they are stale.
+   *
+   * Retired, not deleted. `is_active = false` keeps the row, its photos, its
+   * notes and its history — a space that comes back on the market next month
+   * is the same space, and a broker who remembers showing it should still be
+   * able to find it. Deleting would also cascade to the photographs somebody
+   * took, which no import should ever be able to do.
+   *
+   * Scoped to spaces this run did not touch, so it cannot retire a row the
+   * same sheet just wrote.
+   */
+  if (opts.replaceAll) {
+    const retiredRows = (await db(
+      `UPDATE spaces SET is_active = false
+       WHERE is_active AND (source_import_id IS DISTINCT FROM $1)
+       RETURNING id`,
+      [importId],
+    )) as { id: string }[];
+    retired = retiredRows.length;
+  }
+
   await db(`UPDATE imports SET status = 'committed' WHERE id = $1`, [importId]);
 
   // Pull real footprints for anything newly created. Best-effort: a failed
@@ -580,7 +617,7 @@ export async function commitImport(
     // Geometry can be backfilled later from Setup.
   }
 
-  return { importId, inserted, updated, skipped };
+  return { importId, inserted, updated, skipped, retired };
 }
 
 // ---------------------------------------------------------------------------
