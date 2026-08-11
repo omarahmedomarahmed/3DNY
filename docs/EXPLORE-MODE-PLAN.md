@@ -15,7 +15,7 @@ result looks.
 | **Work only on `claude/spaces-lab`.** Never push to `main`. | The owner merges when and if he wants. This is a lab. |
 | **Never remove or degrade the existing flat map.** | It is the working tool. Explore is a second mode, reached by a button, and `/map` must behave exactly as it does today when Explore is off. |
 | **A Goldenrod band on the 14th floor stays the loudest thing on screen.** | The one rule of this product. Every item below competes with it. Any phase that dims availability is a regression, however good it looks. |
-| **Nothing is hand-authored per building.** | Detail comes from data — footprint, height, floor count, year built. A treatment that needs an artist per tower cannot scale to "every building we ever add". Two named heroes are the only exception, and their exception is data too (§5). |
+| **Nothing is hand-authored per building.** | Detail comes from data — footprint, height, floor count, year built, and now NYC's surveyed massing. A treatment that needs an artist per tower cannot scale to "every building we ever add". The heroes are not exceptions to this: their silhouettes are surveyed data too (§5). |
 | **Read `docs/MAP-REALISM-BRIEF.md` before writing shader code.** | It carries the traps this codebase has already fallen into three times — chief among them: any shader injecting into `DECKGL_FILTER_COLOR` must guard with `!bool(picking.isActive)` or building clicks silently break, and the GLSL preprocessor only evaluates *integer* constant expressions. |
 
 ---
@@ -45,7 +45,10 @@ Nobody has that combination on the open web.
 
 ## 2. Art direction
 
-**VU.CITY.** Take it literally.
+**VU.CITY.** Take it literally. Confirmed by the owner on 11 August 2026, with
+one clarification worth carrying: a real sky, a real sun and a free drone
+camera are *not* what distinguishes this direction — VU.CITY has all three and
+so will we. The difference is entirely in the **building surfaces**.
 
 | | |
 |---|---|
@@ -59,8 +62,11 @@ Nobody has that combination on the open web.
 That last row is the whole art direction. The neutrality is not taste, it is
 what protects the one rule: on a near-white city, a Goldenrod band screams.
 
-**Not:** Cities: Skylines saturation, cartoon proportions, photoreal
-photogrammetry, or any texture that reads as photography.
+**Not:** *Cities: Skylines* saturation, cartoon proportions, photoreal
+photogrammetry, or any texture that reads as photography. (*Cities: Skylines*
+is the name of a video game, and its art style is saturated and slightly toy-
+like because in a game every building must read as a *type* — housing, office,
+factory. We need the opposite: buildings that read as *themselves*.)
 
 ---
 
@@ -116,35 +122,85 @@ so it cannot drift.
 
 ---
 
-## 5. The honest hard part: silhouette
+## 5. Silhouette — solved, on 11 August 2026
 
-**Extruding a footprint to its roof height gives you a box.** The Empire State
-Building has setbacks at floors 6, 30, 72 and 86 plus a spire. One WTC tapers
-and twists from a square base to a square rotated 45°. Neither is anywhere in
-the data we hold, so "looks exactly like the building" is *not reachable by
-extrusion* — and the two named heroes are the two worst cases in the city.
+This section used to say extruding a footprint gives you a box, and that
+NYC's 3-D Building Model should be evaluated before any facade code was
+written. That evaluation has been done. **The answer is yes.** Do not
+re-litigate it; read the numbers and build on them.
 
-This is the gap between the promise and the delivery. Address it explicitly:
+**What the model is.** The city's Office of Technology & Innovation publishes
+a CityGML massing model of every building standing in 2014 — roof, wall and
+ground surfaces, classified, with real setbacks. The published metadata calls
+it a hybrid of LOD 1 and LOD 1.5 with "approximately 100 iconic buildings" at
+full LOD 2. **The metadata undersells it badly.** Measured:
 
-1. **Evaluate NYC's 3-D Building Model first.** DoITT publishes a multipatch
-   LOD2 massing model of the whole city with roof structures and setbacks. If
-   it loads and aligns, it solves this automatically for every building and
-   most of this section disappears. **Do this before writing any facade code**
-   — it changes the design.
-2. **If that fails, store a massing profile per building.** A short stack of
-   `{ heightFt, insetFt, rotationDeg }` steps, in the database, derived once
-   and reviewed by eye. Automatic default is a single step (today's box); a
-   hero gets four or five. The data path stays uniform.
-3. **Never fake it with a texture.** A photographic facade pasted on a box
-   fails at exactly the moment someone walks up to it, which is the moment
-   this mode exists for.
+| Measurement | Result |
+|---|---|
+| Buildings scanned | 153,384, across the three tiles that cover our 73 |
+| Midtown tile (DA12) | 24,038 buildings, 609,730 polygons |
+| Flat prisms in DA12 | 9,718 — 40.4%, mostly low-rise |
+| **Two or more roof elevations in DA12** | **14,320 — 59.6%** |
+| **Our buildings matched by BIN** | **71 of 73** |
+| Of the 69 in DA12, with setbacks | 67 |
+| Empire State Building | 545 polygons, 28 roof elevations, top 443.7 m |
+| One World Trade Center | 667 polygons, 25 roof elevations, spire 547.7 m |
+| Geometry for all 71 | 7,899 polygons · 48,301 vertices · ~32,503 triangles |
+| **Payload for all 71** | **0.84 MB JSON, 150 KB gzipped** |
+
+Against a 2,000,000-triangle budget, the entire real massing of everything we
+own costs 32,503 triangles. Massing was never going to be the expensive part.
+
+**How to get it.** `scripts/fetch-lod2-massing.ts`, already written and run.
+It reads the BINs out of the database, reads the 916 MB zip's central
+directory over HTTP range requests, sniffs each tile's `<gml:Envelope>` to
+work out which three of the twenty tiles it needs, streams and inflates only
+those, and writes `public/lod2/massing.json`. Twenty seconds. No GIS
+toolchain, no 13 GB on disk. Parsing and projection are pure and tested in
+`src/lib/citygml.ts` / `tests/citygml.test.ts` — **read those before touching
+the loader**, particularly:
+
+- The tiles are **not internally consistent**. Two of the twenty write
+  `<cityObjectMember>` with no `core:` prefix, and two ship `NaN` as a corner
+  elevation. Both are handled. The first fails *silently* — match only the
+  prefixed tag and those tiles parse to nothing at all rather than erroring.
+- Coordinates are EPSG:2263 in **US survey feet**, not international feet.
+  The difference is 2 ppm — about a building's width across Manhattan.
+- Elevations are on the vertical datum, so height is measured from the
+  building's own ground surface, never from zero.
+
+**The rule this creates.** A building gets real massing when its BIN is
+present in the model, and falls back to today's extruded footprint when it is
+not. The fallback is the current renderer, so it costs nothing, and it is per
+building rather than per city.
+
+**What it does not solve.**
+
+| Gap | Handling |
+|---|---|
+| A one-time 2014 capture — 185 Broadway (built 2021) and 512 W 22nd Street are absent | Fall back to extrusion. Expected, not a failure. The count grows as Manhattan builds |
+| Masts count as height: Empire State roof 377.6 m vs model top 443.7 m; One WTC roof 429.3 m vs spire 547.7 m | **Keep deriving floor elevations from `height_roof_ft` and `num_floors`.** The model gives silhouette and never floor positions |
+| Alterations since 2014 — a re-clad facade, a rooftop addition | Accept it. This is massing, not a survey of record |
+| No windows, no textures, no interiors | Unchanged: facades are ours to author |
+
+**Never fake it with a texture.** A photographic facade pasted on a box fails
+at exactly the moment someone walks up to it, which is the moment this mode
+exists for.
+
+**Why this matters more than it looks.** A floor band is drawn at an
+elevation and wrapped around whatever geometry is there. On an extruded prism
+there is only ever the ground-floor footprint, so a band on floor 63 of the
+Empire State Building wraps the *base* — a goldenrod ring hanging in mid-air
+some forty metres out from the tower a broker is pointing at. The argument for
+this dataset is not that buildings look better. It is that **availability
+lands in the right place on them.**
 
 Hero buildings, in order:
 
 | # | Building | Why |
 |---|---|---|
-| 1 | **350 Fifth Avenue** — Empire State | Everyone in the room knows instantly if it is wrong |
-| 2 | **285 Fulton Street** — One WTC | The hardest silhouette in the city. If the pipeline does this it does anything |
+| 1 | **350 Fifth Avenue** — Empire State | Everyone in the room knows instantly if it is wrong. 545 polygons, confirmed present |
+| 2 | **285 Fulton Street** — One WTC | The hardest silhouette in the city, and the Financial District example. 667 polygons, confirmed present |
 | 3 | **One Battery Park Plaza** | The control. An ordinary 1971 FiDi tower that must look right with **no** hand-holding — this is what proves the automatic path |
 
 ---
@@ -153,7 +209,8 @@ Hero buildings, in order:
 
 | Asset | Where | Use for |
 |---|---|---|
-| Footprints, roof heights, floor counts, year built | database; 73/73 have footprint and height, 59 floors, 73 year built | Base geometry, window grids, style selection |
+| **Surveyed LOD2 massing — setbacks, towers, crowns, masts** | `src/lib/citygml.ts` (pure, tested), `scripts/fetch-lod2-massing.ts` (fetch), output `public/lod2/massing.json` — gitignored, regenerate in 20s | **The silhouette.** 71 of 73 buildings. Read §5 first |
+| Footprints, roof heights, floor counts, year built | database; 73/73 have footprint and height, 59 floors, 73 year built | Base geometry, window grids, style selection, and the **fallback** for the 2 buildings the 2014 survey predates |
 | Facade shader with floor lines | `src/components/map/facade.ts` | The starting point for the window grid. **Read its picking guard first** |
 | Roofscape: parapets, plant, water tanks, crowns — BIN-seeded, deterministic | `src/components/map/roofs.ts` | Promote from proxy geometry to real meshes |
 | Streets, kerbs, pavements, parks, water, trees | `src/components/map/ground.ts`, `useStreetscape.ts` | The ground plane, and the surfaces people and cars move on |
@@ -227,6 +284,13 @@ phase, not the budget.
 | Draw calls | ≤ 1,000 — instance aggressively |
 | Initial load | ≤ 5 MB over today's bundle |
 | Detailed buildings in view | 73 today, must hold at 400 |
+
+**Measured, so you can spend the budget knowingly:** the surveyed massing for
+all 71 buildings we matched is **32,503 triangles and 150 KB gzipped** (§5) —
+1.6% of the triangle budget and 3% of the load budget. Massing is cheap. The
+budget will be spent on glass, light, and whatever happens at street level, so
+treat any *facade* technique that costs more than the entire city's massing as
+a decision, not an accident.
 
 LOD is not optional past phase 3: shader facades near, flat massing far, and a
 tile-based stream for the context city.
