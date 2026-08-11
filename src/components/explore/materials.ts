@@ -179,6 +179,7 @@ const FACADE_FRAGMENT = /* glsl */ `
   uniform vec3 uCameraPos;
   uniform float uInterior;
   uniform float uTime;
+  uniform float uSeed;
 
   varying vec3 vNormal;
   varying vec3 vWorld;
@@ -190,6 +191,13 @@ const FACADE_FRAGMENT = /* glsl */ `
   ${SKY_GLSL}
   ${HAZE_GLSL}
 
+  /** Deterministic per-cell noise. The same window is lit every time. */
+  float hash21(vec2 p) {
+    p = fract(p * vec2(123.34, 456.21) + uSeed);
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+  }
+
   void main() {
     vec3 N = normalize(vNormal);
     vec3 V = normalize(uCameraPos - vWorld);
@@ -197,70 +205,120 @@ const FACADE_FRAGMENT = /* glsl */ `
 
     vec3 albedo = uStoneColor;
     float glass = 0.0;
-    float roughness = 1.0;
+    vec3 roomLight = vec3(0.0);
 
     if (vIsWall > 0.5) {
-      // --- Where in the bay and where in the storey.
       float bay = vAlong / uBayWidth;
       float storey = vUp / uFloorHeight;
       float bayF = fract(bay);
       float storeyF = fract(storey);
 
-      // Fade the whole grid out once a bay is close to a pixel wide. Below
+      // Fade the whole grid out once a bay approaches a pixel wide. Below
       // that it is aliasing, and aliasing is loud.
       float bayPx = fwidth(bay);
       float storeyPx = fwidth(storey);
       float resolve = 1.0 - smoothstep(0.30, 0.70, max(bayPx, storeyPx));
 
-      // --- The pane: inset from the bay edges and sitting above a spandrel.
-      float mullion = 0.14;
+      /**
+       * A bay, in four parts, which is what a curtain wall is made of.
+       *
+       * | Part | Where |
+       * |---|---|
+       * | Spandrel | The bottom of the storey, under the sill |
+       * | Mullion | The vertical between one pane and the next |
+       * | Transom | The horizontal at the head of the pane |
+       * | Pane | What is left, and the only part that is glass |
+       *
+       * The mullion is a fixed 90 mm rather than a fraction of the bay, so a
+       * narrow bay does not get a proportionally narrow mullion. Real curtain
+       * wall is made of extrusions that come in one size.
+       */
+      float mullionM = 0.09;
+      float mullion = mullionM / uBayWidth;
       float sill = 1.0 - uGlassFraction;
-      float paneX = smoothstep(mullion, mullion + max(bayPx * 1.6, 0.02), bayF) *
-                    (1.0 - smoothstep(1.0 - mullion - max(bayPx * 1.6, 0.02), 1.0 - mullion, bayF));
-      float paneY = smoothstep(sill, sill + max(storeyPx * 1.6, 0.02), storeyF) *
-                    (1.0 - smoothstep(0.94 - max(storeyPx * 1.6, 0.02), 0.94, storeyF));
+      float head = 0.96;
+
+      float aaX = max(bayPx * 1.2, 0.012);
+      float aaY = max(storeyPx * 1.2, 0.012);
+
+      float paneX = smoothstep(mullion, mullion + aaX, bayF) *
+                    (1.0 - smoothstep(1.0 - mullion - aaX, 1.0 - mullion, bayF));
+      float paneY = smoothstep(sill, sill + aaY, storeyF) *
+                    (1.0 - smoothstep(head - aaY, head, storeyF));
       glass = paneX * paneY * resolve;
 
-      // --- Piers. A heavier vertical every fifth bay, which is what stops the
-      // grid reading as hatching and starts it reading as structure.
-      float pier = 1.0 - smoothstep(0.0, max(fwidth(bay / 5.0) * 1.6, 0.03),
-                                    min(fract(bay / 5.0), 1.0 - fract(bay / 5.0)));
-      // --- The floor line: the slab edge between one storey and the next.
-      float slab = 1.0 - smoothstep(0.0, max(storeyPx * 1.4, 0.02),
+      /**
+       * The pane is divided, because real ones are.
+       *
+       * A single sheet of glass a storey tall and a bay wide exists on very
+       * few buildings; almost every curtain wall has a horizontal transom
+       * about two thirds up and many have a vertical centre mullion. Without
+       * them a glass tower reads as shrink-wrapped, which is the specific way
+       * procedural facades look fake.
+       */
+      float transom = 1.0 - smoothstep(0.0, max(aaY * 0.9, 0.008),
+                                       abs(storeyF - mix(sill, head, 0.62)));
+      float centre = 1.0 - smoothstep(0.0, max(aaX * 0.9, 0.008), abs(bayF - 0.5));
+      float divider = max(transom, centre * 0.7) * glass * resolve;
+
+      // --- Piers. A heavier vertical every fifth bay: what stops the grid
+      // reading as hatching and starts it reading as structure.
+      float pierCoord = bay / 5.0;
+      float pierPx = fwidth(pierCoord);
+      float pier = 1.0 - smoothstep(0.0, max(pierPx * 1.6, 0.03),
+                                    min(fract(pierCoord), 1.0 - fract(pierCoord)));
+      pier *= 1.0 - smoothstep(0.5, 1.1, pierPx);
+
+      // --- The slab edge between one storey and the next.
+      float slab = 1.0 - smoothstep(0.0, max(aaY, 0.02),
                                     min(storeyF, 1.0 - storeyF));
 
-      // Stone, shaded by its own relief. Piers stand proud and catch light;
-      // the slab edge sits back and reads as a shadow line.
-      vec3 stone = uStoneColor;
-      stone *= mix(1.0, 1.06, pier * resolve);
-      stone *= mix(1.0, 0.90, slab * resolve * (1.0 - glass));
+      /**
+       * The spandrel is a different material from the pier.
+       *
+       * On a real building the panel under a window is metal or a darker
+       * stone, not the same limestone as the structure. Half a percent of
+       * separation is enough to read as a band and nowhere near enough to
+       * introduce colour.
+       */
+      float spandrel = (1.0 - smoothstep(sill - aaY, sill, storeyF)) *
+                       smoothstep(0.0, aaY, storeyF) * resolve;
 
-      // A wall is darker at the bottom, where the street shades it, and
-      // brighter where it faces open sky. The cheapest cue that a tower is
-      // standing in a city rather than floating in one.
+      vec3 stone = uStoneColor;
+      stone = mix(stone, uStoneColor * 0.93, spandrel * (1.0 - glass));
+      stone *= mix(1.0, 1.05, pier * resolve);
+      stone *= mix(1.0, 0.88, slab * resolve * (1.0 - glass));
+      stone = mix(stone, stone * 0.72, divider);
+
+      // Darker where the street shades it, brighter facing open sky.
       float streetShade = mix(0.90, 1.05, clamp(vUp / max(vWall, 1.0), 0.0, 1.0));
       albedo = stone * streetShade;
-      roughness = mix(1.0, 0.08, glass);
+
+      /**
+       * What is behind the glass, when interiors are switched on.
+       *
+       * Sprint 7 replaces this with parallax interior mapping — an actual
+       * room with depth in it. Until then a lit pane is a flat warm tint, per
+       * window and deterministic, so the building reads as occupied at dusk
+       * rather than as a mirror. Every one of these is switched off in
+       * daylight by the uInterior uniform -- backticks are deliberately
+       * absent from this file's GLSL, because the shader lives in a template
+       * literal and one in a comment ends it.
+       */
+      if (uInterior > 0.001 && glass > 0.001) {
+        float lit = step(0.62, hash21(floor(vec2(bay, storey))));
+        roomLight = vec3(1.0, 0.88, 0.68) * lit * uInterior * glass;
+      }
     }
 
-    // --- Light. One sun, one sky, and a ground bounce. No shadow map: at city
-    // scale it is where deck.gl's own shadow pass produced the acne that made
-    // every facade look striped, and this mode cannot afford that on glass.
+    // --- Light. One sun, one sky, and a wrap term standing in for the sky
+    // filling in the shaded side. No shadow map: at city scale it is where
+    // deck.gl's own shadow pass produced the acne that striped every facade,
+    // and this mode cannot afford that on glass.
     vec3 L = normalize(-uSunDir);
     float ndl = max(dot(N, L), 0.0);
-    // A shallow wrap, standing in for the sky filling in the shaded side.
     float wrapped = max((dot(N, L) + 0.35) / 1.35, 0.0);
 
-    /**
-     * Exposure, chosen so a sunlit limestone wall lands near 0.82 and a wall
-     * in its own shade near 0.58.
-     *
-     * That spread is the art direction: VU.CITY's city is near-white and matte
-     * with genuine modelling on it, not a grey city with a light on it. The
-     * numbers are what they are because the output is display-referred — see
-     * MAX_FACADE_LUMA. Halve them and the city goes to slate; double them and
-     * every wall clips and the bands lose.
-     */
     vec3 skyUp = skyColor(vec3(0.0, 0.0, 1.0));
     vec3 ambient = mix(skyUp, uHorizonColor, 0.45) * uAmbient * 0.62;
     vec3 direct = uSunColor * uSunIntensity * mix(ndl, wrapped, 0.5) * 0.55;
@@ -268,37 +326,19 @@ const FACADE_FRAGMENT = /* glsl */ `
     vec3 color = albedo * (ambient + direct);
 
     if (glass > 0.001) {
-      // --- Glass. The only shiny thing in the world.
       vec3 R = reflect(-V, N);
       vec3 reflected = skyColor(R);
-      // Schlick, with a low base reflectance: architectural glazing is around
-      // 4% face-on and near a mirror at grazing angles, which is exactly the
-      // behaviour that makes a tower's flank light up as you walk past it.
       float fresnel = 0.04 + 0.96 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
-
-      /**
-       * A tower's glass reads PALE, not dark.
-       *
-       * The first version used a textbook 4% face-on reflectance and a dark
-       * tinted pane, and the result was a slate-blue building — because a
-       * curtain wall is mostly glass, so whatever the glass does the building
-       * does. Real architectural glazing is coated: reflectance face-on is
-       * nearer a third, which is why a glass tower on a clear day is a
-       * building-shaped piece of sky rather than a dark box.
-       *
-       * That also matters for the one rule. A dark city and a Goldenrod band
-       * is a high-contrast pairing that looks striking and is the OPPOSITE of
-       * the art direction: on a dark city every lit window competes. Pale
-       * glass, near-white stone, one saturated colour.
-       */
+      // Coated architectural glazing is near a third face-on, which is why a
+      // glass tower is a building-shaped piece of sky rather than a dark box.
       float reflectance = max(fresnel, 0.34);
       vec3 pane = mix(uGlassColor * (ambient + direct * 0.5), reflected, reflectance);
 
-      // The specular lobe. Tight, because a broad one washes the whole flank
-      // to white and that is the exact failure the luminance clamp exists for.
+      // A tight specular lobe. A broad one washes the whole flank to white,
+      // which is the exact failure the luminance clamp exists for.
       vec3 H = normalize(L + V);
-      float spec = pow(max(dot(N, H), 0.0), 220.0) * 0.55;
-      pane += uSunColor * spec * uSunIntensity;
+      pane += uSunColor * pow(max(dot(N, H), 0.0), 220.0) * 0.55 * uSunIntensity;
+      pane += roomLight;
 
       color = mix(color, pane, glass);
     }
@@ -316,6 +356,10 @@ export interface FacadeOptions {
   glassFraction?: number;
   /** Selects the stone. Null falls to the midcentury value. */
   yearBuilt?: number | null;
+  /** Decorrelates the lit-window pattern between neighbouring towers. */
+  seed?: number;
+  /** 0-1. How lit the interiors are. Raised at dusk and night. */
+  interior?: number;
   /** Massing only — no fenestration. Used for context buildings. */
   plain?: boolean;
 }
@@ -362,6 +406,8 @@ export function makeFacadeMaterial(
     uCameraPos: { value: new THREE.Vector3() },
     uInterior: { value: 0 },
     uTime: { value: 0 },
+    // Per-building, so two towers side by side do not light the same windows.
+    uSeed: { value: options.seed ?? 0 },
   };
 
   return new THREE.ShaderMaterial({
@@ -402,6 +448,11 @@ export function applyPreset(
   preset: AtmospherePreset,
   sunDir: [number, number, number],
 ): void {
+  // Lit windows belong to the dark hours. At midday they are invisible
+  // anyway, and drawing them costs a branch on every glass fragment in the
+  // city — and, worse, adds warm speckle to a frame whose whole point is that
+  // Goldenrod is the only warm thing in it.
+  material.uniforms.uInterior.value = interiorFor(preset);
   (material.uniforms.uSunDir.value as THREE.Vector3).set(...sunDir);
   (material.uniforms.uSunColor.value as THREE.Color).copy(rgb(preset.sunColor));
   material.uniforms.uSunIntensity.value = preset.sun;
@@ -410,4 +461,26 @@ export function applyPreset(
   (material.uniforms.uHorizonColor.value as THREE.Color).set(preset.horizon);
   (material.uniforms.uHazeColor.value as THREE.Color).copy(rgb(preset.haze));
   material.uniforms.uHazeStrength.value = preset.hazeStrength;
+}
+
+/**
+ * How lit the interiors are, at a given hour.
+ *
+ * Night is not full: an office tower at 3am has a scattering of lights, not a
+ * grid of them, and the `hash21` threshold in the shader already thins them.
+ * This scales what is left.
+ *
+ * Midday is exactly zero rather than nearly zero. A warm speckle across every
+ * glass tower in daylight is invisible as an effect and visible as noise, and
+ * noise is the thing this frame has the least room for.
+ */
+export function interiorFor(preset: AtmospherePreset): number {
+  switch (preset.key) {
+    case 'night':
+      return 0.85;
+    case 'golden':
+      return 0.35;
+    default:
+      return 0;
+  }
 }

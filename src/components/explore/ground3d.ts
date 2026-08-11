@@ -51,20 +51,33 @@ export interface GroundHandle {
   material: THREE.ShaderMaterial;
 }
 
-/** Pale, neutral, no grime. The art direction's "clean streets" in one colour. */
-export function groundColor(theme: 'dark' | 'light'): THREE.Color {
-  return theme === 'dark'
-    ? new THREE.Color(0.145, 0.165, 0.205)
-    : new THREE.Color(0.855, 0.867, 0.886);
+/**
+ * Pale, neutral, no grime — and lit by the hour, not by the theme.
+ *
+ * The first version keyed off the light/dark theme, and at night that left a
+ * near-white pavement under a black sky with a dark city standing on it. It
+ * read as a mistake rather than as a choice, because it is one: the ground is
+ * lit by the same sun as everything above it.
+ *
+ * So it is derived from the hour's own haze colour, darkened. That also keeps
+ * the ground and the horizon in agreement automatically, which is what stops
+ * the plane's far edge showing up as a line across the frame.
+ */
+export function groundColor(preset: AtmospherePreset): THREE.Color {
+  const c = new THREE.Color(
+    preset.haze[0] / 255,
+    preset.haze[1] / 255,
+    preset.haze[2] / 255,
+  );
+  // A roadbed is darker than the air above it at every hour. 0.78 keeps the
+  // kerb-to-sky separation without turning the daytime street grey.
+  return c.multiplyScalar(0.78);
 }
 
-export function makeGround(
-  preset: AtmospherePreset,
-  theme: 'dark' | 'light',
-): GroundHandle {
+export function makeGround(preset: AtmospherePreset): GroundHandle {
   const material = new THREE.ShaderMaterial({
     uniforms: {
-      uGroundColor: { value: groundColor(theme) },
+      uGroundColor: { value: groundColor(preset) },
       uHazeColor: {
         value: new THREE.Color(
           preset.haze[0] / 255,

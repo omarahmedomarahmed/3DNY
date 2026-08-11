@@ -141,6 +141,28 @@ async function analyse(buffer) {
       }
     }
 
+    /**
+     * Local contrast: how much a pixel differs from the one beside it.
+     *
+     * A building drawn as flat paint and a building with a curtain wall on it
+     * can have identical mean brightness and identical colour. What separates
+     * them is structure, and structure is what shows up as a difference
+     * between neighbouring pixels. Mean absolute difference along each row is
+     * the cheapest honest measure of it.
+     */
+    let detail = 0;
+    let pairs = 0;
+    for (let y = 0; y < c.height; y++) {
+      for (let x = 1; x < c.width; x++) {
+        const i = (y * c.width + x) * 4;
+        const j = i - 4;
+        detail += Math.abs(luma(data[i], data[i + 1], data[i + 2]) -
+                           luma(data[j], data[j + 1], data[j + 2]));
+        pairs++;
+      }
+    }
+    detail = pairs > 0 ? detail / pairs : 0;
+
     otherChromas.sort((a, b) => a - b);
     peakOtherChroma = otherChromas.length
       ? otherChromas[Math.floor(otherChromas.length * 0.999)]
@@ -153,6 +175,7 @@ async function analyse(buffer) {
       peakOtherChroma,
       brightestOther,
       meanLuma: sum / (data.length / 4),
+      detail,
       width: c.width,
       height: c.height,
     };
@@ -440,6 +463,133 @@ check(
   frame.median < 400,
   `median ${frame.median.toFixed(0)} ms, worst ${frame.worst.toFixed(0)} ms (SwiftShader, not a GPU)`,
 );
+
+// --- 5b. The facade, from where a broker would stand ----------------------
+//
+// Sprint 4's question is whether a wall reads as a wall from the pavement.
+// Measured as local contrast: a flat painted box has almost none, a facade
+// with piers, spandrels, transoms and glass in it has a great deal.
+
+await page.evaluate(() => {
+  window.__m.jumpTo({ center: [-73.98566, 40.74828], zoom: 18.6, pitch: 82, bearing: 5 });
+});
+await sleep(4000);
+await page.screenshot({ path: join(outdir, 'facade-close.png') });
+
+/**
+ * The wall itself, not the sky around it.
+ *
+ * Measuring local contrast over the whole frame diluted it to nothing: most
+ * of a street-level shot is flat sky and flat pavement, both of which have
+ * exactly the structure this is trying to detect the absence of. So the crop
+ * is the building's own screen footprint, projected through the scene camera.
+ */
+const wallBox = await page.evaluate(async () => {
+  const layer = window.__explore;
+  const list = await (await fetch('/api/buildings')).json();
+  const b = list.find((x) => x.address_display === '350 Fifth Avenue');
+  if (!layer || !b) return null;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const [lon, lat] of b.footprint) {
+    const [x, y] = layer.toScene(lon, lat);
+    for (const z of [2, 20, 60, 120]) {
+      const p = layer.projectToScreen(x, y, z);
+      if (!p) continue;
+      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+      minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+    }
+  }
+  return Number.isFinite(minX) ? { minX, minY, maxX, maxY } : null;
+});
+
+check('the hero building can be located on screen for a close-up', wallBox !== null);
+
+let closeUp = null;
+if (wallBox) {
+  const canvas = await page.locator('.maplibregl-map canvas').first().boundingBox();
+  // Clamped to the part of the canvas no rail or legend covers.
+  const x = Math.round(Math.max(canvas.x + 360, canvas.x + wallBox.minX));
+  const y = Math.round(Math.max(canvas.y + 60, canvas.y + wallBox.minY));
+  const width = Math.round(Math.min(canvas.x + 1180, canvas.x + wallBox.maxX) - x);
+  const height = Math.round(Math.min(canvas.y + 540, canvas.y + wallBox.maxY) - y);
+  if (width > 40 && height > 40) {
+    closeUp = await analyse(await page.screenshot({ clip: { x, y, width, height } }));
+  }
+}
+
+check('the crop landed on the building', closeUp !== null);
+
+/**
+ * The control: a patch of the ground plane in the same frame.
+ *
+ * An absolute contrast threshold is a number somebody picked, and the first
+ * one picked here was wrong by a factor of three in the direction that fails.
+ * The honest question is not "is the contrast above N" but "does this surface
+ * have structure that a surface without structure does not" — so it is
+ * measured against a surface from the same renderer, in the same lighting, in
+ * the same frame, that is deliberately smooth. The ground plane is exactly
+ * that: one shader, one colour, one distance falloff, no detail at all.
+ */
+const canvasBox = await page.locator('.maplibregl-map canvas').first().boundingBox();
+const flat = await analyse(
+  await page.screenshot({
+    clip: {
+      x: Math.round(canvasBox.x + 420),
+      y: Math.round(canvasBox.y + canvasBox.height * 0.78),
+      width: 400,
+      height: 120,
+    },
+  }),
+);
+
+if (closeUp) {
+  console.log(
+    `      facade: local contrast ${closeUp.detail.toFixed(4)} on the wall ` +
+    `against ${flat.detail.toFixed(4)} on bare ground — ` +
+    `${(closeUp.detail / Math.max(flat.detail, 1e-5)).toFixed(1)}x`,
+  );
+  check(
+    'a facade at street level has detail in it, not flat paint',
+    closeUp.detail > flat.detail * 4,
+    `wall ${closeUp.detail.toFixed(4)} vs bare ground ${flat.detail.toFixed(4)}`,
+  );
+  check(
+    'and it is still colourless — the city has no hue of its own',
+    closeUp.peakOtherChroma < 0.35,
+    `peak non-Goldenrod chroma ${closeUp.peakOtherChroma.toFixed(3)}`,
+  );
+}
+
+// --- 5c. Night, where the lit windows live --------------------------------
+
+for (let i = 0; i < 5; i++) {
+  const label = (await page.getByRole('button', { name: /^Time of day:/ }).getAttribute('aria-label')) ?? '';
+  if (/Night/.test(label)) break;
+  await page.getByRole('button', { name: /^Time of day:/ }).click();
+  await sleep(1800);
+}
+await sleep(3000);
+await page.screenshot({ path: join(outdir, 'facade-night.png') });
+const night = await frameStats();
+check(
+  'at night the city is darker than it is by day',
+  !closeUp || night.meanLuma < closeUp.meanLuma,
+  closeUp ? `${closeUp.meanLuma.toFixed(3)} → ${night.meanLuma.toFixed(3)}` : `${night.meanLuma.toFixed(3)}`,
+);
+check(
+  'and lit windows do not out-shout the bands',
+  night.peakGoldChroma === 0 || night.peakGoldChroma > night.peakOtherChroma,
+  `band ${night.peakGoldChroma.toFixed(3)} vs city ${night.peakOtherChroma.toFixed(3)}`,
+);
+
+// Back to the daytime preset the rest of the run assumes.
+for (let i = 0; i < 5; i++) {
+  const label = (await page.getByRole('button', { name: /^Time of day:/ }).getAttribute('aria-label')) ?? '';
+  if (/Morning/.test(label)) break;
+  await page.getByRole('button', { name: /^Time of day:/ }).click();
+  await sleep(1500);
+}
+await sleep(2000);
 
 // --- 6. The whole city, which is the load sprint 2 exists to survive -------
 //

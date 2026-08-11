@@ -23,6 +23,7 @@ import type { AtmospherePreset } from '../map/atmosphere';
 import { makeFrame, toLocal, type LocalFrame } from '@/lib/explore/frame';
 import { cameraOffset } from '@/lib/explore/camera';
 import { sunDirection } from '@/lib/explore/sun';
+import { interiorFor } from './materials';
 import {
   applyPreset,
   makeFacadeMaterial,
@@ -30,7 +31,7 @@ import {
   type FacadeOptions,
 } from './materials';
 import type { MassingArrays } from '@/lib/explore/massing';
-import { makeGround, type GroundHandle } from './ground3d';
+import { groundColor, makeGround, type GroundHandle } from './ground3d';
 import { makeBandMaterial, type BandGroup } from './bands3d';
 
 /**
@@ -100,7 +101,6 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
   private contextTriangles = 0;
   private readonly bandMeshes = new Map<string, THREE.Mesh>();
   private readonly bandMaterials: THREE.MeshBasicMaterial[] = [];
-  private theme: 'dark' | 'light';
   private started = Date.now();
   /** False until `render` has run once and the projection matrix is real. */
   private projected = false;
@@ -112,8 +112,7 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
   /** How many buildings are drawn from the city's surveyed model. */
   surveyedCount = 0;
 
-  constructor(anchor: [number, number], preset: AtmospherePreset, theme: 'dark' | 'light' = 'light') {
-    this.theme = theme;
+  constructor(anchor: [number, number], preset: AtmospherePreset) {
     this.frame = makeFrame(anchor[0], anchor[1]);
     this.originMercator = maplibregl.MercatorCoordinate.fromLngLat(
       { lng: anchor[0], lat: anchor[1] },
@@ -122,7 +121,7 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     this.metersToMercator = this.originMercator.meterInMercatorCoordinateUnits();
     this.preset = preset;
     this.sunDir = sunDirection(preset.timestamp, anchor[0], anchor[1]);
-    this.ground = makeGround(preset, theme);
+    this.ground = makeGround(preset);
     this.scene.add(this.ground.mesh);
   }
 
@@ -207,6 +206,10 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
         floorHeightM: spec.floorHeightM,
         yearBuilt: spec.yearBuilt,
         plain: spec.plain,
+        // Derived from the id rather than drawn at random, so a building's
+        // lit windows are the same ones every time the page is opened.
+        seed: seedOf(spec.id),
+        interior: interiorFor(this.preset),
       };
       const material = makeFacadeMaterial(this.preset, this.sunDir, options);
       this.materials.push(material);
@@ -320,6 +323,9 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
         preset.haze[2] / 255,
       );
       this.ground.material.uniforms.uHazeStrength.value = preset.hazeStrength;
+      (this.ground.material.uniforms.uGroundColor.value as THREE.Color).copy(
+        groundColor(preset),
+      );
     }
     this.map?.triggerRepaint();
   }
@@ -492,6 +498,16 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
       buildings: this.meshes.size,
     };
   }
+}
+
+/** A small stable number from a string. Same building, same windows. */
+function seedOf(id: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 1000) / 1000;
 }
 
 function toGeometry(a: MassingArrays): THREE.BufferGeometry {

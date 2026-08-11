@@ -67,7 +67,7 @@ export function useExplore(
   useEffect(() => {
     if (!map || !active) return;
 
-    const layer = new ExploreLayer(anchor, preset, theme);
+    const layer = new ExploreLayer(anchor, preset);
     handle.current.layer = layer;
 
     const add = () => {
