@@ -93,10 +93,15 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
   private readonly meshes = new Map<string, THREE.Mesh>();
   private readonly cameraPos = new THREE.Vector3();
   private ground: GroundHandle | null = null;
+  private contextMesh: THREE.Mesh | null = null;
+  private contextMaterial: THREE.ShaderMaterial | null = null;
+  private contextTriangles = 0;
   private readonly bandMeshes = new Map<string, THREE.Mesh>();
   private readonly bandMaterials: THREE.MeshBasicMaterial[] = [];
   private theme: 'dark' | 'light';
   private started = Date.now();
+  /** False until `render` has run once and the projection matrix is real. */
+  private projected = false;
 
   /** Triangle count of everything currently in the scene. */
   triangles = 0;
@@ -155,6 +160,11 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     this.bandMeshes.clear();
     for (const m of this.bandMaterials) m.dispose();
     this.bandMaterials.length = 0;
+    if (this.contextMesh) {
+      this.scene.remove(this.contextMesh);
+      this.contextMesh.geometry.dispose();
+      this.contextMesh = null;
+    }
     if (this.ground) {
       this.scene.remove(this.ground.mesh);
       this.ground.mesh.geometry.dispose();
@@ -250,6 +260,50 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     this.map?.triggerRepaint();
   }
 
+  /**
+   * The surrounding city: forty thousand footprints, one mesh, one draw call.
+   *
+   * Merged rather than one mesh each, because at this count the draw-call
+   * budget is the binding constraint long before the triangle budget is —
+   * forty thousand meshes is forty thousand state changes a frame, and the
+   * 1,000-call budget in §9 is gone at building 1,001.
+   *
+   * It gets the same facade shader with fenestration switched off. Scenery
+   * should read as built without acquiring enough detail to compete with the
+   * towers that carry data, and a window grid on the whole city is exactly the
+   * kind of texture that would.
+   */
+  setContext(arrays: MassingArrays | null): void {
+    if (this.contextMesh) {
+      this.scene.remove(this.contextMesh);
+      this.contextMesh.geometry.dispose();
+      this.contextMesh = null;
+    }
+    this.contextTriangles = 0;
+    if (!arrays || arrays.triangles === 0) {
+      this.map?.triggerRepaint();
+      return;
+    }
+
+    if (!this.contextMaterial) {
+      this.contextMaterial = makeFacadeMaterial(this.preset, this.sunDir, {
+        // The context city has no per-building floor count, so the storey
+        // rhythm is Manhattan's typical 3.8 m rather than a guess per tower.
+        floorHeightM: 3.8,
+        plain: true,
+      });
+      this.materials.push(this.contextMaterial);
+    }
+
+    const mesh = new THREE.Mesh(toGeometry(arrays), this.contextMaterial);
+    mesh.frustumCulled = false;
+    mesh.renderOrder = -5;
+    this.scene.add(mesh);
+    this.contextMesh = mesh;
+    this.contextTriangles = arrays.triangles;
+    this.map?.triggerRepaint();
+  }
+
   setPreset(preset: AtmospherePreset): void {
     this.preset = preset;
     this.sunDir = sunDirection(preset.timestamp, this.frame.lon0, this.frame.lat0);
@@ -294,6 +348,7 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
       .scale(new THREE.Vector3(s, -s, s));
 
     this.camera.projectionMatrix = new THREE.Matrix4().fromArray(matrix as number[]).multiply(local);
+    this.projected = true;
 
     // Where the eye is, in scene metres. Reflections and haze both need it.
     // Derived from public accessors rather than read off `map.transform`,
@@ -327,6 +382,51 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
   /** The eye position in scene metres, as of the last frame drawn. */
   get eye(): THREE.Vector3 {
     return this.cameraPos;
+  }
+
+  /**
+   * A point in the scene, as a pixel on the screen.
+   *
+   * This exists for verification. The plan's sprint 2 kill criterion is that
+   * bands and facades must not disagree about where a floor is, and the only
+   * honest way to check that is to ask where the 14th floor lands on screen
+   * and then look at those pixels. Reading the source cannot prove it and a
+   * unit test cannot either — both would be checking the same arithmetic
+   * twice.
+   *
+   * Returns null before the first frame, when there is no projection yet.
+   */
+  projectToScreen(x: number, y: number, z: number): { x: number; y: number } | null {
+    const map = this.map;
+    if (!map || !this.projected) return null;
+    /**
+     * The `w` check is not defensive, it is the whole correctness of this.
+     *
+     * A point behind the camera comes back with a negative w, and dividing by
+     * it mirrors the result into a perfectly plausible on-screen coordinate.
+     * The harness then probed a pixel that has nothing to do with the point it
+     * asked about and reported a band missing from a floor that was simply
+     * above the top of the frame. `Vector3.applyMatrix4` performs that divide
+     * silently, so the sign has to be read from a Vector4 before it is lost.
+     */
+    const v = new THREE.Vector4(x, y, z, 1).applyMatrix4(this.camera.projectionMatrix);
+    if (!Number.isFinite(v.x) || !Number.isFinite(v.y) || v.w <= 0) return null;
+    v.x /= v.w;
+    v.y /= v.w;
+    const canvas = map.getCanvas();
+    return {
+      x: ((v.x + 1) / 2) * canvas.clientWidth,
+      y: ((1 - v.y) / 2) * canvas.clientHeight,
+    };
+  }
+
+  /** What the last frame cost, for the budget in §9 of the plan. */
+  get budget(): { triangles: number; bandTriangles: number; drawCalls: number } {
+    return {
+      triangles: this.triangles + this.bandTriangles + this.contextTriangles,
+      bandTriangles: this.bandTriangles,
+      drawCalls: this.renderer?.info.render.calls ?? 0,
+    };
   }
 }
 

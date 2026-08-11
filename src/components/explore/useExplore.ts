@@ -5,10 +5,17 @@ import type maplibregl from 'maplibre-gl';
 import { ExploreLayer, type ExploreBuildingSpec } from './ExploreLayer';
 import type { AtmospherePreset } from '../map/atmosphere';
 import { ringToLocal } from '@/lib/explore/frame';
-import { extrudedMassing, fallbackSteps, steppedMassing } from '@/lib/explore/massing';
+import {
+  extrudedMassing,
+  fallbackSteps,
+  mergeMassings,
+  steppedMassing,
+  type MassingArrays,
+} from '@/lib/explore/massing';
 import { detailedBuildings } from '@/lib/explore/eligibility';
 import { buildingHeightFt, buildingRing, floorHeightFt, FT_TO_M } from '@/lib/floor-bands';
 import type { BuildingWithSpaces, OccupancyKind } from '@/types';
+import type { ContextBuilding } from '@/lib/city-context';
 import { buildBandGroups } from './bands3d';
 import type { ColorOverrides } from '../map/colors';
 
@@ -38,6 +45,7 @@ export function useExplore(
     selectedSpaceId: string | null;
     colorOverrides?: ColorOverrides;
   } = { kinds: ['available'], selectedSpaceId: null },
+  cityContext: ContextBuilding[] = [],
 ): ExploreHandle {
   const handle = useRef<ExploreHandle>({ layer: null });
 
@@ -62,6 +70,17 @@ export function useExplore(
     if (map.isStyleLoaded()) add();
     map.on('style.load', add);
 
+    /**
+     * Handed to the window so the browser harness can reach it.
+     *
+     * `verify-explore` has to project a known floor to a screen pixel and then
+     * look at that pixel — there is no other way to prove a band and a facade
+     * agree about where the 14th floor is, and this project has a documented
+     * history of tests that passed while the feature was broken. Read-only
+     * from outside, and nothing in the app reads it.
+     */
+    (window as unknown as { __explore?: ExploreLayer }).__explore = layer;
+
     return () => {
       map.off('style.load', add);
       try {
@@ -70,6 +89,7 @@ export function useExplore(
         // Already gone with the style it was attached to.
       }
       handle.current.layer = null;
+      delete (window as unknown as { __explore?: ExploreLayer }).__explore;
     };
     // `preset` and `anchor` deliberately absent: the hour is pushed in below
     // without rebuilding the scene, and a moving anchor would rebuild it every
@@ -107,6 +127,15 @@ export function useExplore(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, buildings, kindKey, bands.selectedSpaceId, theme, overrideKey]);
 
+  // --- The surrounding city. Keyed on the payload's identity: `useCityContext`
+  // returns the same array until a new viewport is actually fetched, so this
+  // does not re-merge forty thousand footprints on every pan.
+  useEffect(() => {
+    const layer = handle.current.layer;
+    if (!layer || !active) return;
+    layer.setContext(buildContextMassing(layer, cityContext, buildings));
+  }, [active, cityContext, buildings]);
+
   // --- The hour.
   useEffect(() => {
     handle.current.layer?.setPreset(preset);
@@ -122,6 +151,37 @@ export function useExplore(
  * without a map, a canvas or a GPU. The triangle budget in the plan is a
  * number somebody has to be able to check.
  */
+/**
+ * The surrounding city as one merged buffer.
+ *
+ * BINs we already draw in full are skipped, or the tower carrying the data
+ * would be buried inside an identical grey copy of itself — the flat map has
+ * the same guard for the same reason.
+ *
+ * Anything under five metres is dropped. A one-storey garage is invisible from
+ * any height this map is read at and there are tens of thousands of them.
+ */
+export function buildContextMassing(
+  layer: ExploreLayer,
+  context: ContextBuilding[],
+  ours: BuildingWithSpaces[],
+): MassingArrays | null {
+  if (context.length === 0) return null;
+
+  const ownBins = new Set(ours.map((b) => b.bin).filter((b): b is string => Boolean(b)));
+  const parts: MassingArrays[] = [];
+
+  for (const c of context) {
+    if (c.b && ownBins.has(c.b)) continue;
+    if (c.r.length < 4) continue;
+    const heightM = c.h * FT_TO_M;
+    if (heightM < 5) continue;
+    parts.push(extrudedMassing(ringToLocal(layer.localFrame, c.r), heightM));
+  }
+
+  return parts.length > 0 ? mergeMassings(parts) : null;
+}
+
 export function buildSpecs(
   layer: ExploreLayer,
   buildings: BuildingWithSpaces[],

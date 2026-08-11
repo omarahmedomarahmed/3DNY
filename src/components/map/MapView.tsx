@@ -687,6 +687,15 @@ export default function MapView() {
 
   useVisibleBuildings(map, filtered);
 
+
+  // The surrounding city, so the towers that carry data stand in Manhattan
+  // rather than in an empty plane.
+  const cityContext = useCityContext(map, zoom, showContext);
+  // Our own ground plane — always on (streets are orientation, not clutter),
+  // except under photoreal imagery, which is its own ground.
+  const streetscape = useStreetscape(map, zoom, !photoreal);
+  const { stops: allTransitStops, error: transitError } = useTransit(map, zoom, showTransit);
+
   /**
    * Explore mode's three.js scene.
    *
@@ -703,15 +712,8 @@ export default function MapView() {
     kinds: occupancyKinds,
     selectedSpaceId,
     colorOverrides,
-  });
+  }, showContext ? cityContext : []);
 
-  // The surrounding city, so the towers that carry data stand in Manhattan
-  // rather than in an empty plane.
-  const cityContext = useCityContext(map, zoom, showContext);
-  // Our own ground plane — always on (streets are orientation, not clutter),
-  // except under photoreal imagery, which is its own ground.
-  const streetscape = useStreetscape(map, zoom, !photoreal);
-  const { stops: allTransitStops, error: transitError } = useTransit(map, zoom, showTransit);
 
   // An empty mode list means "all of them", so the map is useful before
   // anyone touches a filter.

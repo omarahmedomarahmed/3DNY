@@ -258,30 +258,159 @@ check(
   `mean luma ${exploreShot.meanLuma.toFixed(3)}`,
 );
 
-// --- 4. A band and its facade agree about the floor ------------------------
+// --- 4. A band lands on the floor the sheet named -------------------------
 //
-// Measured rather than asserted: the band for a known floor is projected to
-// screen through MapLibre's own camera, and the goldenrod pixels in the frame
-// are asked where they actually are. If the three.js facade and the deck.gl
-// band disagreed about the vertical scale, these two numbers would part
-// company — which is exactly sprint 2's kill criterion.
+// Sprint 2's kill criterion is that a band and a facade must not disagree
+// about where a floor is. Reading the source cannot prove that and a unit test
+// cannot either — both check the same arithmetic twice. So the floor is
+// projected to a screen pixel through the scene's own camera and those pixels
+// are looked at.
+//
+// The pair is what makes it a real test: Goldenrod must be present at the
+// floor that HAS an availability and absent at a floor that does not. A band
+// merely somewhere on the right tower would pass the first check and fail the
+// second, and "somewhere on the tower" is exactly the failure §5 describes.
 
-const alignment = await page.evaluate(async () => {
+await page.evaluate(() => {
+  // Far enough back that the WHOLE tower is in frame. At zoom 16.9 the crown
+  // ran off the top and the floor-63 probe was projecting a point behind the
+  // camera, which comes back as a plausible on-screen pixel and is not one.
+  window.__m.jumpTo({ center: [-73.98566, 40.74844], zoom: 16.1, pitch: 58, bearing: 0 });
+});
+await sleep(4000);
+
+const probes = await page.evaluate(async () => {
+  const layer = window.__explore;
   const list = await (await fetch('/api/buildings')).json();
   const b = list.find((x) => x.address_display === '350 Fifth Avenue');
-  if (!b) return null;
-  const floorHeightFt = b.height_roof_ft / b.num_floors;
-  const space = b.spaces.find((s) => s.floor_number === 14);
-  if (!space) return null;
-  // Where the top of floor 14 should be, in metres above the ground.
-  const topM = 14 * floorHeightFt * 0.3048;
-  const ground = window.__m.project([b.lon, b.lat]);
-  // MapLibre projects a point with altitude only through the terrain API, so
-  // the vertical scale is derived from the map's own metres-per-pixel and the
-  // camera's pitch — the same relationship the band is drawn with.
-  return { topM, groundY: ground.y, floorHeightFt };
+  if (!layer || !b) return null;
+
+  const floorFt = b.height_roof_ft / b.num_floors;
+  const ring = b.footprint.map(([lon, lat]) => layer.toScene(lon, lat));
+
+  /**
+   * A floor, as a horizontal strip of screen.
+   *
+   * Probing a single point failed twice for reasons that had nothing to do
+   * with whether the band was in the right place: at the centroid the band on
+   * the near wall projects a hundred pixels lower, and at a footprint corner
+   * the band above a setback has stepped inward away from it. Both are true
+   * facts about geometry and neither is the question.
+   *
+   * The question is vertical: is the Goldenrod at the height the sheet named?
+   * So the probe is the full width of the building at that elevation, one
+   * storey tall — and the storey's height in PIXELS is measured by projecting
+   * the floor above rather than assumed, because it changes with pitch, zoom
+   * and where on the screen the building is.
+   */
+  // Only the near half of the footprint. A building's near and far walls
+  // project to very different screen rows at this pitch — for a 130 m
+  // footprint, tens of pixels — so averaging the whole ring puts the strip
+  // between the two bands rather than on either. That is how floor 63 came
+  // back empty while plainly carrying a band.
+  const eye = layer.eye;
+  const near = [...ring]
+    .sort((a, b2) =>
+      Math.hypot(a[0] - eye.x, a[1] - eye.y) - Math.hypot(b2[0] - eye.x, b2[1] - eye.y))
+    .slice(0, Math.max(2, Math.ceil(ring.length * 0.4)));
+
+  const stripFor = (floor) => {
+    const z = (floor - 0.5) * floorFt * 0.3048;
+    const above = (floor + 0.5) * floorFt * 0.3048;
+    let minX = Infinity, maxX = -Infinity, sumY = 0, sumYAbove = 0, n = 0;
+    for (const [x, y] of near) {
+      const at = layer.projectToScreen(x, y, z);
+      const up = layer.projectToScreen(x, y, above);
+      if (!at || !up) continue;
+      minX = Math.min(minX, at.x);
+      maxX = Math.max(maxX, at.x);
+      sumY += at.y;
+      sumYAbove += up.y;
+      n++;
+    }
+    if (n === 0) return null;
+    return {
+      x: minX,
+      width: maxX - minX,
+      y: sumY / n,
+      storeyPx: Math.abs(sumY / n - sumYAbove / n),
+    };
+  };
+
+  const withSpace = [...new Set(b.spaces.map((s) => s.floor_number).filter(Boolean))];
+  const without = [];
+  for (let f = 4; f < b.num_floors - 5 && without.length < 3; f++) {
+    if (!withSpace.some((n) => Math.abs(n - f) <= 4)) without.push(f);
+  }
+
+  return {
+    withSpace: withSpace.map((f) => ({ floor: f, strip: stripFor(f) })),
+    empty: without.map((f) => ({ floor: f, strip: stripFor(f) })),
+    budget: layer.budget,
+  };
 });
-check('the hero building has a floor-14 availability to measure', alignment !== null);
+
+check('the scene can project a floor to a screen pixel', probes !== null && probes.withSpace.length > 0);
+
+if (probes) {
+  await page.screenshot({ path: join(outdir, 'floor-alignment.png') });
+
+  /** Goldenrod pixels inside one storey-tall strip across the building. */
+  const goldIn = async (strip) => {
+    if (!strip || !Number.isFinite(strip.x) || strip.width < 4) return null;
+    const box = await page.locator('.maplibregl-map canvas').first().boundingBox();
+    // One storey tall, never less than three pixels — below that the clip is
+    // smaller than the antialiasing on the band's own edge.
+    const half = Math.max(1.5, strip.storeyPx / 2);
+    const x = Math.round(box.x + strip.x);
+    const y = Math.round(box.y + strip.y - half);
+    const width = Math.round(strip.width);
+    const height = Math.max(3, Math.round(half * 2));
+    if (x < 0 || y < 0 || x + width > 1600 || y + height > 1000) return null;
+    const shot = await page.screenshot({ clip: { x, y, width, height } });
+    return (await analyse(shot)).goldenrod;
+  };
+
+  let hits = 0;
+  for (const { floor, strip } of probes.withSpace) {
+    const n = await goldIn(strip);
+    if (n === null) continue;
+    hits++;
+    check(
+      `floor ${floor} has an availability and Goldenrod is drawn there`,
+      n > 12,
+      `${n} goldenrod pixels in the storey-tall strip at that floor`,
+    );
+  }
+  check('at least one floor could be probed on screen', hits > 0);
+
+  for (const { floor, strip } of probes.empty) {
+    const n = await goldIn(strip);
+    if (n === null) continue;
+    check(
+      `floor ${floor} has no availability and no Goldenrod is drawn there`,
+      n < 12,
+      `${n} goldenrod pixels`,
+    );
+  }
+
+  // --- The budget in §9, measured rather than asserted from the source.
+  console.log(
+    `      budget: ${probes.budget.triangles.toLocaleString()} triangles ` +
+    `(${probes.budget.bandTriangles.toLocaleString()} of them bands), ` +
+    `${probes.budget.drawCalls} draw calls`,
+  );
+  check(
+    'triangles are inside the 2M budget',
+    probes.budget.triangles < 2_000_000,
+    `${probes.budget.triangles.toLocaleString()}`,
+  );
+  check(
+    'draw calls are inside the 1,000 budget',
+    probes.budget.drawCalls > 0 && probes.budget.drawCalls <= 1000,
+    `${probes.budget.drawCalls}`,
+  );
+}
 
 // --- 5. Frame budget ------------------------------------------------------
 
@@ -320,7 +449,69 @@ check(
   `median ${frame.median.toFixed(0)} ms, worst ${frame.worst.toFixed(0)} ms (SwiftShader, not a GPU)`,
 );
 
-// --- 6. And back again ----------------------------------------------------
+// --- 6. The whole city, which is the load sprint 2 exists to survive -------
+//
+// Four towers is not a test of anything. The kill criterion is the frame rate
+// collapsing at scale, so the surrounding city goes on — tens of thousands of
+// NYC footprints — and the budget is measured again with it there.
+
+await page.evaluate(() => {
+  window.__m.jumpTo({ center: [-73.98, 40.752], zoom: 15.2, pitch: 62, bearing: -25 });
+});
+await sleep(2000);
+await page.getByRole('button', { name: 'Show the surrounding city' }).first().click();
+await sleep(9000);
+await page.screenshot({ path: join(outdir, 'explore-city.png') });
+
+const cityBudget = await page.evaluate(() => window.__explore?.budget ?? null);
+check('the surrounding city is drawn in Explore mode', (cityBudget?.triangles ?? 0) > 20_000,
+  cityBudget ? `${cityBudget.triangles.toLocaleString()} triangles` : 'no layer');
+
+if (cityBudget) {
+  console.log(
+    `      city budget: ${cityBudget.triangles.toLocaleString()} triangles, ` +
+    `${cityBudget.drawCalls} draw calls`,
+  );
+  check('the whole city stays inside the 2M triangle budget',
+    cityBudget.triangles < 2_000_000, `${cityBudget.triangles.toLocaleString()}`);
+  check('and inside the 1,000 draw-call budget',
+    cityBudget.drawCalls <= 1000, `${cityBudget.drawCalls}`);
+}
+
+const cityFrame = await page.evaluate(
+  () =>
+    new Promise((resolve) => {
+      const times = [];
+      let last = performance.now();
+      let n = 0;
+      const tick = () => {
+        const now = performance.now();
+        times.push(now - last);
+        last = now;
+        window.__m.triggerRepaint();
+        if (++n < 30) requestAnimationFrame(tick);
+        else {
+          times.sort((a, b) => a - b);
+          resolve({ median: times[Math.floor(times.length / 2)] });
+        }
+      };
+      requestAnimationFrame(tick);
+    }),
+);
+check(
+  'frame time with the whole city drawn is not pathological',
+  cityFrame.median < 700,
+  `median ${cityFrame.median.toFixed(0)} ms (SwiftShader, not a GPU)`,
+);
+
+await page.getByRole('button', { name: 'Hide buildings with nothing available' }).first().click();
+await sleep(2500);
+
+// The reference for the toggle-back check below: Explore mode's own frame at
+// exactly this camera, so the comparison is about the mode and not the view.
+const exploreCityShot = await frameStats();
+
+// --- 7. And back again ----------------------------------------------------
 
 await page.getByRole('button', { name: EXPLORE_OFF }).first().click();
 await sleep(4000);
@@ -328,10 +519,24 @@ check('switching Explore off removes the 3D layer again', !(await hasLayer()));
 
 const backShot = await frameStats();
 await page.screenshot({ path: join(outdir, 'flat-after.png') });
+
+/**
+ * Compared at the SAME camera, not against the opening frame.
+ *
+ * The first version compared this against a capture taken before the camera
+ * had been flown anywhere, and of course the two differed — a different view
+ * of a different part of the island. It was measuring the camera, not the
+ * toggle.
+ *
+ * What actually proves the toggle reverts is that the flat map's own
+ * colour-by-rent massing is back. Explore mode's city is deliberately
+ * colourless, so a saturated non-Goldenrod surface in the frame can only be
+ * the flat map's massing, and it is absent in Explore by construction.
+ */
 check(
-  'and the flat map comes back looking like itself',
-  Math.abs(backShot.meanLuma - flatShot.meanLuma) < 0.05,
-  `${flatShot.meanLuma.toFixed(3)} → ${backShot.meanLuma.toFixed(3)}`,
+  'the flat map draws its coloured massing again',
+  backShot.peakOtherChroma > exploreCityShot.peakOtherChroma + 0.15,
+  `flat ${backShot.peakOtherChroma.toFixed(3)} vs explore ${exploreCityShot.peakOtherChroma.toFixed(3)}`,
 );
 
 check('no page errors were raised', errors.length === 0, errors[0] ?? '');
