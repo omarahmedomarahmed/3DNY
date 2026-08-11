@@ -286,55 +286,36 @@ const probes = await page.evaluate(async () => {
   if (!layer || !b) return null;
 
   const floorFt = b.height_roof_ft / b.num_floors;
-  const ring = b.footprint.map(([lon, lat]) => layer.toScene(lon, lat));
 
   /**
-   * A floor, as a horizontal strip of screen.
+   * A floor, as a patch of the building's own near wall.
    *
-   * Probing a single point failed twice for reasons that had nothing to do
-   * with whether the band was in the right place: at the centroid the band on
-   * the near wall projects a hundred pixels lower, and at a footprint corner
-   * the band above a setback has stepped inward away from it. Both are true
-   * facts about geometry and neither is the question.
+   * The probe asks the MASSING where the wall is, never the band builder —
+   * otherwise the test would be asking the code where it drew and then
+   * agreeing with it. Massing and bands are separate code paths: one comes
+   * from the surveyed LOD2 surfaces or an extrusion, the other from
+   * `computeBands`.
    *
-   * The question is vertical: is the Goldenrod at the height the sheet named?
-   * So the probe is the full width of the building at that elevation, one
-   * storey tall — and the storey's height in PIXELS is measured by projecting
-   * the floor above rather than assumed, because it changes with pitch, zoom
-   * and where on the screen the building is.
+   * Three earlier versions of this probe were each wrong in a different way,
+   * and all three were wrong about WHERE rather than about what. Probing the
+   * footprint centroid lands a hundred pixels below the near wall; probing a
+   * footprint corner misses a tower that has stepped inward above a setback;
+   * averaging the whole ring lands between the near and far bands. The wall
+   * itself is the only thing that is not a proxy for something else.
    */
-  // Only the near half of the footprint. A building's near and far walls
-  // project to very different screen rows at this pitch — for a 130 m
-  // footprint, tens of pixels — so averaging the whole ring puts the strip
-  // between the two bands rather than on either. That is how floor 63 came
-  // back empty while plainly carrying a band.
-  const eye = layer.eye;
-  const near = [...ring]
-    .sort((a, b2) =>
-      Math.hypot(a[0] - eye.x, a[1] - eye.y) - Math.hypot(b2[0] - eye.x, b2[1] - eye.y))
-    .slice(0, Math.max(2, Math.ceil(ring.length * 0.4)));
-
   const stripFor = (floor) => {
     const z = (floor - 0.5) * floorFt * 0.3048;
     const above = (floor + 0.5) * floorFt * 0.3048;
-    let minX = Infinity, maxX = -Infinity, sumY = 0, sumYAbove = 0, n = 0;
-    for (const [x, y] of near) {
-      const at = layer.projectToScreen(x, y, z);
-      const up = layer.projectToScreen(x, y, above);
-      if (!at || !up) continue;
-      minX = Math.min(minX, at.x);
-      maxX = Math.max(maxX, at.x);
-      sumY += at.y;
-      sumYAbove += up.y;
-      n++;
-    }
-    if (n === 0) return null;
-    return {
-      x: minX,
-      width: maxX - minX,
-      y: sumY / n,
-      storeyPx: Math.abs(sumY / n - sumYAbove / n),
-    };
+    const at = layer.nearWallPointAt(b.id, z);
+    const up = layer.nearWallPointAt(b.id, above);
+    if (!at || !up) return null;
+    const p = layer.projectToScreen(at.x, at.y, at.z);
+    const q = layer.projectToScreen(up.x, up.y, up.z);
+    if (!p || !q) return null;
+    const storeyPx = Math.abs(p.y - q.y);
+    // Wide enough to cross the band, narrow enough to stay on this facade.
+    const halfWidth = 34;
+    return { x: p.x - halfWidth, width: halfWidth * 2, y: p.y, storeyPx };
   };
 
   const withSpace = [...new Set(b.spaces.map((s) => s.floor_number).filter(Boolean))];
@@ -393,6 +374,17 @@ if (probes) {
       `${n} goldenrod pixels`,
     );
   }
+
+  // --- The surveyed massing: how many of ours the city's own model covers.
+  console.log(
+    `      massing: ${probes.budget.surveyed} of ${probes.budget.buildings} ` +
+    `buildings drawn from NYC's surveyed model`,
+  );
+  check(
+    'the hero buildings are drawn from the surveyed model, not a guess',
+    probes.budget.surveyed > 0,
+    `${probes.budget.surveyed} surveyed / ${probes.budget.buildings} drawn`,
+  );
 
   // --- The budget in §9, measured rather than asserted from the source.
   console.log(

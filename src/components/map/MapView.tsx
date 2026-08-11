@@ -708,7 +708,7 @@ export default function MapView() {
     () => parseCenter(process.env.NEXT_PUBLIC_MAP_CENTER),
     [],
   );
-  useExplore(map, mapMode === 'explore', filtered, atmosphere, exploreAnchor, mapTheme, {
+  const explore = useExplore(map, mapMode === 'explore', filtered, atmosphere, exploreAnchor, mapTheme, {
     kinds: occupancyKinds,
     selectedSpaceId,
     colorOverrides,
@@ -1270,6 +1270,9 @@ export default function MapView() {
     view,
     photoreal,
     mapMode,
+    // The surveyed massing decides where a band's collar sits, and deck.gl's
+    // copy of the bands is what a click resolves against.
+    explore.lod2Ready,
     activePhotorealLayer,
     photorealDrawn,
     showContext,

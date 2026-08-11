@@ -1,6 +1,8 @@
 import type { Building } from '@/types';
 import { buildingHeightFt, buildingRing, FT_TO_M, insetRing } from '@/lib/floor-bands';
 import { fallbackSteps, type Step } from './massing';
+import { lod2For, surveyedSectionAt } from './lod2-registry';
+import { radiusFromProfile, ringReachM } from './lod2';
 
 /**
  * How wide a building is at a given height.
@@ -50,14 +52,59 @@ export function bandRingAt(
   baseFt: number,
   collar: number,
 ): [number, number][] | null {
+  /**
+   * The surveyed cross-section first, the footprint second.
+   *
+   * A slice through the city's own model is the building's actual outline at
+   * that height, which is the whole of §5's argument delivered. The footprint
+   * path stays for the buildings the 2014 capture predates, where a plain
+   * prism is the honest answer and the collar is trivially right on it.
+   */
+  const section = surveyedSectionAt(building.bin, baseFt * FT_TO_M);
+  if (section) return insetRing(section, collar);
+
   const ring = buildingRing(building);
   if (!ring) return null;
+  return insetRing(ring, insetForBuilding(building, baseFt) * collar);
+}
+
+/**
+ * The building's horizontal reach at an elevation, as a fraction of ground.
+ *
+ * Surveyed first, fallback second, and both in the same units so the renderer
+ * and the band builder can share one call. The fallback is not a lesser
+ * version of the same thing — it is a guess where the survey is silent, and
+ * §5 is explicit that a building the 2014 capture predates falls back rather
+ * than being invented.
+ */
+export function insetForBuilding(building: Building, atFt: number): number {
+  const zM = atFt * FT_TO_M;
+
+  const surveyed = lod2For(building.bin)?.profile;
+  const ring = buildingRing(building);
+  if (surveyed && ring) {
+    /**
+     * Metres over metres, measured identically on both sides.
+     *
+     * The surveyed reach comes from the city's model and the footprint comes
+     * from the footprints dataset, and the two do not agree about the
+     * building's extent at ground level — different surveys, different
+     * definitions of where a plinth ends. Dividing the surveyed reach at
+     * height by the surveyed reach at ground and applying that to the
+     * footprint compounds the disagreement, and put the Empire State
+     * Building's bands a fifth of the way inside its own shaft.
+     */
+    const reach = ringReachM(ring);
+    if (reach > 0) {
+      const radius = radiusFromProfile(surveyed, zM);
+      // Never wider than the plot: a mast housing that reaches further out
+      // than the base would otherwise push a band off the building entirely.
+      if (radius > 0) return Math.min(1, radius / reach);
+    }
+  }
 
   const heightM = buildingHeightFt(building) * FT_TO_M;
-  const steps = fallbackSteps(heightM, building.year_built);
-  const inset = insetAtHeight(steps, baseFt * FT_TO_M);
-
-  return insetRing(ring, inset * collar);
+  return insetAtHeight(fallbackSteps(heightM, building.year_built), zM);
 }
 
 /**

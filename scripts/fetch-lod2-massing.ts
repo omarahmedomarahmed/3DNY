@@ -2,6 +2,7 @@
  * Slice NYC's 3-D Building Model down to the buildings we hold records for.
  *
  *   npx tsx scripts/fetch-lod2-massing.ts [--dry-run] [--out=path] [--bin=…]
+ *                                         [--from=fixtures/dev-buildings.json]
  *
  * The citywide CityGML zip is 916 MB and inflates to about 13 GB. None of that
  * is downloaded. The zip's central directory is read over HTTP range requests,
@@ -16,7 +17,7 @@
  */
 
 import { createInflateRaw } from 'node:zlib';
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir, readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { loadEnvLocal } from './env-local';
 import { sql } from '@/lib/db';
@@ -171,15 +172,47 @@ async function streamTile(
 
 // ---------------------------------------------------------------------------
 
-async function main() {
-  const rows = await sql()`
+/**
+ * Where the list of buildings to look for comes from.
+ *
+ * Normally the database. `--from=<file>` reads the same three fields out of a
+ * JSON array instead, which is what lets this run on a machine with no
+ * connection string — a development container, or anyone reproducing the asset
+ * from the checked-in fixture. Nothing about the fetch or the parsing changes;
+ * only where the BINs come from.
+ */
+async function wantedRows(): Promise<
+  { bin: string; address_display: string; lon: number; lat: number }[]
+> {
+  const from = value('from');
+  if (from) {
+    const raw = await readFile(from, 'utf8');
+    const parsed = JSON.parse(raw) as { buildings?: unknown[] } | unknown[];
+    const list = (Array.isArray(parsed) ? parsed : parsed.buildings ?? []) as {
+      bin?: string | null; address_display?: string; lon?: number | null; lat?: number | null;
+    }[];
+    return list
+      .filter((b) => b.bin && b.lon !== null && b.lat !== null)
+      .map((b) => ({
+        bin: b.bin as string,
+        address_display: b.address_display ?? b.bin as string,
+        lon: b.lon as number,
+        lat: b.lat as number,
+      }));
+  }
+
+  return (await sql()`
     SELECT bin, address_display,
            ST_X(centroid::geometry) AS lon, ST_Y(centroid::geometry) AS lat
     FROM buildings
     WHERE bin IS NOT NULL AND centroid IS NOT NULL
-    ORDER BY address_display` as {
+    ORDER BY address_display`) as {
       bin: string; address_display: string; lon: number; lat: number;
     }[];
+}
+
+async function main() {
+  const rows = await wantedRows();
 
   const wanted = ONLY_BINS ? rows.filter((r) => ONLY_BINS.includes(r.bin)) : rows;
   if (wanted.length === 0) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type maplibregl from 'maplibre-gl';
 import { ExploreLayer, type ExploreBuildingSpec } from './ExploreLayer';
 import type { AtmospherePreset } from '../map/atmosphere';
@@ -13,6 +13,8 @@ import {
   type MassingArrays,
 } from '@/lib/explore/massing';
 import { detailedBuildings } from '@/lib/explore/eligibility';
+import { loadLod2, lod2For } from '@/lib/explore/lod2-registry';
+import { massingToArrays } from '@/lib/explore/lod2';
 import { buildingHeightFt, buildingRing, floorHeightFt, FT_TO_M } from '@/lib/floor-bands';
 import type { BuildingWithSpaces, OccupancyKind } from '@/types';
 import type { ContextBuilding } from '@/lib/city-context';
@@ -31,6 +33,17 @@ import type { ColorOverrides } from '../map/colors';
 
 export interface ExploreHandle {
   layer: ExploreLayer | null;
+  /**
+   * Bumped when the surveyed massing lands.
+   *
+   * deck.gl's own band layer takes its collar from the same profile — it is
+   * invisible in Explore mode but it is what a click resolves against — and it
+   * is built in `MapView`, which has no other way to know the asset arrived.
+   * Without this the pickable geometry sits at the fallback ring while the
+   * visible band sits on the surveyed one, so clicking a band on a tower with
+   * setbacks would miss it.
+   */
+  lod2Ready: number;
 }
 
 export function useExplore(
@@ -47,7 +60,7 @@ export function useExplore(
   } = { kinds: ['available'], selectedSpaceId: null },
   cityContext: ContextBuilding[] = [],
 ): ExploreHandle {
-  const handle = useRef<ExploreHandle>({ layer: null });
+  const handle = useRef<ExploreHandle>({ layer: null, lod2Ready: 0 });
 
   // --- Lifecycle. The anchor is fixed for the life of the layer: it is the
   // origin of the scene's metric frame, and moving it would move every vertex.
@@ -97,12 +110,32 @@ export function useExplore(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, active, theme]);
 
+  /**
+   * The surveyed massing, fetched the first time Explore is opened.
+   *
+   * A tick of state rather than the promise's value, because everything that
+   * consumes the asset reads it from a module-scope registry — the renderer
+   * and the band builder meet nowhere else. The tick exists purely to rebuild
+   * the geometry once it has landed.
+   */
+  const [lod2Tick, setLod2Tick] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    let live = true;
+    void loadLod2().then(() => {
+      if (live) setLod2Tick((n) => n + 1);
+    });
+    return () => {
+      live = false;
+    };
+  }, [active]);
+
   // --- Geometry.
   useEffect(() => {
     const layer = handle.current.layer;
     if (!layer || !active) return;
     layer.setBuildings(buildSpecs(layer, buildings));
-  }, [active, buildings]);
+  }, [active, buildings, lod2Tick]);
 
   // --- Availability. Separate from the massing because it changes far more
   // often: every filter, every selection, every colour override moves the
@@ -125,7 +158,7 @@ export function useExplore(
     );
     // `bands` is a fresh object every render; its CONTENTS are the dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, buildings, kindKey, bands.selectedSpaceId, theme, overrideKey]);
+  }, [active, buildings, kindKey, bands.selectedSpaceId, theme, overrideKey, lod2Tick]);
 
   // --- The surrounding city. Keyed on the payload's identity: `useCityContext`
   // returns the same array until a new viewport is actually fetched, so this
@@ -141,6 +174,7 @@ export function useExplore(
     handle.current.layer?.setPreset(preset);
   }, [preset]);
 
+  handle.current.lod2Ready = lod2Tick;
   return handle.current;
 }
 
@@ -200,21 +234,34 @@ export function buildSpecs(
     const floorHeightM = floorFt * FT_TO_M;
 
     /**
-     * Stepped, from year built and height — until sprint 3 puts the city's
-     * surveyed massing behind this. The fallback stays afterwards, for the two
-     * buildings in seventy-three that the 2014 survey predates.
+     * The city's own survey where there is one, a stepped guess where there
+     * is not.
+     *
+     * The fallback is not a degraded version of the same thing. §5 is explicit
+     * that a building the 2014 capture predates falls back to its extruded
+     * footprint rather than having setbacks invented for it, and the stepped
+     * profile is the mildest thing that still says "this era of tower has
+     * setbacks" without claiming to know where.
      */
-    const steps = fallbackSteps(heightM, building.year_built);
-    const arrays =
-      steps.length > 1
-        ? steppedMassing(local, steps)
-        : extrudedMassing(local, heightM);
+    const surveyed = lod2For(building.bin)?.massing;
+    let arrays;
+    if (surveyed) {
+      arrays = massingToArrays(layer.localFrame, surveyed);
+      // A surveyed building with no usable surfaces — it happens, rarely, on
+      // records that carry only a ground plane — must not render as nothing.
+      if (arrays.triangles === 0) arrays = extrudedMassing(local, heightM);
+    } else {
+      const steps = fallbackSteps(heightM, building.year_built);
+      arrays =
+        steps.length > 1 ? steppedMassing(local, steps) : extrudedMassing(local, heightM);
+    }
 
     specs.push({
       id: building.id,
       arrays,
       floorHeightM,
       yearBuilt: building.year_built,
+      surveyed: Boolean(surveyed),
     });
   }
 

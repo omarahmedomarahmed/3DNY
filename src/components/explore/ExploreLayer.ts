@@ -69,6 +69,8 @@ export interface ExploreBuildingSpec {
   /** Metres. Drives the window grid's vertical rhythm. */
   floorHeightM: number;
   yearBuilt: number | null;
+  /** True when the silhouette came from NYC's surveyed model, not a guess. */
+  surveyed?: boolean;
   /** Context massing gets no fenestration and no glass. */
   plain?: boolean;
 }
@@ -107,6 +109,8 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
   triangles = 0;
   /** Triangle count of the availability bands alone. */
   bandTriangles = 0;
+  /** How many buildings are drawn from the city's surveyed model. */
+  surveyedCount = 0;
 
   constructor(anchor: [number, number], preset: AtmospherePreset, theme: 'dark' | 'light' = 'light') {
     this.theme = theme;
@@ -218,6 +222,7 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     }
 
     this.triangles = specs.reduce((n, s) => n + s.arrays.triangles, 0);
+    this.surveyedCount = specs.filter((s) => s.surveyed).length;
     this.map?.triggerRepaint();
   }
 
@@ -420,12 +425,71 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     };
   }
 
+  /**
+   * A point on the building's own wall, at a height, nearest the camera.
+   *
+   * For verification. The harness has to probe the pixels where a band should
+   * be, and it cannot use the band's geometry to find them — that would be the
+   * test asking the code where it drew and then agreeing. This reads the
+   * MASSING instead, which is a separate code path: the surveyed surfaces or
+   * the extrusion, never the band builder.
+   *
+   * A wall in this scene is vertical, so any vertex of a wall that spans the
+   * requested height carries the right horizontal position.
+   */
+  nearWallPointAt(
+    buildingId: string,
+    zM: number,
+  ): { x: number; y: number; z: number } | null {
+    const mesh = this.meshes.get(buildingId);
+    if (!mesh) return null;
+    const g = mesh.geometry;
+    const position = g.getAttribute('position');
+    const isWall = g.getAttribute('isWall');
+    const index = g.getIndex();
+    if (!position || !isWall || !index) return null;
+
+    let best: { x: number; y: number } | null = null;
+    let bestDistance = Infinity;
+
+    // Walk triangles rather than vertices, so a wall's z-span is known.
+    for (let t = 0; t < index.count; t += 3) {
+      const a = index.getX(t);
+      if (isWall.getX(a) < 0.5) continue;
+      const b = index.getX(t + 1);
+      const c = index.getX(t + 2);
+
+      const zs = [position.getZ(a), position.getZ(b), position.getZ(c)];
+      if (zM < Math.min(...zs) - 0.01 || zM > Math.max(...zs) + 0.01) continue;
+
+      for (const v of [a, b, c]) {
+        const x = position.getX(v);
+        const y = position.getY(v);
+        const d = Math.hypot(x - this.cameraPos.x, y - this.cameraPos.y);
+        if (d < bestDistance) {
+          bestDistance = d;
+          best = { x, y };
+        }
+      }
+    }
+
+    return best ? { ...best, z: zM } : null;
+  }
+
   /** What the last frame cost, for the budget in §9 of the plan. */
-  get budget(): { triangles: number; bandTriangles: number; drawCalls: number } {
+  get budget(): {
+    triangles: number;
+    bandTriangles: number;
+    drawCalls: number;
+    surveyed: number;
+    buildings: number;
+  } {
     return {
       triangles: this.triangles + this.bandTriangles + this.contextTriangles,
       bandTriangles: this.bandTriangles,
       drawCalls: this.renderer?.info.render.calls ?? 0,
+      surveyed: this.surveyedCount,
+      buildings: this.meshes.size,
     };
   }
 }
