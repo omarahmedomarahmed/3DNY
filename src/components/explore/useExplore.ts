@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type maplibregl from 'maplibre-gl';
 import { ExploreLayer, type ExploreBuildingSpec } from './ExploreLayer';
 import type { AtmospherePreset } from '../map/atmosphere';
-import { ringToLocal } from '@/lib/explore/frame';
+import { ringToLocal, toCCW } from '@/lib/explore/frame';
 import {
   extrudedMassing,
   fallbackSteps,
@@ -19,6 +19,7 @@ import { roofMassing, roofscapeFor } from './roofs3d';
 import { buildingHeightFt, buildingRing, floorHeightFt, FT_TO_M } from '@/lib/floor-bands';
 import type { BuildingWithSpaces, OccupancyKind } from '@/types';
 import type { ContextBuilding } from '@/lib/city-context';
+import type { Obstacle } from '@/lib/explore/walk';
 import { buildBandGroups } from './bands3d';
 import type { ColorOverrides } from '../map/colors';
 
@@ -34,6 +35,8 @@ import type { ColorOverrides } from '../map/colors';
 
 export interface ExploreHandle {
   layer: ExploreLayer | null;
+  /** Footprints and heights the walking capsule collides against. */
+  obstacles: Obstacle[];
   /**
    * Bumped when the surveyed massing lands.
    *
@@ -61,7 +64,7 @@ export function useExplore(
   } = { kinds: ['available'], selectedSpaceId: null },
   cityContext: ContextBuilding[] = [],
 ): ExploreHandle {
-  const handle = useRef<ExploreHandle>({ layer: null, lod2Ready: 0 });
+  const handle = useRef<ExploreHandle>({ layer: null, lod2Ready: 0, obstacles: [] });
 
   // --- Lifecycle. The anchor is fixed for the life of the layer: it is the
   // origin of the scene's metric frame, and moving it would move every vertex.
@@ -175,7 +178,44 @@ export function useExplore(
     handle.current.layer?.setPreset(preset);
   }, [preset]);
 
+  /**
+   * What a walker can bump into.
+   *
+   * Everything with a footprint, ours and the surrounding city alike. A walk
+   * that passes through the anonymous grey building on the corner but not
+   * through the one we hold a listing for would be worse than no collision at
+   * all — it would teach you not to trust the walls.
+   *
+   * The FOOTPRINT rather than the surveyed cross-section, deliberately: at eye
+   * height a building is its ground floor, and that is what the footprint is.
+   */
+  const obstacles = useMemo<Obstacle[]>(() => {
+    const layer = handle.current.layer;
+    if (!layer || !active) return [];
+
+    const out: Obstacle[] = [];
+    for (const b of detailedBuildings(buildings)) {
+      const ring = buildingRing(b);
+      if (!ring) continue;
+      // Wound consistently, so "which side is out" is answerable the same
+      // way for every obstacle rather than depending on how a given dataset
+      // happened to order its vertices.
+      out.push({
+        ring: toCCW(ringToLocal(layer.localFrame, ring)),
+        topM: buildingHeightFt(b) * FT_TO_M,
+      });
+    }
+    for (const c of cityContext) {
+      if (c.r.length < 4) continue;
+      const topM = c.h * FT_TO_M;
+      if (topM < 3) continue;
+      out.push({ ring: toCCW(ringToLocal(layer.localFrame, c.r)), topM });
+    }
+    return out;
+  }, [active, buildings, cityContext, lod2Tick]);
+
   handle.current.lod2Ready = lod2Tick;
+  handle.current.obstacles = obstacles;
   return handle.current;
 }
 

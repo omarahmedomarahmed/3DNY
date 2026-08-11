@@ -128,10 +128,12 @@ export function nearestEdge(
   ring: [number, number][],
   x: number,
   y: number,
-): { distance: number; nx: number; ny: number } {
+): { distance: number; nx: number; ny: number; px: number; py: number } {
   let best = Infinity;
   let bx = 1;
   let by = 0;
+  let bpx = x;
+  let bpy = y;
 
   for (let i = 0; i < ring.length; i++) {
     const [ax, ay] = ring[i];
@@ -148,12 +150,23 @@ export function nearestEdge(
     const d = Math.hypot(dx, dy);
     if (d < best) {
       best = d;
+      bpx = px;
+      bpy = py;
       if (d > 1e-9) {
         bx = dx / d;
         by = dy / d;
       } else {
-        // Exactly on the edge: the outward normal of that edge is the only
-        // direction with any meaning left.
+        /**
+         * Exactly on the edge, where there is no direction to the point.
+         *
+         * A normal of the edge is the only thing left, and its SIGN is
+         * ambiguous because it depends on the ring's winding — which for a
+         * footprint straight out of NYC's data is not guaranteed either way.
+         * Callers that need to know which side is out must resolve it
+         * themselves; see `outwardAt`. Getting this wrong pushed a walker who
+         * landed exactly on a wall straight into the building, one step at a
+         * time, until they were standing in the middle of it.
+         */
         const el = Math.hypot(ex, ey) || 1;
         bx = ey / el;
         by = -ex / el;
@@ -161,5 +174,25 @@ export function nearestEdge(
     }
   }
 
-  return { distance: best, nx: bx, ny: by };
+  return { distance: best, nx: bx, ny: by, px: bpx, py: bpy };
+}
+
+/**
+ * Which way is out, from a point on a ring's boundary.
+ *
+ * Resolved by testing rather than by assuming a winding: step a millimetre
+ * along each candidate and ask which one lands outside. It costs two
+ * point-in-ring tests, in the rare case where a walker is exactly on a wall,
+ * and it is right for any ring whichever way it was wound.
+ */
+export function outwardAt(
+  ring: [number, number][],
+  px: number,
+  py: number,
+  nx: number,
+  ny: number,
+): [number, number] {
+  const eps = 0.001;
+  if (!pointInRing(ring, px + nx * eps, py + ny * eps)) return [nx, ny];
+  return [-nx, -ny];
 }

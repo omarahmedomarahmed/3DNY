@@ -591,6 +591,117 @@ for (let i = 0; i < 5; i++) {
 }
 await sleep(2000);
 
+// --- 5d. The walk, at street level ----------------------------------------
+//
+// Two claims, and both are about pixels rather than about state: pressing W
+// moves you, and walking into a building does not put you inside it. The
+// second is checked against the SCENE's own obstacle list, which is derived
+// from the footprints rather than from the walk's own bookkeeping.
+
+await page.evaluate(() => {
+  window.__m.jumpTo({ center: [-73.9853, 40.7476], zoom: 17.4, pitch: 70, bearing: 20 });
+});
+await sleep(2500);
+
+await page.getByRole('button', { name: 'Walk at street level' }).first().click();
+await sleep(2500);
+await page.screenshot({ path: join(outdir, 'walk-start.png') });
+
+const entry = await page.evaluate(() => ({
+  pitch: window.__m.getPitch(),
+  center: window.__m.getCenter(),
+}));
+check(
+  'walking drops the camera to street level',
+  entry.pitch > 78,
+  `pitch ${entry.pitch.toFixed(1)}°`,
+);
+
+/** Holds a key for a while, the way a person would. */
+async function hold(key, ms) {
+  await page.keyboard.down(key);
+  await sleep(ms);
+  await page.keyboard.up(key);
+  await sleep(400);
+}
+
+// The canvas has to have focus for the keys to reach the window handler.
+const canvasBounds = await page.locator('.maplibregl-map canvas').first().boundingBox();
+await page.mouse.click(canvasBounds.x + canvasBounds.width * 0.5, canvasBounds.y + canvasBounds.height * 0.8);
+await sleep(800);
+
+await hold('KeyW', 1600);
+const afterWalk = await page.evaluate(() => window.__m.getCenter());
+const movedM = Math.hypot(
+  (afterWalk.lng - entry.center.lng) * 84_400,
+  (afterWalk.lat - entry.center.lat) * 110_574,
+);
+check('pressing W actually moves the camera', movedM > 1.5, `${movedM.toFixed(1)} m`);
+await page.screenshot({ path: join(outdir, 'walk-moved.png') });
+
+// Walk hard in each of four directions and check, after every one, that the
+// eye is not inside a building.
+let penetrations = 0;
+let checked = 0;
+for (const [turnKey, turnMs] of [['KeyE', 900], ['KeyE', 900], ['KeyE', 900], ['KeyE', 900]]) {
+  await hold(turnKey, turnMs);
+  await page.keyboard.down('ShiftLeft');
+  await hold('KeyW', 2600);
+  await page.keyboard.up('ShiftLeft');
+  const verdict = await page.evaluate(() => {
+    const layer = window.__explore;
+    if (!layer) return null;
+    const eye = layer.eye;
+    return { x: eye.x, y: eye.y, z: eye.z };
+  });
+  if (!verdict) continue;
+  checked++;
+  const inside = await page.evaluate(
+    ([x, y, z]) => {
+      // Asked of the buildings, not of the walk: the massing meshes are the
+      // walls a person can see, and the question is whether the eye is behind
+      // one of them.
+      const layer = window.__explore;
+      let hit = false;
+      for (const mesh of layer.objects) {
+        const g = mesh.geometry;
+        const pos = g.getAttribute('position');
+        const isWall = g.getAttribute('isWall');
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = 0;
+        for (let i = 0; i < pos.count; i++) {
+          if (isWall.getX(i) < 0.5) continue;
+          minX = Math.min(minX, pos.getX(i)); maxX = Math.max(maxX, pos.getX(i));
+          minY = Math.min(minY, pos.getY(i)); maxY = Math.max(maxY, pos.getY(i));
+          maxZ = Math.max(maxZ, pos.getZ(i));
+        }
+        // A bounding box is a WEAKER test than the footprint — it can only
+        // report a false alarm, never a miss — so a pass here is worth more
+        // than a pass against the outline itself.
+        if (z < maxZ && x > minX + 1 && x < maxX - 1 && y > minY + 1 && y < maxY - 1) {
+          hit = true;
+          break;
+        }
+      }
+      return hit;
+    },
+    [verdict.x, verdict.y, verdict.z],
+  );
+  if (inside) penetrations++;
+}
+check(
+  'walking into buildings never puts the eye inside one',
+  checked > 0 && penetrations === 0,
+  `${checked} runs, ${penetrations} penetrations`,
+);
+await page.screenshot({ path: join(outdir, 'walk-street.png') });
+
+await page.keyboard.press('Escape');
+await sleep(2000);
+check(
+  'Escape leaves the walk',
+  (await page.getByRole('button', { name: 'Walk at street level' }).count()) > 0,
+);
+
 // --- 6. The whole city, which is the load sprint 2 exists to survive -------
 //
 // Four towers is not a test of anything. The kill criterion is the frame rate
@@ -602,7 +713,22 @@ await page.evaluate(() => {
 });
 await sleep(2000);
 await page.getByRole('button', { name: 'Show the surrounding city' }).first().click();
-await sleep(9000);
+
+/**
+ * Poll rather than sleep.
+ *
+ * The surrounding city is a network fetch of tens of thousands of footprints
+ * against a viewport that has just moved, and how long it takes depends on the
+ * cache, the viewport and the day. A fixed wait passed for three sprints and
+ * then failed for no reason connected to the code — which is the worst kind of
+ * check, because the natural response is to assume the feature broke.
+ */
+for (let i = 0; i < 40; i++) {
+  const n = await page.evaluate(() => window.__explore?.budget?.triangles ?? 0);
+  if (n > 20_000) break;
+  await sleep(750);
+}
+await sleep(1500);
 await page.screenshot({ path: join(outdir, 'explore-city.png') });
 
 const cityBudget = await page.evaluate(() => window.__explore?.budget ?? null);

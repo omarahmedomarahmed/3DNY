@@ -55,6 +55,7 @@ import DraggableCard from './DraggableCard';
 import TenantPopup from './TenantPopup';
 import { useVisibleBuildings } from './useVisibleBuildings';
 import { useExplore } from '../explore/useExplore';
+import { useWalk } from '../explore/useWalk';
 
 const DEFAULT_CENTER: [number, number] = [-73.98, 40.75];
 
@@ -617,6 +618,7 @@ export default function MapView() {
   const radius = useApp((s) => s.radius);
   const photoreal = useApp((s) => s.photoreal);
   const mapMode = useApp((s) => s.mapMode);
+  const walking = useApp((s) => s.walking);
   const showContext = useApp((s) => s.showContext);
   const mapTheme = useApp((s) => s.mapTheme);
   const timeOfDay = useApp((s) => s.timeOfDay);
@@ -713,6 +715,20 @@ export default function MapView() {
     selectedSpaceId,
     colorOverrides,
   }, showContext ? cityContext : []);
+
+  /**
+   * The first-person walk.
+   *
+   * It drives MapLibre's own camera, so the basemap, deck.gl's bands and the
+   * three.js city all move together — see `useWalk`. Nothing about it is
+   * reachable with Explore off.
+   */
+  useWalk(
+    map,
+    mapMode === 'explore' && walking,
+    explore.layer?.localFrame ?? null,
+    explore.obstacles,
+  );
 
 
   // An empty mode list means "all of them", so the map is useful before
@@ -1548,7 +1564,24 @@ export default function MapView() {
             Loading photorealistic imagery…
           </div>
         )}
-        {!photoreal && zoom < BAND_ZOOM_THRESHOLD && !selectedBuildingId && buildings.length > 0 && (
+        {/* The keys, on screen, while walking.
+            A first-person camera nobody knows the controls for is a camera
+            that does not work. It sits low and quiet so it never competes
+            with a band, and it goes away the moment you stop walking. */}
+        {mapMode === 'explore' && walking && (
+          <div className="absolute left-1/2 bottom-4 -translate-x-1/2 rounded-full border border-hairline bg-white/95 px-3 py-1 text-[11px] font-medium text-body shadow-card">
+            <span className="font-semibold text-ink">W A S D</span> walk
+            <span className="mx-1.5 text-subtle">·</span>
+            <span className="font-semibold text-ink">Q E</span> turn
+            <span className="mx-1.5 text-subtle">·</span>
+            <span className="font-semibold text-ink">R F</span> look
+            <span className="mx-1.5 text-subtle">·</span>
+            <span className="font-semibold text-ink">Shift</span> faster
+            <span className="mx-1.5 text-subtle">·</span>
+            <span className="font-semibold text-ink">Esc</span> back up
+          </div>
+        )}
+        {!photoreal && !walking && zoom < BAND_ZOOM_THRESHOLD && !selectedBuildingId && buildings.length > 0 && (
           <div className="absolute left-1/2 bottom-4 -translate-x-1/2 rounded-full border border-hairline bg-white/95 px-3 py-1 text-[11px] font-medium text-body shadow-card">
             {BAND_LABEL}
           </div>

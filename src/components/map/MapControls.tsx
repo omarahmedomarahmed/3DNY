@@ -181,6 +181,8 @@ export default function MapControls({
   const photoreal = useApp((s) => s.photoreal);
   const mapMode = useApp((s) => s.mapMode);
   const setMapMode = useApp((s) => s.setMapMode);
+  const walking = useApp((s) => s.walking);
+  const setWalking = useApp((s) => s.setWalking);
   const setPhotoreal = useApp((s) => s.setPhotoreal);
   const showContext = useApp((s) => s.showContext);
   const setShowContext = useApp((s) => s.setShowContext);
@@ -534,6 +536,29 @@ export default function MapControls({
           <path d="M4 9.2 12 13.5l8-4.3" />
         </Icon>
       </ControlButton>
+
+      {/* Street level, first person. Only offered inside Explore mode — the
+          flat map has no city to walk through, and a button that silently
+          switched modes would be a surprise rather than a shortcut. */}
+      {mapMode === 'explore' && (
+        <ControlButton
+          label={walking ? 'Stop walking' : 'Walk at street level'}
+          hint="Drops you on the pavement in first person. W A S D to walk, Q E to turn, R F to look up and down, Shift to move faster, Escape to come back up."
+          active={walking}
+          disabled={!map}
+          onClick={() => setWalking(!walking)}
+        >
+          {/* A figure walking, rather than a foot or a pin: the button is
+              about being IN the street, not about marking a place on it. */}
+          <Icon>
+            <circle cx="12.6" cy="4.4" r="1.9" />
+            <path d="M11 8.4 8.6 12l2.6 2.1.9 5.6" />
+            <path d="M11.2 14.1 8 20" />
+            <path d="M13.4 9.2 17 11.4l1.4 3.2" />
+            <path d="M10.4 9.6 6.4 9" />
+          </Icon>
+        </ControlButton>
+      )}
 
       {/* Only offered when a Google key is configured. Without one the button
           would be a dead end, and the free grey city is the honest default. */}
