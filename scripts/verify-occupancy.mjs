@@ -88,13 +88,41 @@ await openMapChrome(page);
 // The search box lives in the filter rail, which no longer opens by default.
 await openFilters(page);
 await sleep(6000);
-const before = await page.locator('article').count();
-await page.getByPlaceholder(/Address, building, tenant/).fill('Kestrel');
-await sleep(2000);
-const after = await page.locator('article').count();
-check('searching a tenant name narrows the list', after > 0 && after < before, `${before} → ${after}`);
-check('and lands on the building that tenant is in',
-  (await page.getByText('100 Park Avenue').count()) > 0);
+/**
+ * The name searched for is read out of the data, not written into the test.
+ *
+ * It used to be the literal string "Kestrel", which was a company in the
+ * synthetic fixture and is therefore an assertion about the fixture rather
+ * than about the search. The moment the fixture became a snapshot of the real
+ * market the check failed while the search worked perfectly. Asking the API
+ * which tenant is in which building makes the same check independent of whose
+ * data is loaded — and stronger, because it now verifies that the building the
+ * search lands on is the one that tenant is actually in.
+ */
+const target = await page.evaluate(async () => {
+  const res = await fetch('/api/buildings');
+  const buildings = await res.json();
+  for (const b of buildings) {
+    const t = (b.tenants ?? [])[0];
+    if (t?.company_name && b.address_display) {
+      return { company: t.company_name, address: b.address_display };
+    }
+  }
+  return null;
+});
+check('the data has a tenancy to search for', target !== null, target?.company ?? 'none');
+
+if (target) {
+  const before = await page.locator('article').count();
+  // The first word only: a search that has to match punctuation and casing
+  // exactly is testing the fixture's spelling, not the search.
+  await page.getByPlaceholder(/Address, building, tenant/).fill(target.company.split(' ')[0]);
+  await sleep(2000);
+  const after = await page.locator('article').count();
+  check('searching a tenant name narrows the list', after > 0 && after < before, `${before} → ${after}`);
+  check('and lands on the building that tenant is in',
+    (await page.getByText(target.address).count()) > 0, target.address);
+}
 await page.getByPlaceholder(/Address, building, tenant/).fill('');
 await sleep(1500);
 

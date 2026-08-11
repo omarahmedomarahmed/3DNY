@@ -23,7 +23,7 @@ import type { AtmospherePreset } from '../map/atmosphere';
 import { makeFrame, toLocal, type LocalFrame } from '@/lib/explore/frame';
 import { cameraOffset, MAPLIBRE_FOV } from '@/lib/explore/camera';
 import { sunDirection } from '@/lib/explore/sun';
-import { interiorFor } from './materials';
+import { interiorFor, makeInteriorGlassMaterial } from './materials';
 import {
   applyPreset,
   makeFacadeMaterial,
@@ -114,6 +114,9 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
   private plateMesh: THREE.Mesh | null = null;
   private plateMaterial: THREE.MeshBasicMaterial | null = null;
   private insideBuildingId: string | null = null;
+  /** The host building's own facade, held while it is standing in as glass. */
+  private hostMaterial: THREE.Material | null = null;
+  private interiorGlass: THREE.ShaderMaterial | null = null;
   private contextMesh: THREE.Mesh | null = null;
   private contextMaterial: THREE.ShaderMaterial | null = null;
   private contextTriangles = 0;
@@ -215,6 +218,9 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
       this.plateMesh = null;
     }
     this.plateMaterial?.dispose();
+    this.interiorGlass?.dispose();
+    this.interiorGlass = null;
+    this.hostMaterial = null;
     this.plateMaterial = null;
     if (this.sky) {
       this.scene.remove(this.sky.mesh);
@@ -406,10 +412,25 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
       this.plateMesh.geometry.dispose();
       this.plateMesh = null;
     }
+    /**
+     * Put the previous host's own facade back.
+     *
+     * Restoring by remembered reference rather than by rebuilding: the facade
+     * material carries the building's seed, its stone, its year and its
+     * fenestration, and a rebuilt one would be a *different* building for the
+     * rest of the session.
+     */
     if (this.insideBuildingId) {
       const previous = this.meshes.get(this.insideBuildingId);
-      if (previous) (previous.material as THREE.Material).side = THREE.FrontSide;
+      const original = this.hostMaterial;
+      if (previous && original) {
+        previous.material = original;
+        previous.renderOrder = 0;
+      } else if (previous) {
+        (previous.material as THREE.Material).side = THREE.FrontSide;
+      }
     }
+    this.hostMaterial = null;
     this.insideBuildingId = buildingId;
 
     if (!buildingId || !arrays || arrays.triangles === 0) {
@@ -417,8 +438,26 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
       return;
     }
 
+    /**
+     * The containing building becomes glass, from the inside.
+     *
+     * Turning the facade double-sided — which is what this did first — leaves
+     * an opaque curtain wall between you and the view, so standing on the 23rd
+     * floor showed you a grey box. From a tenant's side a curtain wall is
+     * nearly all glass; what you see is the mullion grid and the city through
+     * it. See `makeInteriorGlassMaterial`.
+     */
     const host = this.meshes.get(buildingId);
-    if (host) (host.material as THREE.Material).side = THREE.DoubleSide;
+    if (host) {
+      this.hostMaterial = host.material as THREE.Material;
+      const storey =
+        (arrays as MassingArrays & { floorHeightM?: number }).floorHeightM ?? 3.8;
+      this.interiorGlass?.dispose();
+      this.interiorGlass = makeInteriorGlassMaterial(this.preset, storey);
+      host.material = this.interiorGlass;
+      // Transparent, so it draws after the opaque city it is looking at.
+      host.renderOrder = 12;
+    }
 
     if (!this.plateMaterial) {
       this.plateMaterial = new THREE.MeshBasicMaterial({
@@ -527,6 +566,75 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
   /** Meshes currently in the scene, for raycasting and for tests. */
   get objects(): THREE.Mesh[] {
     return [...this.meshes.values()];
+  }
+
+  /**
+   * What is under a pixel, answered by three.js rather than by deck.gl.
+   *
+   * deck.gl owns picking everywhere else in this product and that is right:
+   * it is exact, it runs in its own framebuffer, and every popup and fly-to in
+   * both modes goes through it. It cannot answer here, because during free
+   * look deck.gl is projecting with MapLibre's camera and this frame was not
+   * drawn from it — its answer would be the building several blocks from the
+   * one under the cursor.
+   *
+   * So free look raycasts the meshes it drew itself. That is a second picking
+   * path, which is a cost worth naming: it can only see the massing three.js
+   * holds, so it returns a building and an elevation, and the caller resolves
+   * the elevation to a floor and a space. It is never used while deck.gl's
+   * picking is available, so the two cannot disagree in the same frame.
+   */
+  pickAt(px: number, py: number): { buildingId: string; z: number } | null {
+    const map = this.map;
+    if (!map || !this.freeCam) return null;
+    const canvas = map.getCanvas();
+    const w = canvas.clientWidth || 1;
+    const h = canvas.clientHeight || 1;
+
+    const aspect = w / h;
+    const [fx, fy, fz] = freeForward(this.freeCam);
+    const forward = new THREE.Vector3(fx, fy, fz);
+    const right = new THREE.Vector3().crossVectors(forward, PICK_UP).normalize();
+    const up = new THREE.Vector3().crossVectors(right, forward).normalize();
+
+    // Normalised device coordinates, then the frustum's half-extents at unit
+    // distance. The same field of view the projection uses, so a ray built
+    // here lands on the pixel it was asked about.
+    const ndcX = (px / w) * 2 - 1;
+    const ndcY = 1 - (py / h) * 2;
+    const tanHalf = Math.tan(MAPLIBRE_FOV / 2);
+
+    const dir = forward
+      .clone()
+      .addScaledVector(right, ndcX * tanHalf * aspect)
+      .addScaledVector(up, ndcY * tanHalf)
+      .normalize();
+
+    PICK_RAY.set(
+      new THREE.Vector3(this.freeCam.x, this.freeCam.y, this.freeCam.z),
+      dir,
+    );
+    PICK_RAY.far = 20_000;
+
+    let best: { buildingId: string; z: number; distance: number } | null = null;
+    for (const [id, mesh] of this.meshes) {
+      /**
+       * The building you are standing in is not a thing you can click.
+       *
+       * Its facade is glass while you are inside it and the ray starts within
+       * it, so every click would hit the pane six inches from the camera and
+       * resolve to the space you are already in. Skipping it is what makes
+       * "click the tower across the street to move into it" work at all.
+       */
+      if (id === this.insideBuildingId) continue;
+      const hits = PICK_RAY.intersectObject(mesh, false);
+      if (hits.length === 0) continue;
+      const hit = hits[0];
+      if (!best || hit.distance < best.distance) {
+        best = { buildingId: id, z: hit.point.z, distance: hit.distance };
+      }
+    }
+    return best ? { buildingId: best.buildingId, z: best.z } : null;
   }
 
   // MapLibre types the matrix as gl-matrix's `mat4`, which is an indexed
@@ -781,6 +889,10 @@ function toGeometry(a: MassingArrays): THREE.BufferGeometry {
   g.setIndex(new THREE.BufferAttribute(a.index, 1));
   return g;
 }
+
+/** Reused across picks. */
+const PICK_RAY = new THREE.Raycaster();
+const PICK_UP = new THREE.Vector3(0, 0, 1);
 
 /** Reused across frames: the free camera runs at sixty of them a second. */
 const FREE_EYE = new THREE.Vector3();

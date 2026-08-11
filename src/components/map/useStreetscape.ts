@@ -25,6 +25,8 @@ const MAX_SPAN = 0.2;
  * without.
  */
 const REQUEST_SPAN = MAX_SPAN - 0.02;
+/** Half-width, in degrees, of the box loaded around a free camera. */
+const FOCUS_HALF = 0.030;
 
 const EMPTY: StreetscapeResult = {
   roads: [],
@@ -56,7 +58,19 @@ function clampSpan(
  * the massing: snapped-bbox cache for the life of the page, silent failures —
  * a missing ground plane degrades to the basemap, never to an interruption.
  */
-export function useStreetscape(map: maplibregl.Map | null, zoom: number, enabled = true) {
+export function useStreetscape(
+  map: maplibregl.Map | null,
+  zoom: number,
+  enabled = true,
+  /**
+   * Load around this point instead of around the map's viewport.
+   *
+   * Free look flies a camera MapLibre knows nothing about, so keying the fetch
+   * to `map.getBounds()` meant flying half a mile and running off the edge of
+   * the loaded ground. When free look is on it passes its own position here.
+   */
+  focus: [number, number] | null = null,
+) {
   const [data, setData] = useState<StreetscapeResult>(EMPTY);
   const cache = useRef(new Map<string, StreetscapeResult>());
   const inflight = useRef<Set<string>>(new Set());
@@ -77,10 +91,12 @@ export function useStreetscape(map: maplibregl.Map | null, zoom: number, enabled
 
     const load = async () => {
       const b = map.getBounds();
-      const w = b.getWest();
-      const s = b.getSouth();
-      const e = b.getEast();
-      const n = b.getNorth();
+      // A box centred on the free camera, when there is one, rather than on a
+      // viewport it is no longer flying through.
+      const w = focus ? focus[0] - FOCUS_HALF : b.getWest();
+      const s = focus ? focus[1] - FOCUS_HALF : b.getSouth();
+      const e = focus ? focus[0] + FOCUS_HALF : b.getEast();
+      const n = focus ? focus[1] + FOCUS_HALF : b.getNorth();
 
       const padX = Math.min((e - w) * PAD, (MAX_SPAN - (e - w)) / 2);
       const padY = Math.min((n - s) * PAD, (MAX_SPAN - (n - s)) / 2);
@@ -162,7 +178,7 @@ export function useStreetscape(map: maplibregl.Map | null, zoom: number, enabled
       if (timer) clearTimeout(timer);
       map.off('moveend', schedule);
     };
-  }, [map, zoom, enabled]);
+  }, [map, zoom, enabled, focus ? focus.join(',') : '']);
 
   return data;
 }

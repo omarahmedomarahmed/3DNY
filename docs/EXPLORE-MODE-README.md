@@ -16,15 +16,38 @@ exactly where they did before this branch started.
 | Explore | The cube button in the right-hand tool stack |
 | Walk | The walking figure, which only appears in Explore mode |
 | Free camera | The eye, also Explore only — fly anywhere, look anywhere |
+| Inside a space | A space card, in Explore mode: **Explore this space**. Or click a floor with an availability on it while in free look |
 | Stand on a floor | A space card, in Explore mode: **Stand on floor 14** |
 | Come back | Escape — from a floor to the street, from the street to the drone camera |
 
 Walking: `W A S D` to move, `Q E` to turn, `R F` to look, `Shift` to move
 faster.
 
-Free camera: click the map to capture the mouse, then move it to look.
-`W A S D` to fly, `Space` and `C` for straight up and down, `Shift` for four
-times faster, `Escape` to release the pointer and again to leave.
+Free camera: **drag** to look, **click** to select. The pointer is captured
+only while the button is held, so the cursor is there the rest of the time and
+changes shape over anything clickable. `W A S D` to fly, `Space` and `C` for
+straight up and down, `Shift` for four times faster, `Escape` to leave.
+
+Clicking a floor that carries an availability takes you **inside it**.
+
+### Inside a space
+
+**Explore this space** puts you on that availability's own floor, at its own
+height, seated two-thirds of the way toward the glass and facing it. You can
+walk to the window, look up at the tower opposite, and look down at the street
+from exactly the height a tenant would.
+
+| | |
+|---|---|
+| The floor | The building's own cross-section at that elevation — the same geometry the band is wrapped around, so the Goldenrod stripe is at the right height outside the glass |
+| The glass | The host building's facade, redrawn from the inside as a mullion grid at six percent opacity. The grid runs on the same bay and storey pitch as the outside |
+| Moving | Confined to the plate by `holdInside`, the walk's own containment. Walking at the glass stops you at the glass |
+| Moving on | Click another tower to go into an availability in it. The building you are standing in is not clickable, which is what makes that work |
+| Leaving | Escape puts you back outside, still in free look |
+
+There is no partitioning, no core and no furniture, and that is deliberate:
+this project holds no drawings for these spaces, and a floor plan invented for
+one would be the map telling a broker something it does not know.
 
 ### Why free look exists, and what it costs
 
@@ -41,8 +64,9 @@ stays where it was.
 | Still works | Does not, while it is on |
 |---|---|
 | The whole three.js city: ground, water, streets, massing, facades, roofs, **bands**, traffic, sky | deck.gl's name-plates, transit and radius — switched off, because they are projected with MapLibre's camera and would land in the wrong place |
-| Every atmosphere preset and every filter | Clicking a building: picking is deck.gl's |
-| | The streetscape and surrounding city still load for MapLibre's viewport, so flying a long way runs off the loaded ground |
+| Every atmosphere preset and every filter | — |
+| Clicking, hovering and going inside a space: free look raycasts the three.js massing itself | deck.gl's own picking, which cannot answer from a camera it is not projecting with |
+| The streetscape and the surrounding city, which load around the free camera as it flies | — |
 
 That trade is only acceptable because the availability bands are three.js
 geometry. The one rule survives free look intact, which it would not have done
@@ -123,7 +147,7 @@ missing.
 ## Verifying it
 
 ```
-npx vitest run                                    # 555 unit tests
+npx vitest run                                    # 568 unit tests
 npx tsc --noEmit && npx next build
 SPACES_FIXTURE_DB=1 scripts/restart-server.sh     # or with a real DATABASE_URL
 node scripts/verify-explore.mjs shots/explore
@@ -160,10 +184,22 @@ This branch can be run with no database:
 SPACES_FIXTURE_DB=1 npx next start -p 3111
 ```
 
-`fixtures/dev-buildings.json` — real BINs, footprints, heights, floor counts
-and years from NYC Open Data; **invented** availability and tenancy rows, each
-one stamped `FIXTURE` in its own notes. It is served only behind that flag and
-is never a fallback for a database that failed. See `src/lib/dev-fixture.ts`.
+`fixtures/dev-buildings.json` is gitignored and regenerated:
+
+```
+npx tsx scripts/make-dev-fixture.ts --live                  # the real market
+npx tsx scripts/make-dev-fixture.ts --live --with-tenants   # plus synthetic tenancy
+npx tsx scripts/make-dev-fixture.ts                         # fully synthetic
+```
+
+`--live` is a read-only snapshot of what `/api/buildings` serves: 73 buildings,
+312 real availabilities, real landlords, provenance intact. The real database
+holds **no tenancy**, so `--with-tenants` stamps synthetic tenancy on top — and
+only tenancy; every availability, rent and provenance field is left exactly as
+the live API returned it, and every invented row carries `FIXTURE` in its notes.
+
+It is served only behind `SPACES_FIXTURE_DB=1` and is never a fallback for a
+database that failed. See `src/lib/dev-fixture.ts`.
 
 ---
 

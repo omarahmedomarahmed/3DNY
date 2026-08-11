@@ -70,18 +70,29 @@ const EXPLORE_OFF = 'Back to the flat map';
  *
  * So the frame is clipped to the part of the canvas no chrome covers.
  */
-async function frameStats() {
+async function frameStats(region = { x: 0.22, y: 0.10, w: 0.50, h: 0.50 }) {
   const box = await page.locator('.maplibregl-map canvas').first().boundingBox();
   const buffer = await page.screenshot({
     clip: {
-      x: Math.round(box.x + box.width * 0.22),
-      y: Math.round(box.y + box.height * 0.10),
-      width: Math.round(box.width * 0.50),
-      height: Math.round(box.height * 0.50),
+      x: Math.round(box.x + box.width * region.x),
+      y: Math.round(box.y + box.height * region.y),
+      width: Math.round(box.width * region.w),
+      height: Math.round(box.height * region.h),
     },
   });
   return analyse(buffer);
 }
+
+/**
+ * The window, rather than the ceiling.
+ *
+ * The default crop is the upper-middle of the map, which is the right place to
+ * look at a skyline and the wrong place to look from inside a room: up there
+ * is the slab overhead, and measuring it concluded the glass was opaque when
+ * the view out of it was perfectly good. Inside a space the view is at eye
+ * level, straight ahead.
+ */
+const WINDOW_CROP = { x: 0.30, y: 0.42, w: 0.42, h: 0.34 };
 
 /**
  * Reads a PNG without a decoder dependency by handing it back to the page.
@@ -1238,6 +1249,115 @@ check(
   `mean luma ${lookingUp.meanLuma.toFixed(3)}`,
 );
 
+// --- 6c. Exploring a space from the inside --------------------------------
+
+/**
+ * The mode this whole camera exists to make possible.
+ *
+ * Building explore answers "where is this in the market". Space explore
+ * answers "what is it like to be in it": you stand on the availability's own
+ * floor, at its own height, and look out at the city through the glass. The
+ * checks are the two things that can silently be wrong — the height, and
+ * whether you can see out at all.
+ */
+const spaceTarget = await page.evaluate(async () => {
+  const res = await fetch('/api/buildings');
+  const buildings = await res.json();
+  for (const b of buildings) {
+    const s = (b.spaces ?? []).find(
+      (x) => x.floor_number && x.floor_number > 15 && x.floor_number < 60,
+    );
+    if (s) return { buildingId: b.id, spaceId: s.id, floor: s.floor_number, address: b.address_display };
+  }
+  return null;
+});
+check('there is an availability high enough to explore', spaceTarget !== null,
+  spaceTarget ? `floor ${spaceTarget.floor}, ${spaceTarget.address}` : 'none');
+
+if (spaceTarget) {
+  await page.evaluate(
+    (t) => window.__app.getState().enterSpace(t.buildingId, t.spaceId, t.floor),
+    spaceTarget,
+  );
+  await sleep(7000);
+  await page.screenshot({ path: join(outdir, 'explore-space-inside.png') });
+
+  const inside = await page.evaluate(() => {
+    const e = window.__explore?.eye;
+    return {
+      state: window.__app.getState().spaceExplore,
+      eye: e ? { x: e.x, y: e.y, z: e.z } : null,
+    };
+  });
+
+  check('the mode is entered', inside.state?.floorNumber === spaceTarget.floor,
+    JSON.stringify(inside.state));
+
+  /**
+   * The eye is on that floor, checked against the sheet rather than against a
+   * number written here. Storey height is the building's own — the same
+   * `floorHeightFt` the bands use — so if these two ever part company the
+   * Goldenrod stripe would be at a visitor's ankles.
+   */
+  const expected = await page.evaluate(async (t) => {
+    const res = await fetch('/api/buildings');
+    const b = (await res.json()).find((x) => x.id === t.buildingId);
+    const heightFt = b.roof_height_ft ?? b.height_ft ?? null;
+    const floors = b.num_floors ?? null;
+    const storeyFt = heightFt && floors ? heightFt / floors : 12.5;
+    return (t.floor - 1) * storeyFt * 0.3048;
+  }, spaceTarget);
+
+  check(
+    'the eye is on that floor, at the elevation the sheet implies',
+    inside.eye !== null && Math.abs(inside.eye.z - expected) < 6,
+    `eye ${inside.eye?.z.toFixed(1)} m vs floor ${expected.toFixed(1)} m`,
+  );
+
+  /**
+   * You can see out.
+   *
+   * The first version of the interior turned the host building's facade
+   * double-sided, which leaves an opaque curtain wall between you and the
+   * view: standing on the 23rd floor showed a grey box. The measurement is
+   * against the same crop with the plate removed — if the glass were opaque,
+   * the two frames would be the same wall.
+   */
+  const insideShot = await frameStats(WINDOW_CROP);
+  check(
+    'the city is visible through the glass, not a blank wall',
+    insideShot.detail > 0.002,
+    `detail ${insideShot.detail.toFixed(4)}`,
+  );
+
+  /**
+   * The building you are standing in cannot be clicked.
+   *
+   * Its glass is six inches from the camera, so without skipping it every
+   * click would resolve to the space you are already in and moving between
+   * availabilities from the inside would be impossible.
+   */
+  const selfPick = await page.evaluate(() => {
+    const c = window.__m.getCanvas();
+    const hits = [];
+    for (const [fx, fy] of [[0.5, 0.5], [0.3, 0.5], [0.7, 0.45], [0.5, 0.35]]) {
+      const hit = window.__explore.pickAt(c.clientWidth * fx, c.clientHeight * fy);
+      if (hit) hits.push(hit.buildingId);
+    }
+    return hits;
+  });
+  check(
+    'clicking never resolves to the building you are inside',
+    !selfPick.includes(spaceTarget.buildingId),
+    selfPick.length ? `${selfPick.length} hit(s), none the host` : 'no hits from these pixels',
+  );
+
+  await page.evaluate(() => window.__app.getState().leaveSpace());
+  await sleep(3000);
+  check('leaving the space returns to the city',
+    (await page.evaluate(() => window.__app.getState().spaceExplore)) === null);
+}
+
 /**
  * Leaving free look puts the view back exactly where it was.
  *
@@ -1248,7 +1368,21 @@ check(
  * left switched off.
  */
 await page.getByRole('button', { name: 'Leave free look' }).first().click();
-await sleep(3000);
+/**
+ * The map camera is put back where the baseline was taken, on purpose.
+ *
+ * Entering a space selects its building, and selecting a building flies the
+ * map to it — so by this point MapLibre's own camera is somewhere else and a
+ * pixel comparison would be measuring that, not the toggle. What is being
+ * checked is that leaving free look renders from MapLibre's camera again and
+ * renders the same thing it did before; so the camera is restored explicitly
+ * and the comparison is left honest.
+ */
+await page.evaluate(() => {
+  window.__app.getState().selectBuilding(null);
+  window.__m.jumpTo({ center: [-73.9840, 40.7540], zoom: 15.4, pitch: 55, bearing: 20 });
+});
+await sleep(5000);
 const afterFree = await frameStats();
 check(
   'leaving free look restores the view it was entered from',

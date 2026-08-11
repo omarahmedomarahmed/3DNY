@@ -93,6 +93,7 @@ export default function SpacePopup({
   const addToCompare = useApp((s) => s.addToCompare);
   const mapMode = useApp((s) => s.mapMode);
   const standOnFloor = useApp((s) => s.standOnFloor);
+  const enterSpace = useApp((s) => s.enterSpace);
   const removeFromCompare = useApp((s) => s.removeFromCompare);
 
   const building = useMemo(
@@ -336,6 +337,23 @@ export default function SpacePopup({
             className="rounded border border-hairline-strong bg-white px-3 py-1.5 text-sm font-semibold text-ink transition-colors hover:border-midnight hover:bg-midnight-50"
           >
             Stand on floor {space.floor_number}
+          </button>
+        ) : null}
+
+        {/* Inside the space itself, rather than on the floor it sits on.
+            The difference is the camera: standing on a floor is the walk, which
+            cannot look above the horizon, so you can face the glass but never
+            look up out of it. Exploring the space is the free camera confined
+            to the same plate — you can walk to the window, look up at the tower
+            opposite, and look down at the street from the height this
+            availability is actually at. */}
+        {mapMode === 'explore' && space && space.floor_number !== null && space.floor_number > 0 ? (
+          <button
+            type="button"
+            onClick={() => enterSpace(building.id, space.id, space.floor_number as number)}
+            className="rounded border border-goldenrod bg-goldenrod px-3 py-1.5 text-sm font-semibold text-midnight transition-colors hover:bg-goldenrod-400"
+          >
+            Explore this space
           </button>
         ) : null}
         <Link

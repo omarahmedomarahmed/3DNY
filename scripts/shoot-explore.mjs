@@ -109,6 +109,9 @@ const FREE = [
   ['free-above', { x: 0, y: 100, z: 900, yaw: 8, pitch: -42 }],
   // Low over the streets, looking along an avenue.
   ['free-avenue', { x: 0, y: 900, z: 40, yaw: 190, pitch: -6 }],
+  // Along the horizon from height, which is where a projected cloud layer
+  // pulls apart into streaks if its rim is not handled.
+  ['free-horizon', { x: 0, y: 400, z: 600, yaw: 120, pitch: 1 }],
 ];
 
 for (const [name, cam] of FREE) {
@@ -118,5 +121,41 @@ for (const [name, cam] of FREE) {
   console.log(`  ${name}`);
 }
 
+/**
+ * Inside an availability, which is the mode the free camera exists to reach.
+ */
+const target = await page.evaluate(async () => {
+  const res = await fetch('/api/buildings');
+  const buildings = await res.json();
+  for (const b of buildings) {
+    const s = (b.spaces ?? []).find((x) => x.floor_number > 15 && x.floor_number < 60);
+    if (s) return { b: b.id, s: s.id, f: s.floor_number, addr: b.address_display };
+  }
+  return null;
+});
+
+let spaceFrames = 0;
+if (target) {
+  console.log(`  (inside floor ${target.f}, ${target.addr})`);
+  await page.evaluate((t) => window.__app.getState().enterSpace(t.b, t.s, t.f), target);
+  await sleep(9000);
+  await page.screenshot({ path: join(outdir, 'space-inside.png') });
+  spaceFrames++;
+
+  // At the glass, looking down at the street from the availability's own
+  // height — the question every tenant asks and no flat map can answer.
+  const eye = await page.evaluate(() => {
+    const c = window.__explore.eye;
+    return { x: c.x, y: c.y, z: c.z };
+  });
+  await page.evaluate(
+    (e) => window.__explore.setFreeCamera({ x: e.x, y: e.y, z: e.z, yaw: 200, pitch: -32 }),
+    eye,
+  );
+  await sleep(4000);
+  await page.screenshot({ path: join(outdir, 'space-looking-down.png') });
+  spaceFrames++;
+}
+
 await browser.close();
-console.log(`\nWrote ${SHOTS.length + FREE.length} frames to ${outdir}.`);
+console.log(`\nWrote ${SHOTS.length + FREE.length + spaceFrames} frames to ${outdir}.`);

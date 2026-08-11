@@ -36,6 +36,8 @@ const MAX_SPAN = 0.2;
  * constant, and the same bug, in `useStreetscape`.
  */
 const REQUEST_SPAN = MAX_SPAN - 0.02;
+/** Half-width, in degrees, of the box loaded around a free camera. */
+const FOCUS_HALF = 0.045;
 
 /**
  * Loads the surrounding city for whatever is on screen.
@@ -63,6 +65,11 @@ export function useCityContext(
   map: maplibregl.Map | null,
   zoom: number,
   enabled = true,
+  /**
+   * Load around this point instead of around the map's viewport — see the
+   * same parameter on `useStreetscape`. Free look passes its own position.
+   */
+  focus: [number, number] | null = null,
 ) {
   const [buildings, setBuildings] = useState<ContextBuilding[]>([]);
   const cache = useRef(new Map<string, ContextBuilding[]>());
@@ -92,10 +99,12 @@ export function useCityContext(
 
     const load = async () => {
       const b = map.getBounds();
-      const w = b.getWest();
-      const s = b.getSouth();
-      const e = b.getEast();
-      const n = b.getNorth();
+      // A box centred on the free camera, when there is one, rather than on a
+      // viewport it is no longer flying through.
+      const w = focus ? focus[0] - FOCUS_HALF : b.getWest();
+      const s = focus ? focus[1] - FOCUS_HALF : b.getSouth();
+      const e = focus ? focus[0] + FOCUS_HALF : b.getEast();
+      const n = focus ? focus[1] + FOCUS_HALF : b.getNorth();
 
       // The map is pitched and rotated, so the visible ground extends past the
       // axis-aligned bounds MapLibre reports — without padding, the city stops
@@ -160,7 +169,7 @@ export function useCityContext(
       if (timer) clearTimeout(timer);
       map.off('moveend', schedule);
     };
-  }, [map, zoom, enabled]);
+  }, [map, zoom, enabled, focus ? focus.join(',') : '']);
 
   return buildings;
 }

@@ -549,3 +549,75 @@ export function interiorFor(preset: AtmospherePreset): number {
       return 0;
   }
 }
+
+/**
+ * The facade, seen from inside the building.
+ *
+ * Space exploration only works if you can see out, and the facade material
+ * cannot do that: it is a curtain wall painted from the street, and turning
+ * it double-sided just puts the same opaque wall between you and the view.
+ * From a tenant's side a curtain wall is nearly all glass — the thing you
+ * actually see is the grid of mullions and transoms holding it up, and the
+ * city through the panes.
+ *
+ * So while you are inside, the containing building's mesh is drawn with this
+ * instead: back faces only, mullions at the same bay and storey rhythm the
+ * outside uses, and panes at six percent so the sky and the towers opposite
+ * come through with only a hint of tint. It is swapped back on the way out.
+ *
+ * `depthWrite` is off because it is transparent and the city behind it must
+ * not be culled by it. It draws late, after the opaque scene, which is what
+ * `renderOrder` on the host mesh arranges.
+ */
+export function makeInteriorGlassMaterial(
+  preset: AtmospherePreset,
+  floorHeightM: number,
+): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uFloorHeight: { value: Math.max(2.4, floorHeightM) },
+      uBayWidth: { value: 2.2 },
+      uFrameColor: { value: new THREE.Color(0.62, 0.63, 0.65) },
+      uGlassTint: { value: new THREE.Color(preset.sky) },
+    },
+    vertexShader: [
+      'attribute float along;',
+      'attribute float up;',
+      'varying float vAlong;',
+      'varying float vUp;',
+      'void main() {',
+      '  vAlong = along;',
+      '  vUp = up;',
+      '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
+      '}',
+    ].join('\n'),
+    fragmentShader: [
+      'precision highp float;',
+      'uniform float uFloorHeight;',
+      'uniform float uBayWidth;',
+      'uniform vec3 uFrameColor;',
+      'uniform vec3 uGlassTint;',
+      'varying float vAlong;',
+      'varying float vUp;',
+      '',
+      '// Distance to the nearest gridline, in metres, for a given spacing.',
+      'float lineDist(float v, float spacing) {',
+      '  float f = fract(v / spacing);',
+      '  return min(f, 1.0 - f) * spacing;',
+      '}',
+      '',
+      'void main() {',
+      '  float mull = lineDist(vAlong, uBayWidth);',
+      '  float tran = lineDist(vUp, uFloorHeight);',
+      '  // 60 mm of frame, softened over another 30 so it does not crawl.',
+      '  float frame = 1.0 - smoothstep(0.06, 0.09, min(mull, tran));',
+      '  vec3 color = mix(uGlassTint, uFrameColor, frame);',
+      '  gl_FragColor = vec4(color, mix(0.06, 0.92, frame));',
+      '}',
+    ].join('\n'),
+    transparent: true,
+    depthWrite: false,
+    // Only the inner surface. The outer one is somebody else's view.
+    side: THREE.BackSide,
+  });
+}

@@ -2,6 +2,7 @@
  * A development dataset, so the map can be driven without the live database.
  *
  *   npx tsx scripts/make-dev-fixture.ts --live      # the real market, preferred
+ *   npx tsx scripts/make-dev-fixture.ts --live --with-tenants
  *   npx tsx scripts/make-dev-fixture.ts             # synthetic, offline fallback
  *
  * The production map reads Neon. A development container has no connection
@@ -49,6 +50,21 @@ const value = (name: string) =>
 
 /** Read the real market rather than synthesising one. */
 const LIVE = args.includes('--live') || Boolean(value('live'));
+/**
+ * Whether to stamp synthetic tenancy onto the live snapshot.
+ *
+ * The real database holds no tenants — 73 buildings, 312 availabilities, zero
+ * tenancy rows — which is a true statement about the market data and leaves
+ * three of `verify-occupancy`'s checks with nothing to act on. This flag adds
+ * tenancy, and only tenancy: every availability, rent, landlord and provenance
+ * field in the snapshot stays exactly as the live API returned it.
+ *
+ * Every invented row is stamped FIXTURE in its notes, the same as in synthetic
+ * mode, and the output is gitignored either way. It is a development
+ * convenience for a harness, and it is never a fallback for a database that
+ * failed.
+ */
+const WITH_TENANTS = args.includes('--with-tenants');
 
 /**
  * The deployed app to read from.
@@ -273,6 +289,78 @@ async function getJson(url: string): Promise<any[]> {
  * as the map sees it. Nothing is reshaped, because every reshaping is a place
  * the fixture could diverge from what a broker actually looks at.
  */
+interface LiveBuilding {
+  id?: string;
+  address_display: string;
+  bin: string | null;
+  footprint: unknown;
+  num_floors?: number | null;
+  spaces?: { floor_number?: number | null }[];
+  tenants?: unknown[];
+}
+
+/**
+ * Tenancy for the buildings the live data has none for.
+ *
+ * Deterministic — the same building gets the same tenants every time it is
+ * regenerated, so a harness that passes today passes tomorrow. Placed on
+ * floors that carry no availability, because a floor that is both let and on
+ * the market is a contradiction a broker would notice immediately.
+ *
+ * The names are obviously invented and the relationship mix is fixed: one in
+ * four is a Cresa client, so the client band has something to draw.
+ */
+const FIXTURE_COMPANIES = [
+  'Harlan & Wren', 'Meridian Partners', 'Kestrel Analytics', 'Bayard Group',
+  'Ostrom Capital', 'Fennimore Studio', 'Clearwater Legal', 'Arbor Health',
+  'Linden & Cole', 'Pemberton Advisory', 'Ravenscroft Media', 'Solent Systems',
+];
+
+function addFixtureTenants(buildings: LiveBuilding[]): void {
+  const now = new Date().toISOString();
+
+  buildings.forEach((b, bi) => {
+    if ((b.tenants?.length ?? 0) > 0) return;
+    const floors = Math.max(1, b.num_floors ?? 0);
+    if (floors < 3) return;
+
+    const taken = new Set(
+      (b.spaces ?? [])
+        .map((s) => s.floor_number ?? 0)
+        .filter((n) => n > 0),
+    );
+
+    const out: unknown[] = [];
+    // Three tenancies per building, spread through it rather than stacked at
+    // the bottom, and skipping anything that is on the market.
+    for (let k = 0; k < 3; k++) {
+      const floor = Math.max(2, Math.round(((k + 1) / 4) * floors));
+      if (taken.has(floor)) continue;
+      taken.add(floor);
+      const company = FIXTURE_COMPANIES[(bi * 3 + k) % FIXTURE_COMPANIES.length];
+      out.push({
+        id: `fx-tenant-${b.bin ?? bi}-${k}`,
+        building_id: b.id ?? null,
+        company_name: company,
+        floors: String(floor),
+        floor_numbers: [floor],
+        suite: null,
+        sf: null,
+        lease_start: null,
+        lease_expiration: null,
+        industry: null,
+        notes: FIXTURE_NOTE,
+        relationship: k === 1 ? 'client' : 'occupier',
+        source: 'manual',
+        salesforce_id: null,
+        field_sources: {},
+        updated_at: now,
+      });
+    }
+    b.tenants = out;
+  });
+}
+
 async function fetchLive(): Promise<void> {
   const url = `${LIVE_URL.replace(/\/$/, '')}/api/buildings`;
   console.log(`Reading the live market from ${url}`);
@@ -285,17 +373,13 @@ async function fetchLive(): Promise<void> {
     );
   }
 
-  const buildings = (await res.json()) as {
-    address_display: string;
-    bin: string | null;
-    footprint: unknown;
-    spaces?: unknown[];
-    tenants?: unknown[];
-  }[];
+  const buildings = (await res.json()) as LiveBuilding[];
 
   if (!Array.isArray(buildings) || buildings.length === 0) {
     throw new Error('The live API returned no buildings. Refusing to write an empty fixture.');
   }
+
+  if (WITH_TENANTS) addFixtureTenants(buildings as LiveBuilding[]);
 
   const spaces = buildings.reduce((n, b) => n + (b.spaces?.length ?? 0), 0);
   const tenants = buildings.reduce((n, b) => n + (b.tenants?.length ?? 0), 0);

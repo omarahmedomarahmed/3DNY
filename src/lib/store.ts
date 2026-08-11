@@ -89,6 +89,24 @@ interface AppState {
    */
   freeLook: boolean;
   /**
+   * The availability being explored from the inside.
+   *
+   * Building explore puts you in the city looking at the towers. Space explore
+   * puts you *in the space*, on its own floor, at its own height, free to walk
+   * to the glass and look out at the city from exactly where a tenant would.
+   * They are two different questions a broker asks — "where is this in the
+   * market" and "what is it like to be in it" — and conflating them is what
+   * makes a 3-D map a toy.
+   *
+   * Selecting another availability while this is set moves you into that one,
+   * so a shortlist can be walked end to end without going back outside.
+   */
+  spaceExplore: {
+    buildingId: string;
+    spaceId: string | null;
+    floorNumber: number;
+  } | null;
+  /**
    * The floor a broker has stepped onto, entered from its band.
    *
    * `null` means the pavement. This is the one place Explore mode goes
@@ -183,6 +201,8 @@ interface AppState {
   setMapMode: (m: MapMode) => void;
   setWalking: (on: boolean) => void;
   setFreeLook: (on: boolean) => void;
+  enterSpace: (buildingId: string, spaceId: string | null, floorNumber: number) => void;
+  leaveSpace: () => void;
   standOnFloor: (buildingId: string, floorNumber: number) => void;
   leaveFloor: () => void;
   setShowContext: (on: boolean) => void;
@@ -236,6 +256,7 @@ export const useApp = create<AppState>((set, get) => ({
   mapMode: 'flat',
   walking: false,
   freeLook: false,
+  spaceExplore: null,
   standingOn: null,
   showContext: false,
   // Light. Dark was the default on the argument that these maps are shown in
@@ -321,7 +342,13 @@ export const useApp = create<AppState>((set, get) => ({
     set(
       mapMode === 'explore'
         ? { mapMode, photoreal: false }
-        : { mapMode, walking: false, freeLook: false, standingOn: null },
+        : {
+            mapMode,
+            walking: false,
+            freeLook: false,
+            spaceExplore: null,
+            standingOn: null,
+          },
     );
   },
 
@@ -333,7 +360,7 @@ export const useApp = create<AppState>((set, get) => ({
     // fighting over `jumpTo` sixty times a second.
     set(
       walking
-        ? { walking, mapMode: 'explore' as MapMode, freeLook: false }
+        ? { walking, mapMode: 'explore' as MapMode, freeLook: false, spaceExplore: null }
         : { walking, standingOn: null },
     );
   },
@@ -342,8 +369,32 @@ export const useApp = create<AppState>((set, get) => ({
     set(
       freeLook
         ? { freeLook, mapMode: 'explore' as MapMode, walking: false, standingOn: null }
-        : { freeLook },
+        // Leaving free look leaves the space with it: a space is explored
+        // *with* the free camera, and there is no other camera that can stand
+        // inside a floor plate and look out of it.
+        : { freeLook, spaceExplore: null },
     );
+  },
+
+  enterSpace(buildingId, spaceId, floorNumber) {
+    // Entering a space IS free look, in Explore mode, on that floor. Setting
+    // all of it in one update rather than expecting three callers to remember
+    // the other two.
+    set({
+      spaceExplore: { buildingId, spaceId, floorNumber },
+      mapMode: 'explore' as MapMode,
+      freeLook: true,
+      walking: false,
+      standingOn: null,
+      selectedBuildingId: buildingId,
+      ...(spaceId ? { selectedSpaceId: spaceId } : {}),
+    });
+  },
+
+  leaveSpace() {
+    // Back outside, still in free look — you came in from the city and that is
+    // where stepping out of a room puts you.
+    set({ spaceExplore: null });
   },
 
   standOnFloor(buildingId, floorNumber) {

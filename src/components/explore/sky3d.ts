@@ -118,19 +118,33 @@ const SKY_FRAGMENT = /* glsl */ `
       // Coverage carves cloud out of the noise; the smoothstep width is what
       // makes an edge soft rather than a shoreline.
       float cover = smoothstep(0.62 - uCloudAmount * 0.45, 0.92 - uCloudAmount * 0.30, n);
-      // Near the horizon the projection stretches without limit, so the noise
-      // would smear into stripes. Thickening the coverage there instead turns
-      // that stretch into the compressed band a real overcast has.
-      cover = mix(cover, min(1.0, cover * 1.5 + 0.10), 1.0 - smoothstep(0.05, 0.30, up));
+
       /**
-       * Clouds run almost to the horizon, because real ones do.
+       * The rim, which is where a projected cloud plane goes wrong.
        *
-       * The first version faded them out below 34° of elevation, which sounds
+       * The quantity dir.xy/up grows without bound as the view approaches level, so a
+       * few degrees above the horizon one noise cell is stretched across
+       * hundreds of pixels and the cloud layer smears into radial streaks —
+       * the sky visibly pulling apart at the edge of the world. It is only
+       * obvious once you can look along the horizon, which is exactly what the
+       * free camera made possible.
+       *
+       * Two things fix it and both are honest about the geometry rather than
+       * hiding it. The distance out along the plane is faded to nothing before
+       * the stretch becomes visible, and the smoothstep is wide, so the layer
+       * thins into haze the way a real overcast does at its own horizon
+       * instead of ending at a line.
+       */
+      float reach = length(plane);
+      cover *= 1.0 - smoothstep(6.0, 17.0, reach);
+
+      /**
+       * Clouds still run close to the horizon, because real ones do.
+       *
+       * An earlier version faded them out below 34° of elevation, which sounds
        * harmless and means that from any camera looking at a skyline — which
        * is every camera anyone points at this — there are no clouds in the
-       * frame at all. Real overcast reaches the horizon and compresses into a
-       * band there, which is what the plane projection already does; it only
-       * needs to be allowed to.
+       * frame at all.
        */
       cover *= smoothstep(0.010, 0.075, up);
 

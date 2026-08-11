@@ -80,7 +80,6 @@ async function buildingById(id: string): Promise<Building | null> {
  * here to prevent, and the fix is showing the match rather than trusting it.
  */
 export async function resolveAddress(address: string): Promise<ResolvedAddress> {
-  const db = sql();
 
   /**
    * One address, so it can afford to wait.
@@ -102,6 +101,33 @@ export async function resolveAddress(address: string): Promise<ResolvedAddress> 
     const resolved = normalizeAddress(match.resolvedAddress);
     if (!keys.includes(resolved)) keys.push(resolved);
   }
+
+  /**
+   * The development fixture answers the "do we already have this?" half.
+   *
+   * Resolving an address is two questions — what the city says it is, and
+   * whether we hold it already — and only the second needs a database. On a
+   * machine with no connection string the first was never reached, so the form
+   * reported that a real building did not exist. The fixture is already what
+   * `/api/buildings` serves in that mode, so matching against it here is the
+   * same substitution, not a new one, and it is read-only: nothing is created
+   * without a database, and the create path still says so.
+   */
+  const fixture = await fixtureMatch(keys, match.bin);
+  if (fixture !== undefined) {
+    return {
+      building: fixture,
+      confidence: match.confidence,
+      bin: match.bin,
+      bbl: match.bbl,
+      lon: match.lon,
+      lat: match.lat,
+      resolvedAddress: match.resolvedAddress,
+      explanation: match.explanation,
+    };
+  }
+
+  const db = sql();
 
   let existing: string | null = null;
   const byAddress = (await db(
@@ -130,6 +156,27 @@ export async function resolveAddress(address: string): Promise<ResolvedAddress> 
     resolvedAddress: match.resolvedAddress,
     explanation: match.explanation,
   };
+}
+
+/**
+ * Looks an address up in the development fixture.
+ *
+ * Returns `undefined` — not `null` — when the fixture is not in play, because
+ * "no fixture" and "fixture, no match" are different answers and only the
+ * second one should stop the database being consulted.
+ */
+async function fixtureMatch(
+  keys: string[],
+  bin: string | null,
+): Promise<Building | null | undefined> {
+  const { fixtureEnabled, fixtureBuildings } = await import('@/lib/dev-fixture');
+  if (!fixtureEnabled()) return undefined;
+
+  const buildings = await fixtureBuildings();
+  const found =
+    buildings.find((b) => keys.includes(normalizeAddress(b.address_display ?? ''))) ??
+    (bin ? buildings.find((b) => b.bin === bin) : undefined);
+  return found ?? null;
 }
 
 export interface CreateBuildingInput {

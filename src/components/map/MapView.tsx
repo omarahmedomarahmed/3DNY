@@ -28,7 +28,7 @@ import {
 import { useStreetscape } from './useStreetscape';
 import type { ViewportBounds } from './ground';
 import { useTransit } from './useTransit';
-import { buildingHeightFt, buildingRing } from '@/lib/floor-bands';
+import { buildingHeightFt, buildingRing, floorHeightFt, FT_TO_M } from '@/lib/floor-bands';
 import { composeSnapshot, downloadSnapshot, SNAPSHOT_SIDE } from '@/lib/stack-snapshot';
 import type { Landlord } from '@/types';
 import { MODE_LABEL, metersBetween, walkMinutes, type TransitStop } from '@/lib/transit';
@@ -621,6 +621,7 @@ export default function MapView() {
   const mapMode = useApp((s) => s.mapMode);
   const walking = useApp((s) => s.walking);
   const freeLook = useApp((s) => s.freeLook);
+  const spaceExplore = useApp((s) => s.spaceExplore);
   const standingOn = useApp((s) => s.standingOn);
   const showContext = useApp((s) => s.showContext);
   const mapTheme = useApp((s) => s.mapTheme);
@@ -695,10 +696,41 @@ export default function MapView() {
 
   // The surrounding city, so the towers that carry data stand in Manhattan
   // rather than in an empty plane.
-  const cityContext = useCityContext(map, zoom, showContext);
+  /**
+   * Where the surrounding data is loaded around.
+   *
+   * Normally the viewport, which is what every other fetch in this file uses.
+   * In free look the camera is not MapLibre's, so the viewport stops being a
+   * description of what anyone is looking at — fly two blocks and the streets,
+   * the water and the surrounding city end at a line behind you. Free look
+   * reports its own position here and the fetches follow it.
+   */
+  /**
+   * The store, reachable from a browser harness.
+   *
+   * `window.__explore` already exposes the scene for the same reason: the
+   * checks in `scripts/verify-*.mjs` assert on state and pixels rather than on
+   * the presence of a control, and some of that state — which space is being
+   * explored, which floor — has no pixel of its own. It is a read/write handle
+   * to a store the page already holds, so it grants a harness nothing a user
+   * could not do with the buttons.
+   */
+  useEffect(() => {
+    (window as unknown as { __app?: typeof useApp }).__app = useApp;
+    return () => {
+      delete (window as unknown as { __app?: typeof useApp }).__app;
+    };
+  }, []);
+
+  const [freeFocus, setFreeFocus] = useState<[number, number] | null>(null);
+  useEffect(() => {
+    if (!freeLook) setFreeFocus(null);
+  }, [freeLook]);
+
+  const cityContext = useCityContext(map, zoom, showContext, freeFocus);
   // Our own ground plane — always on (streets are orientation, not clutter),
   // except under photoreal imagery, which is its own ground.
-  const streetscape = useStreetscape(map, zoom, !photoreal);
+  const streetscape = useStreetscape(map, zoom, !photoreal, freeFocus);
   const { stops: allTransitStops, error: transitError } = useTransit(map, zoom, showTransit);
 
   /**
@@ -713,11 +745,27 @@ export default function MapView() {
     () => parseCenter(process.env.NEXT_PUBLIC_MAP_CENTER),
     [],
   );
+
+  /**
+   * One floor plate, whichever way it was entered.
+   *
+   * "Stand on floor 14" from a space card and "explore this space" are the
+   * same geometry — the building's own cross-section at that elevation — so
+   * they share the one builder rather than each having their own idea of where
+   * the floor is. What differs is the camera that stands on it.
+   */
+  const insideTarget = useMemo(
+    () =>
+      spaceExplore
+        ? { buildingId: spaceExplore.buildingId, floorNumber: spaceExplore.floorNumber }
+        : standingOn,
+    [spaceExplore, standingOn],
+  );
   const explore = useExplore(map, mapMode === 'explore', filtered, atmosphere, exploreAnchor, mapTheme, {
     kinds: occupancyKinds,
     selectedSpaceId,
     colorOverrides,
-  }, showContext ? cityContext : [], standingOn, streetscape);
+  }, showContext ? cityContext : [], insideTarget, streetscape);
 
   /**
    * The first-person walk.
@@ -740,7 +788,74 @@ export default function MapView() {
    * The only way to look above the horizon — MapLibre's pitch stops at 85
    * degrees and 90 is level. See `useFreeCam` for what that costs.
    */
-  useFreeCam(map, explore.layer ?? null, mapMode === 'explore' && freeLook, explore.layer?.localFrame ?? null);
+  /**
+   * What a click in free look means.
+   *
+   * deck.gl is switched off while free look is on, so this is where picking
+   * happens instead: `pickAt` raycasts the massing three.js drew and returns a
+   * building and the elevation that was hit. The elevation is turned into a
+   * floor with exactly the arithmetic the bands use — `floorHeightFt` — so
+   * clicking the Goldenrod stripe you can see lands on the availability that
+   * stripe was drawn for, rather than near it.
+   *
+   * Hitting a floor that carries an availability takes you inside it. That is
+   * the whole point of the mode: the shortest path from "that tower has
+   * something on 23" to standing in it looking out.
+   */
+  const onFreePick = useCallback(
+    (buildingId: string, z: number) => {
+      const building = buildings.find((b) => b.id === buildingId);
+      const state = useApp.getState();
+      if (!building) return;
+
+      const { height: floorFt } = floorHeightFt(building);
+      const storeyM = Math.max(2.4, floorFt * FT_TO_M);
+      const floor = Math.max(1, Math.floor(z / storeyM) + 1);
+
+      // The availability that actually covers the floor that was hit, not
+      // merely one somewhere in the building.
+      // Exactly the floor, then the nearest one within a couple of storeys:
+      // a click near the top of a band is still a click on that band, and the
+      // massing's own storey height is an estimate to within a foot or so.
+      const onFloor = building.spaces.filter((sp) => (sp.floor_number ?? 0) > 0);
+      const space =
+        onFloor.find((sp) => sp.floor_number === floor) ??
+        onFloor
+          .slice()
+          .sort(
+            (a, b) =>
+              Math.abs((a.floor_number ?? 0) - floor) -
+              Math.abs((b.floor_number ?? 0) - floor),
+          )
+          .find((sp) => Math.abs((sp.floor_number ?? 0) - floor) <= 2);
+
+      if (space) {
+        state.enterSpace(buildingId, space.id, space.floor_number ?? floor);
+        return;
+      }
+      // No availability on that floor: this is still a selection, which is
+      // what a click on a building means everywhere else in this product.
+      state.selectBuilding(buildingId);
+    },
+    [buildings],
+  );
+
+  const freeCamOptions = useMemo(
+    () => ({
+      confine: spaceExplore ? explore.inside : null,
+      onPick: onFreePick,
+      onRegion: (lng: number, lat: number) => setFreeFocus([lng, lat]),
+    }),
+    [spaceExplore, explore.inside, onFreePick],
+  );
+
+  useFreeCam(
+    map,
+    explore.layer ?? null,
+    mapMode === 'explore' && freeLook,
+    explore.layer?.localFrame ?? null,
+    freeCamOptions,
+  );
 
 
   // An empty mode list means "all of them", so the map is useful before
@@ -1609,17 +1724,40 @@ export default function MapView() {
             the one view that needs the pointer captured, and a camera that
             only responds after an unexplained click is a camera that reads as
             broken. */}
-        {mapMode === 'explore' && freeLook && (
+        {mapMode === 'explore' && freeLook && !spaceExplore && (
           <div className="absolute left-1/2 bottom-4 -translate-x-1/2 rounded-full border border-hairline bg-white/95 px-3 py-1 text-[11px] font-medium text-body shadow-card">
-            <span className="font-semibold text-ink">Click</span> to look with the mouse
+            <span className="font-semibold text-ink">Drag</span> to look
+            <span className="mx-1.5 text-subtle">·</span>
+            <span className="font-semibold text-ink">Click</span> a floor to go inside it
             <span className="mx-1.5 text-subtle">·</span>
             <span className="font-semibold text-ink">W A S D</span> fly
             <span className="mx-1.5 text-subtle">·</span>
             <span className="font-semibold text-ink">Space C</span> up and down
             <span className="mx-1.5 text-subtle">·</span>
-            <span className="font-semibold text-ink">Shift</span> faster
-            <span className="mx-1.5 text-subtle">·</span>
             <span className="font-semibold text-ink">Esc</span> back
+          </div>
+        )}
+        {/* Inside a space. Different keys matter here — there is nowhere to
+            fly to and no point saying "faster" about a room — and the one
+            thing worth saying is which floor of which building you are in,
+            because from the inside every floor looks like every other. */}
+        {mapMode === 'explore' && spaceExplore && (
+          <div className="absolute left-1/2 bottom-4 -translate-x-1/2 rounded-full border border-goldenrod bg-white/95 px-3 py-1 text-[11px] font-medium text-body shadow-card">
+            <span className="font-semibold text-ink">
+              Floor {spaceExplore.floorNumber}
+              {(() => {
+                const b = buildings.find((x) => x.id === spaceExplore.buildingId);
+                return b?.address_display ? `, ${b.address_display}` : '';
+              })()}
+            </span>
+            <span className="mx-1.5 text-subtle">·</span>
+            <span className="font-semibold text-ink">Drag</span> to look
+            <span className="mx-1.5 text-subtle">·</span>
+            <span className="font-semibold text-ink">W A S D</span> walk to the glass
+            <span className="mx-1.5 text-subtle">·</span>
+            <span className="font-semibold text-ink">Click</span> another tower to move to it
+            <span className="mx-1.5 text-subtle">·</span>
+            <span className="font-semibold text-ink">Esc</span> back outside
           </div>
         )}
         {/* Where you are, when you are inside a building. Without it, a broker

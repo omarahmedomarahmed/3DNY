@@ -98,5 +98,12 @@ export function plateMassing(inside: Inside): MassingArrays {
     isWall: new Float32Array(builder.isWall),
     index: new Uint32Array(builder.index),
     triangles: builder.index.length / 3,
-  };
+    /**
+     * Carried through so the interior glass can put its transoms on the same
+     * storey rhythm as the plate and the band. A mullion grid at a different
+     * pitch from the floor you are standing on is the kind of detail nobody
+     * names and everybody notices.
+     */
+    ...({ floorHeightM: storeyM } as { floorHeightM: number }),
+  } as MassingArrays & { floorHeightM: number };
 }
