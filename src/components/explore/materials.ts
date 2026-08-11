@@ -295,19 +295,84 @@ const FACADE_FRAGMENT = /* glsl */ `
       albedo = stone * streetShade;
 
       /**
-       * What is behind the glass, when interiors are switched on.
+       * Interior mapping: a room behind the glass, with zero geometry.
        *
-       * Sprint 7 replaces this with parallax interior mapping — an actual
-       * room with depth in it. Until then a lit pane is a flat warm tint, per
-       * window and deterministic, so the building reads as occupied at dusk
-       * rather than as a mirror. Every one of these is switched off in
-       * daylight by the uInterior uniform -- backticks are deliberately
-       * absent from this file's GLSL, because the shader lives in a template
-       * literal and one in a comment ends it.
+       * The technique is a parallax raycast. Each window is treated as the
+       * front face of a box the depth of an office bay. The view ray is
+       * marched from the pane into that box in the wall's own tangent space,
+       * and whichever of the five interior faces it hits decides what is
+       * drawn. The room shifts correctly as you walk past — the back wall
+       * moves slowly, the side walls sweep — which is the entire cue that
+       * says "space" rather than "picture".
+       *
+       * It is the highest-payoff item in the plan and it is what makes glass
+       * worth having: a mirror is a surface, a room is a place.
+       *
+       * Cost is a handful of instructions on fragments that are being
+       * rasterised anyway. No geometry, no texture, no draw call.
+       *
+       * Two things it is deliberately NOT:
+       *
+       * - It is not a real interior. It is a lit box with a floor, a ceiling
+       *   and a back wall, and a slab across it at desk height. Nobody should
+       *   read a floor plan off it, and the plan lists modelling interiors
+       *   per space by hand as a non-goal.
+       * - It is not on in daylight. A warm speckle across every glass tower
+       *   at noon is invisible as an effect and visible as noise, and
+       *   Goldenrod is meant to be the only warm thing in the frame.
        */
       if (uInterior > 0.001 && glass > 0.001) {
-        float lit = step(0.62, hash21(floor(vec2(bay, storey))));
-        roomLight = vec3(1.0, 0.88, 0.68) * lit * uInterior * glass;
+        vec2 cell = floor(vec2(bay, storey));
+        float occupied = step(0.42, hash21(cell));
+
+        if (occupied > 0.5) {
+          // Where in the pane, 0-1 on each axis.
+          vec2 uv = vec2(
+            clamp((bayF - mullion) / max(1.0 - 2.0 * mullion, 1e-3), 0.0, 1.0),
+            clamp((storeyF - sill) / max(head - sill, 1e-3), 0.0, 1.0)
+          );
+
+          // The view direction in the wall's tangent frame: right along the
+          // wall, up the wall, and out of it.
+          vec3 T = normalize(vec3(-N.y, N.x, 0.0));
+          vec3 B = vec3(0.0, 0.0, 1.0);
+          vec3 ray = normalize(vec3(dot(-V, T), dot(-V, B), dot(-V, N)));
+
+          // Room depth as a fraction of the pane's width, so a wide bay gets
+          // a proportionally deep room and the box never reads as a slot.
+          float depth = 1.35;
+
+          // March to the back wall, then see whether a side, floor or
+          // ceiling is hit first. Slab method: the smallest positive
+          // intersection wins.
+          float tz = ray.z < -1e-4 ? depth / -ray.z : 1e6;
+          float tx = abs(ray.x) > 1e-4
+            ? ((ray.x > 0.0 ? 1.0 - uv.x : uv.x) / abs(ray.x)) : 1e6;
+          float ty = abs(ray.y) > 1e-4
+            ? ((ray.y > 0.0 ? 1.0 - uv.y : uv.y) / abs(ray.y)) : 1e6;
+          float t = min(tz, min(tx, ty));
+
+          vec3 hit = vec3(uv, 0.0) + ray * t;
+
+          // A different shade per face is what makes the box read as a room
+          // rather than as a flat tint: the back wall is lit, the sides fall
+          // away, the ceiling is bright and the floor is dark.
+          float face = t == tz ? 1.0 : (t == ty ? (ray.y > 0.0 ? 1.25 : 0.45) : 0.62);
+
+          // The lit ceiling plane, which is what an office at night actually
+          // is: a bright band across the top of every window.
+          float ceilingGlow = smoothstep(0.55, 1.0, hit.y) * 0.9;
+          // And the desk line: a horizontal slab a third of the way up, the
+          // one piece of furniture that reads at this scale.
+          float desks = (1.0 - smoothstep(0.24, 0.34, abs(hit.y - 0.29))) * 0.45;
+
+          vec3 room = vec3(1.0, 0.90, 0.74) * (0.30 + ceilingGlow + desks) * face;
+          // Deeper into the room is dimmer, which is the depth cue that
+          // survives being three pixels tall.
+          room *= mix(1.0, 0.45, clamp(hit.z / depth, 0.0, 1.0));
+
+          roomLight = room * uInterior * glass;
+        }
       }
     }
 

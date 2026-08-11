@@ -73,6 +73,15 @@ interface AppState {
   /** First person at street level, rather than the free drone camera. */
   walking: boolean;
   /**
+   * The floor a broker has stepped onto, entered from its band.
+   *
+   * `null` means the pavement. This is the one place Explore mode goes
+   * *inside* a building, and it is reached deliberately — from an
+   * availability's own card — rather than by walking through a door that does
+   * not exist.
+   */
+  standingOn: { buildingId: string; floorNumber: number } | null;
+  /**
    * Whether buildings with nothing available are drawn at all — the grey city
    * and the filtered-out massing. Off by default: the clean map is the one
    * that gets shown to a client.
@@ -157,6 +166,8 @@ interface AppState {
   setPhotoreal: (on: boolean) => void;
   setMapMode: (m: MapMode) => void;
   setWalking: (on: boolean) => void;
+  standOnFloor: (buildingId: string, floorNumber: number) => void;
+  leaveFloor: () => void;
   setShowContext: (on: boolean) => void;
   setMapTheme: (t: 'dark' | 'light') => void;
   setTimeOfDay: (t: TimeOfDay | null) => void;
@@ -207,6 +218,7 @@ export const useApp = create<AppState>((set, get) => ({
   photoreal: false,
   mapMode: 'flat',
   walking: false,
+  standingOn: null,
   showContext: false,
   // Light. Dark was the default on the argument that these maps are shown in
   // dim rooms on projectors — true of some meetings and not of the laptop
@@ -288,13 +300,32 @@ export const useApp = create<AppState>((set, get) => ({
     // Explore mode draws the city itself, so Google's photorealistic mesh and
     // it are two answers to the same question. Leaving both on gives a scene
     // with two of every building in it, half a metre apart.
-    set(mapMode === 'explore' ? { mapMode, photoreal: false } : { mapMode, walking: false });
+    set(
+      mapMode === 'explore'
+        ? { mapMode, photoreal: false }
+        : { mapMode, walking: false, standingOn: null },
+    );
   },
 
   setWalking(walking) {
     // Walking is a thing you do inside Explore mode. Asking for it from the
     // flat map is a reasonable thing to want and means switching modes.
-    set(walking ? { walking, mapMode: 'explore' } : { walking });
+    set(walking ? { walking, mapMode: 'explore' } : { walking, standingOn: null });
+  },
+
+  standOnFloor(buildingId, floorNumber) {
+    // Stepping onto a floor IS walking, in Explore mode. Anything else would
+    // mean a broker clicking "stand here" and watching the drone camera not
+    // move.
+    set({
+      standingOn: { buildingId, floorNumber },
+      walking: true,
+      mapMode: 'explore',
+    });
+  },
+
+  leaveFloor() {
+    set({ standingOn: null });
   },
 
   setShowContext(showContext) {

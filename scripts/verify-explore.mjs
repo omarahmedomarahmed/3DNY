@@ -702,6 +702,120 @@ check(
   (await page.getByRole('button', { name: 'Walk at street level' }).count()) > 0,
 );
 
+// --- 5e. Standing on a floor, entered from its band -----------------------
+//
+// The one walkable floor plate. What has to be true is that the eye ends up
+// at the elevation the sheet named — the same elevation the band is drawn at —
+// and that you cannot walk out through the glass.
+
+await page.evaluate(() => {
+  window.__m.jumpTo({ center: [-73.98566, 40.74844], zoom: 16.1, pitch: 58, bearing: 0 });
+});
+await sleep(3000);
+await page.getByRole('button', { name: /350 Fifth Avenue/ }).first().click();
+await sleep(5000);
+await page.keyboard.press('Escape');
+await sleep(600);
+
+/**
+ * The card has to be opened by clicking the tower, and then a floor picked
+ * from its list.
+ *
+ * Selecting from the sidebar flies the camera and opens nothing, and a
+ * building with three availabilities opens a LIST rather than one space — so
+ * there is no floor to stand on until one is chosen. That is the right
+ * behaviour and it is what the harness has to drive.
+ */
+const canvasForCard = await page.locator('.maplibregl-map canvas').first().boundingBox();
+await page.mouse.click(
+  canvasForCard.x + canvasForCard.width * 0.5,
+  canvasForCard.y + canvasForCard.height * 0.45,
+);
+await sleep(2500);
+const floorRow = page.locator('[role="dialog"][aria-label$="details"] li button');
+if ((await floorRow.count()) > 0) {
+  await floorRow.first().click();
+  await sleep(1500);
+}
+
+const standButton = page.getByRole('button', { name: /^Stand on floor \d+$/ });
+check('a space card offers to stand on its floor', (await standButton.count()) > 0);
+
+if ((await standButton.count()) > 0) {
+  const floorLabel = (await standButton.first().textContent()) ?? '';
+  const floor = Number(/(\d+)/.exec(floorLabel)?.[1] ?? 0);
+  await standButton.first().click();
+  await sleep(4000);
+  await page.screenshot({ path: join(outdir, 'floor-plate.png') });
+
+  check(
+    'the readout says which floor you are on',
+    (await page.getByText(`Standing on floor ${floor}`).count()) > 0,
+    floorLabel,
+  );
+
+  const eye = await page.evaluate(async (f) => {
+    const layer = window.__explore;
+    const list = await (await fetch('/api/buildings')).json();
+    const b = list.find((x) => x.address_display === '350 Fifth Avenue');
+    if (!layer || !b) return null;
+    const floorFt = b.height_roof_ft / b.num_floors;
+    return {
+      z: layer.eye.z,
+      // Where the band for that floor sits, from the data alone.
+      expected: (f - 1) * floorFt * 0.3048,
+      storey: floorFt * 0.3048,
+    };
+  }, floor);
+
+  check('the scene reports where the eye is', eye !== null);
+  if (eye) {
+    /**
+     * The eye must be within one storey of the floor's own elevation.
+     *
+     * Derived from the data here rather than read back from the plate, so
+     * this is comparing the camera against the sheet rather than against
+     * the code that placed it. A broker standing on floor 14 with the
+     * Goldenrod band at their ankles is the failure this catches.
+     */
+    check(
+      `the eye is on floor ${floor}, at the elevation the sheet implies`,
+      Math.abs(eye.z - eye.expected) < eye.storey * 1.2,
+      `eye ${eye.z.toFixed(1)} m vs floor ${eye.expected.toFixed(1)} m (storey ${eye.storey.toFixed(1)} m)`,
+    );
+  }
+
+  // Walk hard at the glass. The plate must hold.
+  const cb = await page.locator('.maplibregl-map canvas').first().boundingBox();
+  await page.mouse.click(cb.x + cb.width * 0.5, cb.y + cb.height * 0.82);
+  await sleep(600);
+  await page.keyboard.down('ShiftLeft');
+  await hold('KeyW', 3200);
+  await page.keyboard.up('ShiftLeft');
+
+  const after = await page.evaluate(() => {
+    const layer = window.__explore;
+    return layer ? { x: layer.eye.x, y: layer.eye.y, z: layer.eye.z } : null;
+  });
+  if (after && eye) {
+    check(
+      'walking hard at the glass does not put you outside the building',
+      Math.abs(after.z - eye.z) < 0.5,
+      `eye stayed at ${after.z.toFixed(1)} m`,
+    );
+  }
+  await page.screenshot({ path: join(outdir, 'floor-plate-walked.png') });
+
+  await page.keyboard.press('Escape');
+  await sleep(2000);
+  check(
+    'Escape from a floor puts you back on the street',
+    (await page.getByText(/Standing on floor/).count()) === 0,
+  );
+  await page.keyboard.press('Escape');
+  await sleep(1500);
+}
+
 // --- 6. The whole city, which is the load sprint 2 exists to survive -------
 //
 // Four towers is not a test of anything. The kill criterion is the frame rate

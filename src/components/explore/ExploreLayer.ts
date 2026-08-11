@@ -96,6 +96,9 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
   private readonly meshes = new Map<string, THREE.Mesh>();
   private readonly cameraPos = new THREE.Vector3();
   private ground: GroundHandle | null = null;
+  private plateMesh: THREE.Mesh | null = null;
+  private plateMaterial: THREE.MeshBasicMaterial | null = null;
+  private insideBuildingId: string | null = null;
   private contextMesh: THREE.Mesh | null = null;
   private contextMaterial: THREE.ShaderMaterial | null = null;
   private contextTriangles = 0;
@@ -163,6 +166,13 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     this.bandMeshes.clear();
     for (const m of this.bandMaterials) m.dispose();
     this.bandMaterials.length = 0;
+    if (this.plateMesh) {
+      this.scene.remove(this.plateMesh);
+      this.plateMesh.geometry.dispose();
+      this.plateMesh = null;
+    }
+    this.plateMaterial?.dispose();
+    this.plateMaterial = null;
     if (this.contextMesh) {
       this.scene.remove(this.contextMesh);
       this.contextMesh.geometry.dispose();
@@ -309,6 +319,55 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     this.scene.add(mesh);
     this.contextMesh = mesh;
     this.contextTriangles = arrays.triangles;
+    this.map?.triggerRepaint();
+  }
+
+  /**
+   * The one walkable floor plate: a slab, a ceiling, and the walls made
+   * two-sided so they can be seen from within.
+   *
+   * Passing null takes it all away again, including the two-sidedness. The
+   * default is FrontSide because a closed shell never needs its inside drawn
+   * and drawing it doubles the fragment cost of the entire city; that trade is
+   * only worth reversing for the one building you are standing in.
+   */
+  setFloorPlate(
+    buildingId: string | null,
+    arrays: MassingArrays | null,
+  ): void {
+    if (this.plateMesh) {
+      this.scene.remove(this.plateMesh);
+      this.plateMesh.geometry.dispose();
+      this.plateMesh = null;
+    }
+    if (this.insideBuildingId) {
+      const previous = this.meshes.get(this.insideBuildingId);
+      if (previous) (previous.material as THREE.Material).side = THREE.FrontSide;
+    }
+    this.insideBuildingId = buildingId;
+
+    if (!buildingId || !arrays || arrays.triangles === 0) {
+      this.map?.triggerRepaint();
+      return;
+    }
+
+    const host = this.meshes.get(buildingId);
+    if (host) (host.material as THREE.Material).side = THREE.DoubleSide;
+
+    if (!this.plateMaterial) {
+      this.plateMaterial = new THREE.MeshBasicMaterial({
+        // A pale unlit slab. There is no sun inside a building and no
+        // pretence of one: the interior is a datum to stand on and look out
+        // from, not a room this map claims to know anything about.
+        color: new THREE.Color(0.80, 0.80, 0.81),
+        side: THREE.DoubleSide,
+      });
+    }
+
+    const mesh = new THREE.Mesh(toGeometry(arrays), this.plateMaterial);
+    mesh.frustumCulled = false;
+    this.scene.add(mesh);
+    this.plateMesh = mesh;
     this.map?.triggerRepaint();
   }
 

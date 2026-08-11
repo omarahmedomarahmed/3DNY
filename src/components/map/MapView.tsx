@@ -619,6 +619,7 @@ export default function MapView() {
   const photoreal = useApp((s) => s.photoreal);
   const mapMode = useApp((s) => s.mapMode);
   const walking = useApp((s) => s.walking);
+  const standingOn = useApp((s) => s.standingOn);
   const showContext = useApp((s) => s.showContext);
   const mapTheme = useApp((s) => s.mapTheme);
   const timeOfDay = useApp((s) => s.timeOfDay);
@@ -714,7 +715,7 @@ export default function MapView() {
     kinds: occupancyKinds,
     selectedSpaceId,
     colorOverrides,
-  }, showContext ? cityContext : []);
+  }, showContext ? cityContext : [], standingOn);
 
   /**
    * The first-person walk.
@@ -728,6 +729,7 @@ export default function MapView() {
     mapMode === 'explore' && walking,
     explore.layer?.localFrame ?? null,
     explore.obstacles,
+    explore.inside,
   );
 
 
@@ -1578,7 +1580,16 @@ export default function MapView() {
             <span className="mx-1.5 text-subtle">·</span>
             <span className="font-semibold text-ink">Shift</span> faster
             <span className="mx-1.5 text-subtle">·</span>
-            <span className="font-semibold text-ink">Esc</span> back up
+            <span className="font-semibold text-ink">Esc</span>{' '}
+            {standingOn ? 'back to the street' : 'back up'}
+          </div>
+        )}
+        {/* Where you are, when you are inside a building. Without it, a broker
+            who has walked away from the window has no way to tell the 14th
+            floor from the 40th. */}
+        {mapMode === 'explore' && standingOn && (
+          <div className="absolute left-1/2 top-4 -translate-x-1/2 rounded-full border border-goldenrod bg-goldenrod px-3 py-1 text-[12px] font-bold text-midnight shadow-card">
+            Standing on floor {standingOn.floorNumber}
           </div>
         )}
         {!photoreal && !walking && zoom < BAND_ZOOM_THRESHOLD && !selectedBuildingId && buildings.length > 0 && (

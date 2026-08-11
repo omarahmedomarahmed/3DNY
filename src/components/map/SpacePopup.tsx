@@ -91,6 +91,8 @@ export default function SpacePopup({
   const buildings = useApp((s) => s.buildings);
   const compare = useApp((s) => s.compare);
   const addToCompare = useApp((s) => s.addToCompare);
+  const mapMode = useApp((s) => s.mapMode);
+  const standOnFloor = useApp((s) => s.standOnFloor);
   const removeFromCompare = useApp((s) => s.removeFromCompare);
 
   const building = useMemo(
@@ -317,6 +319,23 @@ export default function SpacePopup({
             }
           >
             {inCompare ? 'In compare' : 'Add to compare'}
+          </button>
+        ) : null}
+
+        {/* The one way into a building.
+            Offered only in Explore mode, and only for a space whose floor the
+            sheet actually stated — "Ground" and "Penthouse" are real answers
+            that are not floor numbers, and there is nothing to stand on for
+            them. The floor plate is built from the same maths as the band, so
+            stepping onto floor 14 puts the Goldenrod band at eye level around
+            the outside of the glass. */}
+        {mapMode === 'explore' && space && space.floor_number !== null && space.floor_number > 0 ? (
+          <button
+            type="button"
+            onClick={() => standOnFloor(building.id, space.floor_number as number)}
+            className="rounded border border-hairline-strong bg-white px-3 py-1.5 text-sm font-semibold text-ink transition-colors hover:border-midnight hover:bg-midnight-50"
+          >
+            Stand on floor {space.floor_number}
           </button>
         ) : null}
         <Link

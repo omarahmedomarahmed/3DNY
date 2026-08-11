@@ -19,7 +19,8 @@ import { roofMassing, roofscapeFor } from './roofs3d';
 import { buildingHeightFt, buildingRing, floorHeightFt, FT_TO_M } from '@/lib/floor-bands';
 import type { BuildingWithSpaces, OccupancyKind } from '@/types';
 import type { ContextBuilding } from '@/lib/city-context';
-import type { Obstacle } from '@/lib/explore/walk';
+import type { Inside, Obstacle } from '@/lib/explore/walk';
+import { floorPlateFor, plateMassing } from './plate';
 import { buildBandGroups } from './bands3d';
 import type { ColorOverrides } from '../map/colors';
 
@@ -37,6 +38,8 @@ export interface ExploreHandle {
   layer: ExploreLayer | null;
   /** Footprints and heights the walking capsule collides against. */
   obstacles: Obstacle[];
+  /** Set while a broker is standing on a floor plate. */
+  inside: Inside | null;
   /**
    * Bumped when the surveyed massing lands.
    *
@@ -63,8 +66,15 @@ export function useExplore(
     colorOverrides?: ColorOverrides;
   } = { kinds: ['available'], selectedSpaceId: null },
   cityContext: ContextBuilding[] = [],
+  /** The floor a broker has stepped onto, from an availability's own card. */
+  standingOn: { buildingId: string; floorNumber: number } | null = null,
 ): ExploreHandle {
-  const handle = useRef<ExploreHandle>({ layer: null, lod2Ready: 0, obstacles: [] });
+  const handle = useRef<ExploreHandle>({
+    layer: null,
+    lod2Ready: 0,
+    obstacles: [],
+    inside: null,
+  });
 
   // --- Lifecycle. The anchor is fixed for the life of the layer: it is the
   // origin of the scene's metric frame, and moving it would move every vertex.
@@ -214,8 +224,35 @@ export function useExplore(
     return out;
   }, [active, buildings, cityContext, lod2Tick]);
 
+  /**
+   * The floor plate, derived from the same maths a band is.
+   *
+   * Its outline is the building's own cross-section at that elevation and its
+   * height is `(floor - 1) x floorHeight`, which is exactly what
+   * `computeBands` uses. If the two ever disagreed, a broker would step onto
+   * the 14th floor and find the Goldenrod band at their ankles.
+   */
+  const inside = useMemo<Inside | null>(() => {
+    const layer = handle.current.layer;
+    if (!layer || !active || !standingOn) return null;
+    const building = buildings.find((b) => b.id === standingOn.buildingId);
+    if (!building) return null;
+    return floorPlateFor(layer.localFrame, building, standingOn.floorNumber);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, buildings, standingOn?.buildingId, standingOn?.floorNumber, lod2Tick]);
+
+  useEffect(() => {
+    const layer = handle.current.layer;
+    if (!layer) return;
+    layer.setFloorPlate(
+      inside ? inside.buildingId : null,
+      inside ? plateMassing(inside) : null,
+    );
+  }, [inside]);
+
   handle.current.lod2Ready = lod2Tick;
   handle.current.obstacles = obstacles;
+  handle.current.inside = inside;
   return handle.current;
 }
 

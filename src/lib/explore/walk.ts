@@ -34,6 +34,27 @@ export const EYE_HEIGHT_M = 1.68;
 export const WALK_SPEED_MS = 3.4;
 export const RUN_SPEED_MS = 9.0;
 
+/**
+ * Standing on a floor inside a building, rather than on the pavement.
+ *
+ * The plan asks for ONE walkable floor plate, entered from its band, and this
+ * is what "inside" means to the walk: the building you are in stops being
+ * something to bump into and starts being something you cannot leave, and the
+ * ground you are standing on is a floor slab rather than the street.
+ *
+ * Deliberately not a building interior in any richer sense. There are no
+ * rooms, no core, no lift lobby — modelling interiors per space by hand is a
+ * stated non-goal. What it answers is the question this mode exists for:
+ * stand on the 14th floor and look out of its window.
+ */
+export interface Inside {
+  buildingId: string;
+  /** Metres above the building's ground. The floor slab, not the eye. */
+  floorM: number;
+  /** The floor plate's outline, in scene metres. */
+  ring: [number, number][];
+}
+
 export interface WalkState {
   /** Metres east, metres north. */
   x: number;
@@ -44,6 +65,8 @@ export interface WalkState {
   bearing: number;
   /** Degrees from straight down. 90 is level with the horizon. */
   pitch: number;
+  /** Set while standing on a floor plate rather than on the pavement. */
+  inside?: Inside | null;
 }
 
 export interface WalkInput {
@@ -207,9 +230,47 @@ export function stepWalk(
   const wantX = state.x + (fx * input.forward + sx * input.strafe) * speed;
   const wantY = state.y + (fy * input.forward + sy * input.strafe) * speed;
 
+  if (state.inside) {
+    /**
+     * Inside, the walls face the other way.
+     *
+     * On a floor plate there is exactly one obstacle and it is the outside
+     * world: the walker may go anywhere within the plate and nowhere beyond
+     * it. Walking into the glass stops you at the glass, which is the correct
+     * and slightly uncanny thing — you are on the 14th floor.
+     */
+    const [x, y] = holdInside(state.inside.ring, [state.x, state.y], [wantX, wantY]);
+    return { ...state, x, y, bearing, pitch };
+  }
+
   const [x, y] = resolveCollisions([state.x, state.y], [wantX, wantY], obstacles, state.z);
 
-  return { x, y, z: state.z, bearing, pitch };
+  return { ...state, x, y, bearing, pitch };
+}
+
+/** Keeps a walker within a ring rather than out of it. */
+export function holdInside(
+  ring: [number, number][],
+  from: [number, number],
+  to: [number, number],
+  radius = WALKER_RADIUS_M,
+): [number, number] {
+  if (ring.length < 3) return to;
+
+  const [x, y] = to;
+  const edge = nearestEdge(ring, x, y);
+  const inside = pointInRing(ring, x, y);
+
+  if (inside && edge.distance >= radius) return to;
+
+  // Either outside the plate or too close to its edge: put the walker back on
+  // the plate, a walker's width in from the glass.
+  const [ox, oy] = outwardAt(ring, edge.px, edge.py, edge.nx, edge.ny);
+  const at: [number, number] = [edge.px - ox * radius, edge.py - oy * radius];
+
+  // If that somehow lands outside — a plate too narrow to stand on — staying
+  // put is better than being flung through the facade.
+  return pointInRing(ring, at[0], at[1]) ? at : from;
 }
 
 /** Whether a point is inside any obstacle at a height. For assertions. */

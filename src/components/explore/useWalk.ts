@@ -10,6 +10,7 @@ import {
   groundEntry,
   stepWalk,
   NO_INPUT,
+  type Inside,
   type Obstacle,
   type WalkInput,
   type WalkState,
@@ -81,6 +82,8 @@ export function useWalk(
   active: boolean,
   frame: LocalFrame | null,
   obstacles: Obstacle[],
+  /** Set when the walker has stepped onto a floor plate from its band. */
+  inside: Inside | null = null,
 ): WalkHandle {
   const handle = useRef<WalkHandle>({ state: null });
   const held = useRef(new Set<string>());
@@ -102,21 +105,47 @@ export function useWalk(
      * the first thing that would happen otherwise, because the camera is
      * usually pointed at a building.
      */
-    const centre = map.getCenter();
-    const [cx, cy] = [
-      (centre.lng - frame.lon0) * frame.mPerLon,
-      (centre.lat - frame.lat0) * 110_574,
-    ];
-    const [x, y] = groundEntry([cx, cy], obstaclesRef.current);
+    let x: number;
+    let y: number;
+    let z: number;
+
+    if (inside) {
+      /**
+       * Stepping onto a floor plate.
+       *
+       * The entry point is the middle of the plate rather than its edge —
+       * arriving with your nose against the glass is disorienting, and the
+       * first thing anyone does up here is turn round.
+       */
+      let sx = 0;
+      let sy = 0;
+      for (const [px, py] of inside.ring) {
+        sx += px;
+        sy += py;
+      }
+      x = sx / inside.ring.length;
+      y = sy / inside.ring.length;
+      z = inside.floorM + EYE_HEIGHT_M;
+    } else {
+      const centre = map.getCenter();
+      const [cx, cy] = [
+        (centre.lng - frame.lon0) * frame.mPerLon,
+        (centre.lat - frame.lat0) * 110_574,
+      ];
+      [x, y] = groundEntry([cx, cy], obstaclesRef.current);
+      z = EYE_HEIGHT_M;
+    }
 
     let state: WalkState = {
       x,
       y,
-      z: EYE_HEIGHT_M,
+      z,
       bearing: map.getBearing(),
       // Level with the horizon, near enough. This is the view the whole mode
-      // exists for: standing in the street looking up a facade.
+      // exists for: standing in the street looking up a facade — or, on a
+      // floor plate, standing at the window looking out of it.
       pitch: 84,
+      inside,
     };
     handle.current.state = state;
 
@@ -158,7 +187,12 @@ export function useWalk(
 
     const onDown = (e: KeyboardEvent) => {
       if (e.code === 'Escape') {
-        useApp.getState().setWalking(false);
+        // From a floor plate, Escape puts you back on the pavement rather
+        // than straight up into the drone camera: one step back at a time is
+        // what the key means everywhere else in this app.
+        const state = useApp.getState();
+        if (state.standingOn) state.leaveFloor();
+        else state.setWalking(false);
         return;
       }
       if (!(e.code in KEY_MAP)) return;
@@ -187,7 +221,7 @@ export function useWalk(
     // is read through a ref so a new list does not restart the walk and put
     // the walker back where they came in.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map, active, frame]);
+  }, [map, active, frame, inside]);
 
   return handle.current;
 }
