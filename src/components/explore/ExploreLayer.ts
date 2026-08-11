@@ -33,6 +33,10 @@ import {
 import type { MassingArrays } from '@/lib/explore/massing';
 import { groundColor, makeGround, type GroundHandle } from './ground3d';
 import { makeBandMaterial, type BandGroup } from './bands3d';
+import { makeLife, updateLife, type LifeHandle } from './life3d';
+import type { Agent } from '@/lib/explore/agents';
+import { makeStreets, type StreetsHandle } from './streets3d';
+import type { StreetscapeResult } from '@/lib/streetscape';
 
 /**
  * three.js inside MapLibre's own WebGL context.
@@ -96,6 +100,11 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
   private readonly meshes = new Map<string, THREE.Mesh>();
   private readonly cameraPos = new THREE.Vector3();
   private ground: GroundHandle | null = null;
+  private streets: StreetsHandle | null = null;
+  private life: LifeHandle | null = null;
+  private carAgents: Agent[] = [];
+  private peopleAgents: Agent[] = [];
+  private lastFrameAt = 0;
   private plateMesh: THREE.Mesh | null = null;
   private plateMaterial: THREE.MeshBasicMaterial | null = null;
   private insideBuildingId: string | null = null;
@@ -126,6 +135,22 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     this.sunDir = sunDirection(preset.timestamp, anchor[0], anchor[1]);
     this.ground = makeGround(preset);
     this.scene.add(this.ground.mesh);
+
+    /**
+     * There are no `THREE.Light` objects in this scene, deliberately.
+     *
+     * Every surface here — facades, roofs, bands, ground, streets, cars,
+     * people — is lit explicitly from the atmosphere preset, by the same sun
+     * position the flat map uses. An earlier version added a hemisphere and a
+     * directional light for the traffic's stock Lambert material and every car
+     * rendered black: this camera has its projection matrix assigned directly
+     * and its world matrix left as identity, and three.js's lighting is built
+     * for a camera it controls.
+     *
+     * Shading by hand is also what keeps the two modes agreeing about how
+     * bright a Goldenrod band looks, which is the only comparison that
+     * matters.
+     */
   }
 
   get localFrame(): LocalFrame {
@@ -173,6 +198,20 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     }
     this.plateMaterial?.dispose();
     this.plateMaterial = null;
+    if (this.streets) {
+      this.scene.remove(this.streets.roads);
+      this.scene.remove(this.streets.pavements);
+      this.streets.dispose();
+      this.streets = null;
+    }
+    if (this.life) {
+      this.scene.remove(this.life.cars);
+      this.scene.remove(this.life.people);
+      this.life.dispose();
+      this.life = null;
+    }
+    this.carAgents = [];
+    this.peopleAgents = [];
     if (this.contextMesh) {
       this.scene.remove(this.contextMesh);
       this.contextMesh.geometry.dispose();
@@ -371,6 +410,48 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     this.map?.triggerRepaint();
   }
 
+  /**
+   * The cars and the people.
+   *
+   * Passing empty lists takes the meshes down to a count of zero rather than
+   * removing them, so switching the surrounding city off and on again does not
+   * churn two instanced buffers. Passing them at all starts the animation
+   * loop, which is the one thing in this scene that repaints continuously.
+   */
+  setAgents(cars: Agent[], people: Agent[]): void {
+    if (!this.life) {
+      this.life = makeLife(this.preset);
+      this.scene.add(this.life.cars);
+      this.scene.add(this.life.people);
+    }
+    this.carAgents = cars;
+    this.peopleAgents = people;
+    this.map?.triggerRepaint();
+  }
+
+  /** The roadbed and the pavements, from the same centrelines the flat map uses. */
+  setStreets(streetscape: StreetscapeResult | null): void {
+    if (this.streets) {
+      this.scene.remove(this.streets.roads);
+      this.scene.remove(this.streets.pavements);
+      this.streets.dispose();
+      this.streets = null;
+    }
+    if (streetscape) {
+      this.streets = makeStreets(this.frame, streetscape, this.preset);
+      if (this.streets) {
+        this.scene.add(this.streets.pavements);
+        this.scene.add(this.streets.roads);
+      }
+    }
+    this.map?.triggerRepaint();
+  }
+
+  /** True while anything in the scene is moving. */
+  get animating(): boolean {
+    return this.carAgents.length > 0 || this.peopleAgents.length > 0;
+  }
+
   setPreset(preset: AtmospherePreset): void {
     this.preset = preset;
     this.sunDir = sunDirection(preset.timestamp, this.frame.lon0, this.frame.lat0);
@@ -435,8 +516,19 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     });
     this.cameraPos.set(cx + offset.east, cy + offset.north, offset.altitude);
 
-    const seconds = (Date.now() - this.started) / 1000;
+    const now = Date.now();
+    const seconds = (now - this.started) / 1000;
     for (const m of this.materials) updateFacadeUniforms(m, this.cameraPos, seconds);
+
+    if (this.life && this.animating) {
+      const dt = this.lastFrameAt > 0 ? (now - this.lastFrameAt) / 1000 : 0;
+      updateLife(this.life, this.carAgents, this.peopleAgents, dt);
+      // Keeps the frames coming. MapLibre only redraws on demand, so without
+      // this the traffic advances one step and then stops — which looks far
+      // more broken than no traffic at all.
+      map.triggerRepaint();
+    }
+    this.lastFrameAt = now;
     if (this.ground) {
       (this.ground.material.uniforms.uCameraPos.value as THREE.Vector3).copy(this.cameraPos);
     }
@@ -548,13 +640,23 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     drawCalls: number;
     surveyed: number;
     buildings: number;
+    streetTriangles: number;
+    contextTriangles: number;
+    cars: number;
+    people: number;
   } {
     return {
-      triangles: this.triangles + this.bandTriangles + this.contextTriangles,
+      triangles:
+        this.triangles + this.bandTriangles + this.contextTriangles +
+        (this.streets?.triangles ?? 0),
       bandTriangles: this.bandTriangles,
       drawCalls: this.renderer?.info.render.calls ?? 0,
       surveyed: this.surveyedCount,
       buildings: this.meshes.size,
+      streetTriangles: this.streets?.triangles ?? 0,
+      contextTriangles: this.contextTriangles,
+      cars: this.life ? this.life.cars.count : 0,
+      people: this.life ? this.life.people.count : 0,
     };
   }
 }

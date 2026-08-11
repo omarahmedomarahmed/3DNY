@@ -21,6 +21,8 @@ import type { BuildingWithSpaces, OccupancyKind } from '@/types';
 import type { ContextBuilding } from '@/lib/city-context';
 import type { Inside, Obstacle } from '@/lib/explore/walk';
 import { floorPlateFor, plateMassing } from './plate';
+import { populate } from '@/lib/explore/agents';
+import type { StreetscapeResult } from '@/lib/streetscape';
 import { buildBandGroups } from './bands3d';
 import type { ColorOverrides } from '../map/colors';
 
@@ -68,6 +70,8 @@ export function useExplore(
   cityContext: ContextBuilding[] = [],
   /** The floor a broker has stepped onto, from an availability's own card. */
   standingOn: { buildingId: string; floorNumber: number } | null = null,
+  /** Streets, so cars and people have somewhere to be. */
+  streetscape: StreetscapeResult | null = null,
 ): ExploreHandle {
   const handle = useRef<ExploreHandle>({
     layer: null,
@@ -249,6 +253,45 @@ export function useExplore(
       inside ? plateMassing(inside) : null,
     );
   }, [inside]);
+
+  /**
+   * Cars on the roadway, people on the pavements.
+   *
+   * Both come off the same road segments the flat map already draws, so they
+   * are on the streets that are actually there rather than on a grid somebody
+   * assumed. Populated once per streetscape payload — which is per viewport,
+   * cached — rather than per frame.
+   */
+  useEffect(() => {
+    const layer = handle.current.layer;
+    if (!layer || !active) return;
+    if (!streetscape || streetscape.roads.length === 0) {
+      layer.setStreets(null);
+      layer.setAgents([], []);
+      return;
+    }
+    layer.setStreets(streetscape);
+    const frame = layer.localFrame;
+    layer.setAgents(
+      populate(frame, streetscape.roads, {
+        count: 420,
+        // Manhattan average traffic speed is famously about seven miles an
+        // hour. Three metres a second is a shade over that and it reads as
+        // moving rather than as stationary.
+        speed: 3.2,
+        lane: 'road',
+        z: 0.02,
+      }),
+      populate(frame, streetscape.roads, {
+        count: 700,
+        speed: 1.35,
+        lane: 'kerb',
+        z: 0.05,
+        // A pavement on a fifteen-metre stub is not somewhere anyone walks.
+        minLengthM: 45,
+      }),
+    );
+  }, [active, streetscape]);
 
   handle.current.lod2Ready = lod2Tick;
   handle.current.obstacles = obstacles;

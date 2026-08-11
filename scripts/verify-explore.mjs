@@ -838,7 +838,10 @@ await page.getByRole('button', { name: 'Show the surrounding city' }).first().cl
  * check, because the natural response is to assume the feature broke.
  */
 for (let i = 0; i < 40; i++) {
-  const n = await page.evaluate(() => window.__explore?.budget?.triangles ?? 0);
+  // The CONTEXT count specifically. Polling on the total was a weaker check
+  // than it looked: once the streets landed, the total cleared the threshold
+  // whether or not the surrounding city had arrived.
+  const n = await page.evaluate(() => window.__explore?.budget?.contextTriangles ?? 0);
   if (n > 20_000) break;
   await sleep(750);
 }
@@ -846,8 +849,12 @@ await sleep(1500);
 await page.screenshot({ path: join(outdir, 'explore-city.png') });
 
 const cityBudget = await page.evaluate(() => window.__explore?.budget ?? null);
-check('the surrounding city is drawn in Explore mode', (cityBudget?.triangles ?? 0) > 20_000,
-  cityBudget ? `${cityBudget.triangles.toLocaleString()} triangles` : 'no layer');
+check('the surrounding city is drawn in Explore mode',
+  (cityBudget?.contextTriangles ?? 0) > 20_000,
+  cityBudget
+    ? `${cityBudget.contextTriangles.toLocaleString()} context triangles of ` +
+      `${cityBudget.triangles.toLocaleString()} total`
+    : 'no layer');
 
 if (cityBudget) {
   console.log(
@@ -860,30 +867,104 @@ if (cityBudget) {
     cityBudget.drawCalls <= 1000, `${cityBudget.drawCalls}`);
 }
 
-const cityFrame = await page.evaluate(
-  () =>
-    new Promise((resolve) => {
-      const times = [];
-      let last = performance.now();
-      let n = 0;
-      const tick = () => {
-        const now = performance.now();
-        times.push(now - last);
-        last = now;
-        window.__m.triggerRepaint();
-        if (++n < 30) requestAnimationFrame(tick);
-        else {
-          times.sort((a, b) => a - b);
-          resolve({ median: times[Math.floor(times.length / 2)] });
-        }
-      };
-      requestAnimationFrame(tick);
-    }),
+// --- 6b. Life. Cars and people, on the streets that are actually there ----
+
+const life = await page.evaluate(() => window.__explore?.budget ?? null);
+
+check(
+  'cars are on the streets',
+  (life?.cars ?? 0) > 40,
+  `${life?.cars ?? 0} cars, ${life?.people ?? 0} people`,
+);
+check('and people are on the pavements', (life?.people ?? 0) > 60, `${life?.people ?? 0}`);
+
+/**
+ * They have to be MOVING, and that is measured on pixels.
+ *
+ * A count of instances proves geometry was uploaded, not that anything is
+ * alive — and an animation loop that stops after one frame is exactly the
+ * failure that would produce a healthy count and a still street. So two
+ * frames a second apart are compared: with nothing else changing, any
+ * difference is traffic.
+ */
+// Looking down at an avenue rather than across the rooftops. At a high pitch
+// the buildings occlude the street entirely, so the first version of this
+// measured a frame with no traffic in it and concluded there was none.
+await page.evaluate(() => {
+  window.__m.jumpTo({ center: [-73.9840, 40.7540], zoom: 17.6, pitch: 34, bearing: 29 });
+});
+await sleep(4500);
+const cb2 = await page.locator('.maplibregl-map canvas').first().boundingBox();
+const clip = {
+  x: Math.round(cb2.x + 400),
+  y: Math.round(cb2.y + cb2.height * 0.25),
+  width: 640,
+  height: 400,
+};
+const frameA = await analyse(await page.screenshot({ clip }));
+await sleep(1400);
+const frameB = await analyse(await page.screenshot({ clip }));
+check(
+  'and the traffic is actually moving',
+  Math.abs(frameA.detail - frameB.detail) > 1e-5 || frameA.meanLuma !== frameB.meanLuma,
+  `contrast ${frameA.detail.toFixed(5)} → ${frameB.detail.toFixed(5)}`,
+);
+await page.screenshot({ path: join(outdir, 'street-life.png') });
+
+/**
+ * Frame cost, measured as a RATIO rather than against a stopwatch.
+ *
+ * An absolute millisecond budget is meaningless here — this runs on
+ * SwiftShader in a container, one to two orders of magnitude slower than the
+ * laptop this map is presented from, and any number picked would either fail
+ * always or prove nothing. What IS meaningful is what a feature costs relative
+ * to the same scene without it, because that ratio carries over to hardware.
+ *
+ * So the traffic is measured against itself: the same camera, the same city,
+ * the agents switched off and then on.
+ */
+const measure = () =>
+  page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const times = [];
+        let last = performance.now();
+        let n = 0;
+        const tick = () => {
+          const now = performance.now();
+          times.push(now - last);
+          last = now;
+          window.__m.triggerRepaint();
+          if (++n < 30) requestAnimationFrame(tick);
+          else {
+            times.sort((a, b) => a - b);
+            resolve({ median: times[Math.floor(times.length / 2)] });
+          }
+        };
+        requestAnimationFrame(tick);
+      }),
+  );
+
+const cityFrame = await measure();
+
+const savedAgents = await page.evaluate(() => {
+  const layer = window.__explore;
+  const before = { cars: layer.budget.cars, people: layer.budget.people };
+  layer.setAgents([], []);
+  return before;
+});
+await sleep(1500);
+const stillFrame = await measure();
+
+console.log(
+  `      frame: ${stillFrame.median.toFixed(0)} ms without traffic, ` +
+  `${cityFrame.median.toFixed(0)} ms with ` +
+  `(${savedAgents.cars} cars, ${savedAgents.people} people) — SwiftShader, not a GPU`,
 );
 check(
-  'frame time with the whole city drawn is not pathological',
-  cityFrame.median < 700,
-  `median ${cityFrame.median.toFixed(0)} ms (SwiftShader, not a GPU)`,
+  'the traffic costs a fraction of a frame, not a multiple of one',
+  cityFrame.median < stillFrame.median * 1.6,
+  `${stillFrame.median.toFixed(0)} ms → ${cityFrame.median.toFixed(0)} ms`,
 );
 
 await page.getByRole('button', { name: 'Hide buildings with nothing available' }).first().click();

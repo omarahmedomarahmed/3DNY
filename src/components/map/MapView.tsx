@@ -715,7 +715,7 @@ export default function MapView() {
     kinds: occupancyKinds,
     selectedSpaceId,
     colorOverrides,
-  }, showContext ? cityContext : [], standingOn);
+  }, showContext ? cityContext : [], standingOn, streetscape);
 
   /**
    * The first-person walk.
