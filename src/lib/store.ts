@@ -107,6 +107,23 @@ interface AppState {
     floorNumber: number;
   } | null;
   /**
+   * Whether free look currently owns the mouse.
+   *
+   * Drawn as a crosshair, and it has to live here rather than in the hook
+   * because the dot is chrome — `MapView` renders it, and the browser can take
+   * the capture away at any moment without asking anybody.
+   */
+  pointerLocked: boolean;
+  /**
+   * Whether space exploration has stepped out through the glass.
+   *
+   * Still the same availability and still its floor — the altitude is locked
+   * to it — but the plate is no longer a wall, so you can fly round the
+   * outside of the building at that level and back in. It answers what a floor
+   * plan cannot: what is on this side of the tower at *this* height.
+   */
+  spaceOutside: boolean;
+  /**
    * The floor a broker has stepped onto, entered from its band.
    *
    * `null` means the pavement. This is the one place Explore mode goes
@@ -201,6 +218,8 @@ interface AppState {
   setMapMode: (m: MapMode) => void;
   setWalking: (on: boolean) => void;
   setFreeLook: (on: boolean) => void;
+  setPointerLocked: (on: boolean) => void;
+  setSpaceOutside: (on: boolean) => void;
   enterSpace: (buildingId: string, spaceId: string | null, floorNumber: number) => void;
   leaveSpace: () => void;
   standOnFloor: (buildingId: string, floorNumber: number) => void;
@@ -257,6 +276,8 @@ export const useApp = create<AppState>((set, get) => ({
   walking: false,
   freeLook: false,
   spaceExplore: null,
+  pointerLocked: false,
+  spaceOutside: false,
   standingOn: null,
   showContext: false,
   // Light. Dark was the default on the argument that these maps are shown in
@@ -347,6 +368,7 @@ export const useApp = create<AppState>((set, get) => ({
             walking: false,
             freeLook: false,
             spaceExplore: null,
+            spaceOutside: false,
             standingOn: null,
           },
     );
@@ -360,9 +382,27 @@ export const useApp = create<AppState>((set, get) => ({
     // fighting over `jumpTo` sixty times a second.
     set(
       walking
-        ? { walking, mapMode: 'explore' as MapMode, freeLook: false, spaceExplore: null }
+        ? {
+            walking,
+            mapMode: 'explore' as MapMode,
+            freeLook: false,
+            spaceExplore: null,
+            spaceOutside: false,
+          }
         : { walking, standingOn: null },
     );
+  },
+
+  setSpaceOutside(spaceOutside) {
+    // Only meaningful inside a space; setting it anywhere else would leave a
+    // flag on that nothing clears.
+    if (get().spaceExplore) set({ spaceOutside });
+  },
+
+  setPointerLocked(pointerLocked) {
+    // Cheap guard: this fires on every capture change and a no-op set would
+    // re-render the whole map chrome for nothing.
+    if (get().pointerLocked !== pointerLocked) set({ pointerLocked });
   },
 
   setFreeLook(freeLook) {
@@ -372,7 +412,7 @@ export const useApp = create<AppState>((set, get) => ({
         // Leaving free look leaves the space with it: a space is explored
         // *with* the free camera, and there is no other camera that can stand
         // inside a floor plate and look out of it.
-        : { freeLook, spaceExplore: null },
+        : { freeLook, spaceExplore: null, spaceOutside: false },
     );
   },
 
@@ -382,6 +422,7 @@ export const useApp = create<AppState>((set, get) => ({
     // the other two.
     set({
       spaceExplore: { buildingId, spaceId, floorNumber },
+      spaceOutside: false,
       mapMode: 'explore' as MapMode,
       freeLook: true,
       walking: false,
@@ -394,7 +435,7 @@ export const useApp = create<AppState>((set, get) => ({
   leaveSpace() {
     // Back outside, still in free look — you came in from the city and that is
     // where stepping out of a room puts you.
-    set({ spaceExplore: null });
+    set({ spaceExplore: null, spaceOutside: false });
   },
 
   standOnFloor(buildingId, floorNumber) {

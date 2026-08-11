@@ -539,28 +539,17 @@ export default function MapControls({
         </Icon>
       </ControlButton>
 
-      {/* Street level, first person. Only offered inside Explore mode — the
-          flat map has no city to walk through, and a button that silently
-          switched modes would be a surprise rather than a shortcut. */}
-      {mapMode === 'explore' && (
-        <ControlButton
-          label={walking ? 'Stop walking' : 'Walk at street level'}
-          hint="Drops you on the pavement in first person. W A S D to walk, Q E to turn, R F to look up and down, Shift to move faster, Escape to come back up."
-          active={walking}
-          disabled={!map}
-          onClick={() => setWalking(!walking)}
-        >
-          {/* A figure walking, rather than a foot or a pin: the button is
-              about being IN the street, not about marking a place on it. */}
-          <Icon>
-            <circle cx="12.6" cy="4.4" r="1.9" />
-            <path d="M11 8.4 8.6 12l2.6 2.1.9 5.6" />
-            <path d="M11.2 14.1 8 20" />
-            <path d="M13.4 9.2 17 11.4l1.4 3.2" />
-            <path d="M10.4 9.6 6.4 9" />
-          </Icon>
-        </ControlButton>
-      )}
+      {/*
+        The street-level walk button is gone.
+
+        It was the first way into Explore mode at eye level and it has been
+        superseded by free look, which does everything it did and the thing it
+        could not: MapLibre's camera stops at 85 degrees of pitch, so the walk
+        can face a facade but can never look up it. Two buttons that both mean
+        "put me on the ground", one of which cannot look at the sky, is a
+        choice nobody should have to make. The walk itself is still there —
+        `useWalk`, and "Stand on floor N" on a space card still uses it.
+      */}
 
       {/* Free look. The only view in this product that can point above the
           horizon: MapLibre's camera stops at 85 degrees of pitch and 90 is

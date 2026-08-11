@@ -68,8 +68,17 @@ export const NO_FREE_INPUT: FreeInput = {
  * getting from Midtown to the Battery is a minute of holding a key. Shift is
  * four times faster again, which crosses the loaded market in a few seconds.
  */
-export const FREE_SPEED_MS = 55;
-export const FREE_FAST_MULTIPLIER = 4;
+export const FREE_SPEED_MS = 90;
+export const FREE_FAST_MULTIPLIER = 8;
+
+/**
+ * Indoors, at a person's pace.
+ *
+ * The flying speed exists to cross a market; a floor plate is forty metres
+ * across and at 90 m/s you traverse it in under half a second, which makes a
+ * room impossible to look at. This is a brisk walk.
+ */
+export const INSIDE_SPEED_MS = 1.9;
 
 /** Nothing may go below the pavement, and nothing needs to go above the clouds. */
 export const FREE_MIN_Z = 1.5;
@@ -111,7 +120,13 @@ export function freeRight(cam: FreeCam): [number, number, number] {
  * can point up, and the reason `rise` exists separately is for the times you
  * want to gain height without changing what you are looking at.
  */
-export function stepFree(cam: FreeCam, input: FreeInput, dt: number): FreeCam {
+export function stepFree(
+  cam: FreeCam,
+  input: FreeInput,
+  dt: number,
+  /** Metres per second before the Shift multiplier. Indoors this is slower. */
+  speedMs: number = FREE_SPEED_MS,
+): FreeCam {
   const yaw = wrapDeg(cam.yaw + input.dYaw);
   const pitch = Math.max(
     -MAX_PITCH_DEG,
@@ -119,7 +134,7 @@ export function stepFree(cam: FreeCam, input: FreeInput, dt: number): FreeCam {
   );
   const turned: FreeCam = { ...cam, yaw, pitch };
 
-  const speed = FREE_SPEED_MS * (input.fast ? FREE_FAST_MULTIPLIER : 1) * dt;
+  const speed = speedMs * (input.fast ? FREE_FAST_MULTIPLIER : 1) * dt;
   const f = freeForward(turned);
   const r = freeRight(turned);
 

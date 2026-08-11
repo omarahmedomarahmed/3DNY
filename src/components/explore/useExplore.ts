@@ -172,11 +172,22 @@ export function useExplore(
         selectedSpaceId: bands.selectedSpaceId,
         theme,
         colorOverrides: bands.colorOverrides,
+        // Not on the glass you are looking through — see `BandInput`.
+        hideBuildingId: standingOn?.buildingId ?? null,
       }),
     );
     // `bands` is a fresh object every render; its CONTENTS are the dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, buildings, kindKey, bands.selectedSpaceId, theme, overrideKey, lod2Tick]);
+  }, [
+    active,
+    buildings,
+    kindKey,
+    bands.selectedSpaceId,
+    theme,
+    overrideKey,
+    lod2Tick,
+    standingOn?.buildingId,
+  ]);
 
   // --- The surrounding city. Keyed on the payload's identity: `useCityContext`
   // returns the same array until a new viewport is actually fetched, so this
@@ -251,6 +262,7 @@ export function useExplore(
     layer.setFloorPlate(
       inside ? inside.buildingId : null,
       inside ? plateMassing(inside) : null,
+      inside,
     );
   }, [inside]);
 

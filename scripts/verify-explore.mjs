@@ -681,7 +681,15 @@ await page.evaluate(() => {
 });
 await sleep(2500);
 
-await page.getByRole('button', { name: 'Walk at street level' }).first().click();
+/**
+ * The walk is entered through the store, because its button is gone.
+ *
+ * Free look superseded it as a way of getting to eye level — it does the same
+ * thing and can also look up, which MapLibre's camera cannot — so the second
+ * button was removed. The walk itself is not gone: "Stand on floor N" on a
+ * space card still uses it, which is what section 5e below exercises.
+ */
+await page.evaluate(() => window.__app.getState().setWalking(true));
 await sleep(2500);
 await page.screenshot({ path: join(outdir, 'walk-start.png') });
 
@@ -824,7 +832,7 @@ await page.keyboard.press('Escape');
 await sleep(2000);
 check(
   'Escape leaves the walk',
-  (await page.getByRole('button', { name: 'Walk at street level' }).count()) > 0,
+  (await page.evaluate(() => window.__app.getState().walking)) === false,
 );
 
 // --- 5e. Standing on a floor, entered from its band -----------------------

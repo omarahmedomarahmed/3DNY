@@ -13,6 +13,8 @@ import {
 import { cameraOffset } from '@/lib/explore/camera';
 import { holdInside, type Inside } from '@/lib/explore/walk';
 import {
+  FREE_SPEED_MS,
+  INSIDE_SPEED_MS,
   NO_FREE_INPUT,
   stepFree,
   wrapDeg,
@@ -35,23 +37,28 @@ import type { ExploreLayer } from './ExploreLayer';
  * So for the duration, `ExploreLayer` projects from a camera of its own and
  * MapLibre's is left where it was.
  *
- * ## The cursor stays
+ * ## Mouse look is a mode, not a button you hold
  *
- * The first version held the pointer captured the whole time, which is right
- * for a game and wrong for a tool: with no cursor there is nothing to point at
- * a building with, and Explore is a mode of a map whose entire purpose is
- * clicking on buildings. So the pointer is captured **only while the button is
- * down**, and a press that does not travel is a click rather than a look.
+ * This has now been all three ways and the middle one was the worst. Captured
+ * the whole time is right for a game and wrong for a map — with no cursor
+ * there is nothing to point at a building with. Drag-to-look kept the cursor
+ * and made you hold a button down for as long as you wanted to steer, which
+ * nobody will do while flying across Midtown.
+ *
+ * So: **one click hands the camera to the mouse**, and from then on the
+ * crosshair in the middle of the screen is the cursor. A click while captured
+ * selects whatever the crosshair is on. Escape hands the cursor back, and a
+ * second Escape leaves.
  *
  * | Control | |
  * |---|---|
- * | Move the mouse | The cursor changes over anything clickable |
- * | Click | Select it — a building, or the availability on the floor you hit |
- * | Drag | Look. The pointer is captured for the drag and given back on release |
+ * | Click the map | Take the camera. The mouse now steers, hands free |
+ * | Move the mouse | Look |
+ * | Click again | Select what the crosshair is on |
  * | W A S D | Fly along the look direction, and strafe |
  * | Space / C | Straight up, straight down |
- * | Shift | Four times faster |
- * | Escape | Leave |
+ * | Shift | Much faster |
+ * | Escape | Give the cursor back, then leave |
  *
  * ## What it costs
  *
@@ -65,9 +72,6 @@ import type { ExploreLayer } from './ExploreLayer';
 /** Degrees of turn per pixel of mouse movement. */
 const SENSITIVITY = 0.16;
 
-/** Below this much travel, a press is a click and not a drag. */
-const CLICK_SLOP_PX = 5;
-
 /** How far the camera may fly before the map is asked to load around it. */
 const REGION_STEP_M = 250;
 
@@ -79,6 +83,14 @@ const HELD = new Set([
 
 export interface FreeCamHandle {
   cam: FreeCam | null;
+  /**
+   * Pull back and level off, without leaving where you are.
+   *
+   * What "reset the view" means to somebody who has flown down an avenue and
+   * lost their bearings among the towers. Flying them home would answer a
+   * question they did not ask — they want to see where they got to.
+   */
+  pullBack: () => void;
 }
 
 export interface FreeCamOptions {
@@ -89,6 +101,17 @@ export interface FreeCamOptions {
    * cannot disagree about where the glass is.
    */
   confine?: Inside | null;
+  /**
+   * Step outside the space without leaving its floor.
+   *
+   * With `confine` set and this true the plate stops being a wall and becomes
+   * an altitude: you may fly anywhere in the city, but only at this
+   * availability's own height, and you can fly straight back in through the
+   * glass. It answers the question a floor plan cannot — what is on this side
+   * of the building at *this* level, what does the tower opposite look like
+   * from here, is the view about to be built out.
+   */
+  outside?: boolean;
   /** Metres above the plate the eye sits when confined. */
   eyeHeightM?: number;
   /** Called when a click resolves to a building and an elevation. */
@@ -107,7 +130,7 @@ export function useFreeCam(
   frame: LocalFrame | null,
   options: FreeCamOptions = {},
 ): FreeCamHandle {
-  const handle = useRef<FreeCamHandle>({ cam: null });
+  const handle = useRef<FreeCamHandle>({ cam: null, pullBack: () => {} });
   const held = useRef(new Set<string>());
   const look = useRef({ dYaw: 0, dPitch: 0 });
   // Read through a ref so a new callback identity — which React gives on
@@ -144,9 +167,25 @@ export function useFreeCam(
     });
 
     const confined = opts.current.confine ?? null;
+    const outside = Boolean(opts.current.outside);
     const eyeH = opts.current.eyeHeightM ?? 1.68;
 
-    let cam: FreeCam = confined
+    let cam: FreeCam = confined && outside
+      ? {
+          /**
+           * Stepped out through the glass you were facing.
+           *
+           * Placed a short way beyond the plate along the current view
+           * direction, at the same eye height, still looking the same way — so
+           * the transition reads as walking through the window rather than as
+           * a cut to somewhere else.
+           */
+          ...outsideOf(confined.ring, handle.current.cam?.yaw ?? map.getBearing()),
+          z: confined.floorM + eyeH,
+          yaw: wrapDeg(handle.current.cam?.yaw ?? map.getBearing()),
+          pitch: handle.current.cam?.pitch ?? 0,
+        }
+      : confined
       ? {
           // Inside a space you are seated part of the way toward the glass,
           // facing it. The walk starts in the middle of a plate on purpose —
@@ -173,6 +212,19 @@ export function useFreeCam(
     handle.current.cam = cam;
     layer.setFreeCamera(cam);
 
+    handle.current.pullBack = () => {
+      // High enough to clear the tallest thing in the market by a comfortable
+      // margin, pitched down far enough to see the grid, and pointing the same
+      // way — turning them round as well would be a second disorientation.
+      cam = { ...cam, z: Math.max(cam.z, 520), pitch: -38 };
+      handle.current.cam = cam;
+      layer.setFreeCamera(cam);
+      reportRegion();
+    };
+
+    let unlockedAt = 0;
+    const justUnlocked = () => performance.now() - unlockedAt < 250;
+
     let lastRegion: [number, number] = [cam.x, cam.y];
     const reportRegion = () => {
       if (!opts.current.onRegion) return;
@@ -193,16 +245,16 @@ export function useFreeCam(
     const contain = (next: FreeCam): FreeCam => {
       const inside = opts.current.confine;
       if (!inside) return next;
-      const [x, y] = holdInside(inside.ring, [cam.x, cam.y], [next.x, next.y]);
       const floor = inside.floorM;
       const storey = (inside as Inside & { floorHeightM?: number }).floorHeightM ?? 3.8;
-      return {
-        ...next,
-        x,
-        y,
-        // Crouch a little, stand on tiptoe a little, never leave the storey.
-        z: Math.max(floor + 0.9, Math.min(floor + storey * 0.82, next.z)),
-      };
+      const heldZ = Math.max(floor + 0.9, Math.min(floor + storey * 0.82, next.z));
+
+      // Outside on this floor: the altitude is the constraint and the plan is
+      // free. Flying back in through the glass is allowed and is the point.
+      if (opts.current.outside) return { ...next, z: heldZ };
+
+      const [x, y] = holdInside(inside.ring, [cam.x, cam.y], [next.x, next.y]);
+      return { ...next, x, y, z: heldZ };
     };
 
     let raf = 0;
@@ -227,9 +279,17 @@ export function useFreeCam(
 
         look.current.dYaw = 0;
         look.current.dPitch = 0;
-        // Inside a space, "fast" would put you through the glass in one frame
-        // and there is nowhere to go anyway.
-        cam = contain(stepFree(cam, opts.current.confine ? { ...input, fast: false } : input, dt));
+        // Indoors: a walking pace, and Shift does nothing — at eight times a
+        // flying speed you would cross a floor plate in a fifth of a second.
+        const indoors = Boolean(opts.current.confine);
+        cam = contain(
+          stepFree(
+            cam,
+            indoors ? { ...input, fast: false } : input,
+            dt,
+            indoors ? INSIDE_SPEED_MS : FREE_SPEED_MS,
+          ),
+        );
         handle.current.cam = cam;
         layer.setFreeCamera(cam);
         reportRegion();
@@ -238,25 +298,39 @@ export function useFreeCam(
     };
     raf = requestAnimationFrame(tick);
 
-    // --- Mouse: drag to look, click to select, move to see what is clickable.
-    let dragging = false;
-    let travelled = 0;
+    /**
+     * Mouse look is a mode you enter, not a button you hold.
+     *
+     * The drag-to-look version was wrong in the way that matters most: flying
+     * and steering at the same time meant holding a button down for as long as
+     * you were moving, which is not something anyone wants to do for more than
+     * about ten seconds. One click captures the pointer and after that the
+     * mouse *is* the view; the crosshair in the middle is the cursor, and a
+     * click while captured selects whatever it is on.
+     *
+     * Escape gives the pointer back — the browser does that itself, and the
+     * key handler below is careful not to also leave the mode on the same
+     * press.
+     */
     let hoverAt = 0;
+    const locked = () => document.pointerLockElement === canvas;
 
     const onMouseDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
-      dragging = true;
-      travelled = 0;
+      if (!locked()) {
+        // The first click is "give me the camera", and nothing else. Picking
+        // on the same press would select whatever happened to be under a
+        // cursor the user was only using to reach the map.
+        canvas.requestPointerLock?.();
+        return;
+      }
+      // Captured: the crosshair is the cursor, so the pick is dead centre.
+      const hit = layer.pickAt(canvas.clientWidth / 2, canvas.clientHeight / 2);
+      if (hit && opts.current.onPick) opts.current.onPick(hit.buildingId, hit.z);
     };
 
     const onMouseMove = (e: MouseEvent) => {
-      if (dragging) {
-        travelled += Math.abs(e.movementX) + Math.abs(e.movementY);
-        // The pointer is captured only once the press has become a drag, so a
-        // plain click never loses the cursor.
-        if (travelled > CLICK_SLOP_PX && document.pointerLockElement !== canvas) {
-          canvas.requestPointerLock?.();
-        }
+      if (locked()) {
         look.current.dYaw += e.movementX * SENSITIVITY;
         // Screen down is negative pitch, which is the convention every game
         // uses and the opposite of the sign of `movementY`.
@@ -264,8 +338,9 @@ export function useFreeCam(
         return;
       }
 
-      // Hover feedback, rate limited: a raycast per mouse event is a raycast
-      // several hundred times a second for a cursor shape.
+      // Not captured: an ordinary cursor, which changes shape over anything
+      // that can be clicked. Rate limited — a raycast per mouse event is a
+      // raycast several hundred times a second for a cursor shape.
       const now = performance.now();
       if (now - hoverAt < 90) return;
       hoverAt = now;
@@ -274,24 +349,33 @@ export function useFreeCam(
       canvas.style.cursor = hit ? 'pointer' : '';
     };
 
-    const onMouseUp = (e: MouseEvent) => {
-      if (e.button !== 0) return;
-      const wasDragging = dragging;
-      dragging = false;
-      if (document.pointerLockElement === canvas) document.exitPointerLock?.();
-      if (!wasDragging || travelled > CLICK_SLOP_PX) return;
-
-      const rect = canvas.getBoundingClientRect();
-      const hit = layer.pickAt(e.clientX - rect.left, e.clientY - rect.top);
-      if (hit && opts.current.onPick) opts.current.onPick(hit.buildingId, hit.z);
+    /**
+     * The crosshair follows the capture, and the store carries it.
+     *
+     * `MapView` draws the dot; it has to know when the pointer is captured,
+     * and `pointerlockchange` is the only event that says so — including when
+     * the browser releases it on its own, which Escape and losing focus both
+     * do.
+     */
+    const onLockChange = () => {
+      const on = locked();
+      useApp.getState().setPointerLocked(on);
+      if (!on) {
+        unlockedAt = performance.now();
+        canvas.style.cursor = '';
+        // A key held when the pointer was released would otherwise stay held
+        // for ever: the keyup goes to whatever has focus now.
+        held.current.clear();
+      }
     };
+    document.addEventListener('pointerlockchange', onLockChange);
 
     const onDown = (e: KeyboardEvent) => {
       if (e.code === 'Escape') {
-        if (document.pointerLockElement === canvas) {
-          document.exitPointerLock?.();
-          return;
-        }
+        // The browser has already released the pointer by the time this fires,
+        // so the first Escape is "give me my cursor back" and only a second
+        // one leaves the mode. `justUnlocked` is what tells them apart.
+        if (justUnlocked()) return;
         const state = useApp.getState();
         // Inside a space, Escape steps back out to the city rather than all
         // the way to the flat map: one step at a time is what the key means
@@ -308,14 +392,12 @@ export function useFreeCam(
     const onUp = (e: KeyboardEvent) => held.current.delete(e.code);
     const onBlur = () => {
       held.current.clear();
-      dragging = false;
       look.current.dYaw = 0;
       look.current.dPitch = 0;
     };
 
     canvas.addEventListener('mousedown', onMouseDown);
     window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
     window.addEventListener('keydown', onDown);
     window.addEventListener('keyup', onUp);
     window.addEventListener('blur', onBlur);
@@ -341,12 +423,13 @@ export function useFreeCam(
       cancelAnimationFrame(raf);
       canvas.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('pointerlockchange', onLockChange);
       window.removeEventListener('keydown', onDown);
       window.removeEventListener('keyup', onUp);
       window.removeEventListener('blur', onBlur);
       held.current.clear();
       canvas.style.cursor = '';
+      useApp.getState().setPointerLocked(false);
       for (const h of handlers) h?.enable();
       if (document.pointerLockElement === canvas) document.exitPointerLock?.();
       handle.current.cam = null;
@@ -359,7 +442,7 @@ export function useFreeCam(
     // `confine` IS a dependency in effect, through `confineKey` below: entering
     // a different space has to re-seat the camera on the new plate.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map, layer, active, frame, confineKey(options.confine)]);
+  }, [map, layer, active, frame, confineKey(options.confine), Boolean(options.outside)]);
 
   return handle.current;
 }
@@ -367,6 +450,29 @@ export function useFreeCam(
 /** A stable string for a plate, so re-entering the same one is not a change. */
 function confineKey(inside: Inside | null | undefined): string {
   return inside ? `${inside.buildingId}@${inside.floorM.toFixed(2)}` : '';
+}
+
+/**
+ * A point a few metres beyond the plate, in the direction being faced.
+ *
+ * Marched outward from the centroid the same way `seatFacing` marches, and
+ * then a little further — far enough clear of the glass that the camera is
+ * unambiguously outside it and the facade does not clip through the near
+ * plane.
+ */
+function outsideOf(ring: [number, number][], bearingDeg: number): { x: number; y: number } {
+  const c = centroidOf(ring);
+  const yaw = (bearingDeg * Math.PI) / 180;
+  const dx = Math.sin(yaw);
+  const dy = Math.cos(yaw);
+
+  let steps = 0;
+  for (let step = 1; step <= 200; step++) {
+    if (!pointInRing(ring, c.x + dx * step, c.y + dy * step)) break;
+    steps = step;
+  }
+  const clear = steps + 7;
+  return { x: c.x + dx * clear, y: c.y + dy * clear };
 }
 
 function centroidOf(ring: [number, number][]): { x: number; y: number } {

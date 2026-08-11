@@ -57,6 +57,7 @@ import { useVisibleBuildings } from './useVisibleBuildings';
 import { useExplore } from '../explore/useExplore';
 import { useWalk } from '../explore/useWalk';
 import { useFreeCam } from '../explore/useFreeCam';
+import SpaceHud from '../explore/SpaceHud';
 
 const DEFAULT_CENTER: [number, number] = [-73.98, 40.75];
 
@@ -622,6 +623,8 @@ export default function MapView() {
   const walking = useApp((s) => s.walking);
   const freeLook = useApp((s) => s.freeLook);
   const spaceExplore = useApp((s) => s.spaceExplore);
+  const spaceOutside = useApp((s) => s.spaceOutside);
+  const pointerLocked = useApp((s) => s.pointerLocked);
   const standingOn = useApp((s) => s.standingOn);
   const showContext = useApp((s) => s.showContext);
   const mapTheme = useApp((s) => s.mapTheme);
@@ -829,27 +832,50 @@ export default function MapView() {
           )
           .find((sp) => Math.abs((sp.floor_number ?? 0) - floor) <= 2);
 
+      /**
+       * A click opens the card. It does not teleport you into the room.
+       *
+       * Going straight inside was the first design and it is too much: you
+       * click a stripe to find out what it is, and being dropped onto the 23rd
+       * floor before you have read the rent is disorienting and hard to undo.
+       * The card is the same one the flat map opens, and it carries **Explore
+       * this space** — so going in is still one more click, and it is a click
+       * you meant.
+       *
+       * The pointer is handed back at the same time, because a card you cannot
+       * reach with the mouse is a card that is not there.
+       */
+      if (document.pointerLockElement) document.exitPointerLock?.();
+
+      if (state.selectedBuildingId !== buildingId) state.selectBuilding(buildingId);
+      const canvas = map?.getCanvas();
+      const rect = canvas?.getBoundingClientRect();
+      const at = {
+        x: (rect?.left ?? 0) + (rect?.width ?? 0) / 2,
+        y: (rect?.top ?? 0) + (rect?.height ?? 0) / 2,
+      };
+
       if (space) {
-        state.enterSpace(buildingId, space.id, space.floor_number ?? floor);
+        state.selectSpace(space.id);
+        state.openPopup({ kind: 'space', buildingId, recordId: space.id, ...at });
         return;
       }
-      // No availability on that floor: this is still a selection, which is
-      // what a click on a building means everywhere else in this product.
-      state.selectBuilding(buildingId);
+      state.openPopup({ kind: 'space', buildingId, recordId: null, ...at });
     },
-    [buildings],
+    [buildings, map],
   );
 
   const freeCamOptions = useMemo(
     () => ({
       confine: spaceExplore ? explore.inside : null,
+      outside: spaceOutside,
       onPick: onFreePick,
       onRegion: (lng: number, lat: number) => setFreeFocus([lng, lat]),
     }),
-    [spaceExplore, explore.inside, onFreePick],
+    [spaceExplore, spaceOutside, explore.inside, onFreePick],
   );
 
-  useFreeCam(
+  const freeCam = useFreeCam(
     map,
     explore.layer ?? null,
     mapMode === 'explore' && freeLook,
@@ -1667,11 +1693,36 @@ export default function MapView() {
             a legend underneath it is not hidden, it is half-hidden — which
             looks like a bug. It comes back when the panel is minimised. */}
         {!compareOpen && <MapLegend />}
+        {mapMode === 'explore' && spaceExplore ? <SpaceHud /> : null}
         <RadiusControl />
         <ResetView
           map={map}
           home={{ pitch: HOME_PITCH, bearing: HOME_BEARING }}
+          mode={
+            spaceExplore
+              ? { label: 'Step outside the building' }
+              : mapMode === 'explore' && freeLook
+                ? { label: 'Pull back' }
+                : null
+          }
           onReset={() => {
+            /**
+             * Three different meanings, because "reset" has three.
+             *
+             * Inside a space it means leave the room — not fly to Midtown.
+             * Flying, it means pull back and level off *here*: someone who has
+             * flown down an avenue and got lost among the towers wants their
+             * bearings back, not to be sent home. Only on the flat map does it
+             * mean the opening view.
+             */
+            if (spaceExplore) {
+              useApp.getState().leaveSpace();
+              return;
+            }
+            if (mapMode === 'explore' && freeLook) {
+              freeCam.pullBack();
+              return;
+            }
             // Everything at once: the selection is what pulled the camera in,
             // so leaving it set would have the fly-to effect drag it back the
             // moment anything re-renders.
@@ -1724,15 +1775,39 @@ export default function MapView() {
             the one view that needs the pointer captured, and a camera that
             only responds after an unexplained click is a camera that reads as
             broken. */}
+        {/* The crosshair.
+            While the pointer is captured there is no cursor, so this is the
+            cursor: it marks what a click will select and, just as importantly,
+            what "forward" means — flying without a fixed point to aim at is
+            the fastest way to feel seasick. Two rings rather than one dot so
+            it survives both a white facade and a dark night sky. */}
+        {mapMode === 'explore' && freeLook && pointerLocked && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2"
+          >
+            <div className="h-[9px] w-[9px] rounded-full border-2 border-white/90 shadow-[0_0_0_1.5px_rgba(15,23,42,0.55)]" />
+          </div>
+        )}
         {mapMode === 'explore' && freeLook && !spaceExplore && (
           <div className="absolute left-1/2 bottom-4 -translate-x-1/2 rounded-full border border-hairline bg-white/95 px-3 py-1 text-[11px] font-medium text-body shadow-card">
-            <span className="font-semibold text-ink">Drag</span> to look
-            <span className="mx-1.5 text-subtle">·</span>
-            <span className="font-semibold text-ink">Click</span> a floor to go inside it
+            {pointerLocked ? (
+              <>
+                <span className="font-semibold text-ink">Move the mouse</span> to look
+                <span className="mx-1.5 text-subtle">·</span>
+                <span className="font-semibold text-ink">Click</span> what the dot is on
+              </>
+            ) : (
+              <>
+                <span className="font-semibold text-ink">Click the map</span> to take the camera
+              </>
+            )}
             <span className="mx-1.5 text-subtle">·</span>
             <span className="font-semibold text-ink">W A S D</span> fly
             <span className="mx-1.5 text-subtle">·</span>
             <span className="font-semibold text-ink">Space C</span> up and down
+            <span className="mx-1.5 text-subtle">·</span>
+            <span className="font-semibold text-ink">Shift</span> faster
             <span className="mx-1.5 text-subtle">·</span>
             <span className="font-semibold text-ink">Esc</span> back
           </div>
@@ -1751,13 +1826,14 @@ export default function MapView() {
               })()}
             </span>
             <span className="mx-1.5 text-subtle">·</span>
-            <span className="font-semibold text-ink">Drag</span> to look
+            <span className="font-semibold text-ink">
+              {pointerLocked ? 'Move the mouse' : 'Click the map'}
+            </span>{' '}
+            to look
             <span className="mx-1.5 text-subtle">·</span>
             <span className="font-semibold text-ink">W A S D</span> walk to the glass
             <span className="mx-1.5 text-subtle">·</span>
-            <span className="font-semibold text-ink">Click</span> another tower to move to it
-            <span className="mx-1.5 text-subtle">·</span>
-            <span className="font-semibold text-ink">Esc</span> back outside
+            <span className="font-semibold text-ink">Esc</span> step outside
           </div>
         )}
         {/* Where you are, when you are inside a building. Without it, a broker

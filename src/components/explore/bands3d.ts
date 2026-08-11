@@ -51,6 +51,20 @@ export interface BandInput {
   selectedSpaceId: string | null;
   theme: 'dark' | 'light';
   colorOverrides?: ColorOverrides;
+  /**
+   * A building whose bands are not drawn at all.
+   *
+   * Set to the building you are standing inside. A band is a collar around the
+   * *outside* of the glass, and from a desk on the 23rd floor it reads as
+   * somebody having painted the window: a saturated stripe across the middle
+   * of the only view the space has. The band is doing its job — it is the
+   * loudest thing on screen — and inside the room that is exactly wrong.
+   *
+   * It is the whole building rather than the one floor, because the floors
+   * above and below are collars across the same glass at a slightly different
+   * height, and a stripe at ankle level is no better than one at eye level.
+   */
+  hideBuildingId?: string | null;
 }
 
 export interface BandGroup {
@@ -73,6 +87,7 @@ export function buildBandGroups(frame: LocalFrame, input: BandInput): BandGroup[
   const byColor = new Map<string, { color: THREE.Color; parts: MassingArrays[] }>();
 
   for (const building of input.buildings) {
+    if (input.hideBuildingId && building.id === input.hideBuildingId) continue;
     const footprint = buildingRing(building);
     if (!footprint) continue;
 

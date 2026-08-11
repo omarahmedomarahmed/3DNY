@@ -24,10 +24,27 @@ import type maplibregl from 'maplibre-gl';
  * It only appears once the camera has actually moved, so the opening view
  * never carries a button offering to restore the view you are already in.
  *
- * It sits at the bottom edge rather than the dead centre. Centred horizontally
- * — which is what makes it findable without looking — but out of the band
- * where the towers and their bands are, because a button parked on top of the
- * buildings would block both the view and the clicks.
+ * It sits at the **top** edge, centred horizontally. It was at the bottom,
+ * which was the right place while the map was something you looked down at:
+ * the towers and their bands live in the middle of the frame and a button
+ * parked on them blocks the view and the clicks. Explore mode changed where
+ * the interesting pixels are — at street level and inside a space the bottom
+ * of the frame is the floor you are standing on and the thing you are walking
+ * toward, and the top is sky. So the way back moved to the sky.
+ *
+ * ## It knows where you are
+ *
+ * "Reset" means something different in each mode and pretending otherwise
+ * makes it useless in two of the three:
+ *
+ * | Where you are | What it does |
+ * |---|---|
+ * | Inside a space | Puts you outside that building, still flying |
+ * | Free look, or at street level | Pulls back and levels off **where you are** — it does not fly you home |
+ * | The flat map | Home: north-up, the opening pitch, the whole market |
+ *
+ * The label changes with it, because a button that says "Reset the view" and
+ * does three different things is a button nobody trusts twice.
  */
 
 /** How far the camera has to stray before the way back is worth offering. */
@@ -41,11 +58,14 @@ export default function ResetView({
   map,
   home,
   onReset,
+  /** Overrides the label and forces the button on, for the Explore modes. */
+  mode = null,
 }: {
   map: maplibregl.Map | null;
   /** The camera the map opens with. */
   home: { pitch: number; bearing: number };
   onReset: () => void;
+  mode?: { label: string } | null;
 }) {
   const [moved, setMoved] = useState(false);
 
@@ -76,13 +96,17 @@ export default function ResetView({
     };
   }, [map, home.pitch, home.bearing]);
 
-  if (!map || !moved) return null;
+  // In the Explore modes the button is always offered: "where you are" is not
+  // a camera the map can compare against a home position, and someone inside a
+  // building on the 40th floor needs the way out whether or not MapLibre's own
+  // camera has moved a degree.
+  if (!map || (!moved && !mode)) return null;
 
   return (
     <button
       type="button"
       onClick={onReset}
-      className="pointer-events-auto absolute bottom-6 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2.5 rounded-full border border-hairline-strong bg-white px-6 py-3.5 text-base font-semibold text-midnight shadow-float transition-colors hover:border-midnight hover:bg-goldenrod-50"
+      className="pointer-events-auto absolute top-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2.5 rounded-full border border-hairline-strong bg-white px-6 py-3 text-base font-semibold text-midnight shadow-float transition-colors hover:border-midnight hover:bg-goldenrod-50"
     >
       <svg
         width="20"
@@ -100,7 +124,7 @@ export default function ResetView({
         <circle cx="12" cy="12" r="8.5" />
         <polygon points="12,6.5 14.6,13.5 12,12 9.4,13.5" fill="currentColor" stroke="none" />
       </svg>
-      Reset the view
+      {mode?.label ?? 'Reset the view'}
     </button>
   );
 }

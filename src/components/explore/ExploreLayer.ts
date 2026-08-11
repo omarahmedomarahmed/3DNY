@@ -38,7 +38,9 @@ import type { Agent } from '@/lib/explore/agents';
 import { makeStreets, type StreetsHandle } from './streets3d';
 import { applySkyPreset, makeSky, updateSky, type SkyHandle } from './sky3d';
 import { applyWaterPreset, makeWater, type WaterHandle } from './water3d';
+import { makeFurniture, type FurnitureHandle } from './furniture3d';
 import type { StreetscapeResult } from '@/lib/streetscape';
+import type { Inside } from '@/lib/explore/walk';
 import { freeForward, type FreeCam } from '@/lib/explore/freecam';
 
 /**
@@ -117,6 +119,7 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
   /** The host building's own facade, held while it is standing in as glass. */
   private hostMaterial: THREE.Material | null = null;
   private interiorGlass: THREE.ShaderMaterial | null = null;
+  private furniture: FurnitureHandle | null = null;
   private contextMesh: THREE.Mesh | null = null;
   private contextMaterial: THREE.ShaderMaterial | null = null;
   private contextTriangles = 0;
@@ -218,6 +221,11 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
       this.plateMesh = null;
     }
     this.plateMaterial?.dispose();
+    if (this.furniture) {
+      this.scene.remove(this.furniture.group);
+      this.furniture.dispose();
+      this.furniture = null;
+    }
     this.interiorGlass?.dispose();
     this.interiorGlass = null;
     this.hostMaterial = null;
@@ -406,7 +414,14 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
   setFloorPlate(
     buildingId: string | null,
     arrays: MassingArrays | null,
+    /** The plate itself, for the fit-out. Null leaves the floor bare. */
+    inside: Inside | null = null,
   ): void {
+    if (this.furniture) {
+      this.scene.remove(this.furniture.group);
+      this.furniture.dispose();
+      this.furniture = null;
+    }
     if (this.plateMesh) {
       this.scene.remove(this.plateMesh);
       this.plateMesh.geometry.dispose();
@@ -473,6 +488,19 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     mesh.frustumCulled = false;
     this.scene.add(mesh);
     this.plateMesh = mesh;
+
+    /**
+     * The fit-out, which is a ruler rather than a floor plan.
+     *
+     * A bare plate gives the eye nothing whose size it knows, so a 4,000 SF
+     * floor and a 40,000 SF floor look identical from inside — see
+     * `furniture3d.ts` for why that is the one thing this mode cannot afford.
+     */
+    if (inside) {
+      this.furniture = makeFurniture(inside, this.preset);
+      if (this.furniture) this.scene.add(this.furniture.group);
+    }
+
     this.map?.triggerRepaint();
   }
 
@@ -847,6 +875,8 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     buildings: number;
     streetTriangles: number;
     waterTriangles: number;
+    furnitureTriangles: number;
+    desks: number;
     contextTriangles: number;
     cars: number;
     people: number;
@@ -854,8 +884,11 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     return {
       triangles:
         this.triangles + this.bandTriangles + this.contextTriangles +
-        (this.streets?.triangles ?? 0) + (this.water?.triangles ?? 0),
+        (this.streets?.triangles ?? 0) + (this.water?.triangles ?? 0) +
+        (this.furniture?.triangles ?? 0),
       waterTriangles: this.water?.triangles ?? 0,
+      furnitureTriangles: this.furniture?.triangles ?? 0,
+      desks: this.furniture?.desks ?? 0,
       bandTriangles: this.bandTriangles,
       drawCalls: this.renderer?.info.render.calls ?? 0,
       surveyed: this.surveyedCount,
