@@ -302,10 +302,63 @@ export function groundEntry(
   obstacles: Obstacle[],
   eyeZ = EYE_HEIGHT_M,
 ): [number, number] {
-  // Two passes, because pushing out of one building can push into its
-  // neighbour on a dense block. Two is enough for every Manhattan corner;
-  // a third would be chasing a case that needs a different approach anyway.
-  let point = resolveCollisions(at, at, obstacles, eyeZ, WALKER_RADIUS_M * 2);
-  point = resolveCollisions(point, point, obstacles, eyeZ, WALKER_RADIUS_M * 2);
-  return point;
+  /**
+   * Search outward for open ground, rather than pushing and hoping.
+   *
+   * The first version resolved collisions twice from the requested point and
+   * took whatever came out. That is enough on an empty plot and nowhere near
+   * enough on a Manhattan block: with the real market and the surrounding city
+   * loaded, forty thousand footprints leave very little space between
+   * buildings, and pushing out of one lands inside the next. The walker
+   * arrived wedged, and a second of holding W moved them a metre and a half —
+   * which reads as a walk that does not work rather than as a walk against a
+   * wall.
+   *
+   * So it is a spiral: the requested point first, then rings of candidates at
+   * increasing radius, and the first one standing in the open wins. Sixty
+   * metres is about a Manhattan block's short side, which is as far as anyone
+   * would accept being moved from where they pointed.
+   */
+  if (!insideAnyBuilding(obstacles, at[0], at[1], eyeZ) &&
+      clearOf(obstacles, at[0], at[1], eyeZ, WALKER_RADIUS_M)) {
+    return at;
+  }
+
+  for (let ring = 1; ring <= 12; ring++) {
+    const radius = ring * 5;
+    // More samples further out, so the spacing between candidates stays
+    // roughly constant rather than thinning with distance.
+    const steps = 8 + ring * 4;
+    for (let i = 0; i < steps; i++) {
+      // Offset each ring, so successive rings do not sample the same bearings
+      // and miss a gap that lies between them.
+      const a = ((i + ring * 0.37) / steps) * Math.PI * 2;
+      const x = at[0] + Math.cos(a) * radius;
+      const y = at[1] + Math.sin(a) * radius;
+      if (insideAnyBuilding(obstacles, x, y, eyeZ)) continue;
+      if (!clearOf(obstacles, x, y, eyeZ, WALKER_RADIUS_M)) continue;
+      return [x, y];
+    }
+  }
+
+  // Nowhere open within sixty metres. Push out as best we can and let the
+  // walker slide — being somewhere tight is better than being inside a wall.
+  return resolveCollisions(at, at, obstacles, eyeZ, WALKER_RADIUS_M);
+}
+
+/** Whether a point has a walker's width of clearance from every wall. */
+export function clearOf(
+  obstacles: Obstacle[],
+  x: number,
+  y: number,
+  eyeZ: number,
+  radius = WALKER_RADIUS_M,
+): boolean {
+  for (const o of obstacles) {
+    if (eyeZ > o.topM) continue;
+    if (o.baseM !== undefined && eyeZ < o.baseM) continue;
+    if (o.ring.length < 3) continue;
+    if (nearestEdge(o.ring, x, y).distance < radius) return false;
+  }
+  return true;
 }

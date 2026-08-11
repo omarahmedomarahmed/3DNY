@@ -7,6 +7,7 @@ import {
   ringReachM,
   sectionAt,
   convexHull,
+  stitchLoop,
 } from '@/lib/explore/lod2';
 import {
   ingest,
@@ -316,5 +317,119 @@ describe('the registry, and where a band ends up', () => {
     for (let ft = 0; ft < 650; ft += 25) {
       expect(insetForBuilding(BUILDING, ft)).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+/**
+ * Concave cross-sections — the thing the convex hull could not do.
+ *
+ * A hull is always the right size and place and always simple, which is why it
+ * was the first answer. What it cannot do is a notch: an L-shaped base comes
+ * back as a rectangle, so a collar drawn on it lies out in the street on the
+ * notch side, and a floor plate lets you stand where there is no floor.
+ *
+ * On the Empire State Building that was visible — a Goldenrod apron round the
+ * base, wide enough that a probe six floors up landed on it.
+ */
+describe('stitching a slice into the building’s real outline', () => {
+  /** An L: 60 x 30 with a 30 x 15 bite out of the north-east corner. */
+  const L_PLAN: [number, number][] = [
+    [0, 0], [60, 0], [60, 15], [30, 15], [30, 30], [0, 30],
+  ];
+
+  const L_TOWER: Massing = {
+    anchor: [-73.98, 40.75],
+    topM: 50,
+    surfaces: L_PLAN.map((a, i) => {
+      const b = L_PLAN[(i + 1) % L_PLAN.length];
+      return { k: 'W' as const, p: [a[0], a[1], 0, b[0], b[1], 0, b[0], b[1], 50, a[0], a[1], 50] };
+    }),
+  };
+
+  it('keeps the notch instead of filling it in', () => {
+    const section = sectionAt(L_TOWER, 25);
+    expect(section).toHaveLength(6);
+    // The bitten-out corner must NOT be inside the outline. A hull would put
+    // it comfortably inside, which is exactly how a band ends up in the street.
+    expect(pointInRing(section, 50, 25)).toBe(false);
+    // And the solid part must be.
+    expect(pointInRing(section, 10, 25)).toBe(true);
+    expect(pointInRing(section, 50, 5)).toBe(true);
+  });
+
+  it('comes back counter-clockwise, which the massing builder assumes', () => {
+    const section = sectionAt(L_TOWER, 25);
+    let area = 0;
+    for (let i = 0; i < section.length; i++) {
+      const [ax, ay] = section[i];
+      const [bx, by] = section[(i + 1) % section.length];
+      area += ax * by - bx * ay;
+    }
+    expect(area).toBeGreaterThan(0);
+  });
+
+  it('takes the OUTER ring when a slice produces more than one loop', () => {
+    // A tower with a detached annexe beside it. The outer ring of the tower is
+    // what a collar wraps; the annexe is not.
+    const annexe: [number, number][] = [[100, 0], [110, 0], [110, 10], [100, 10]];
+    const twin: Massing = {
+      anchor: [-73.98, 40.75],
+      topM: 50,
+      surfaces: [
+        ...L_TOWER.surfaces,
+        ...annexe.map((a, i) => {
+          const b = annexe[(i + 1) % annexe.length];
+          return {
+            k: 'W' as const,
+            p: [a[0], a[1], 0, b[0], b[1], 0, b[0], b[1], 50, a[0], a[1], 50],
+          };
+        }),
+      ],
+    };
+    const section = sectionAt(twin, 25);
+    expect(section).toHaveLength(6);
+    expect(pointInRing(section, 105, 5)).toBe(false);
+  });
+
+  it('falls back to a hull rather than nothing when the walls do not close', () => {
+    // One wall removed: no loop to chain. A hull is the wrong shape and the
+    // right size, which is a far better failure than a bow tie.
+    const broken: Massing = { ...L_TOWER, surfaces: L_TOWER.surfaces.slice(0, -2) };
+    const section = sectionAt(broken, 25);
+    expect(section.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('still returns nothing above the top of the building', () => {
+    expect(sectionAt(L_TOWER, 500)).toHaveLength(0);
+  });
+
+  describe('the chainer itself', () => {
+    it('closes a square', () => {
+      const loop = stitchLoop([
+        [0, 0, 10, 0],
+        [10, 0, 10, 10],
+        [10, 10, 0, 10],
+        [0, 10, 0, 0],
+      ]);
+      expect(loop).toHaveLength(4);
+    });
+
+    it('does not care which way round a segment was given', () => {
+      const loop = stitchLoop([
+        [0, 0, 10, 0],
+        [10, 10, 10, 0],
+        [10, 10, 0, 10],
+        [0, 0, 0, 10],
+      ]);
+      expect(loop).toHaveLength(4);
+    });
+
+    it('returns nothing for segments that form no loop', () => {
+      expect(stitchLoop([[0, 0, 10, 0], [20, 20, 30, 20]])).toHaveLength(0);
+    });
+
+    it('rejects a two-segment degenerate loop', () => {
+      expect(stitchLoop([[0, 0, 10, 0], [10, 0, 0, 0]])).toHaveLength(0);
+    });
   });
 });

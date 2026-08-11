@@ -597,7 +597,7 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
   nearWallPointAt(
     buildingId: string,
     zM: number,
-  ): { x: number; y: number; z: number } | null {
+  ): { x: number; y: number; z: number; zMin: number; zMax: number } | null {
     const mesh = this.meshes.get(buildingId);
     if (!mesh) return null;
     const g = mesh.geometry;
@@ -606,7 +606,7 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     const index = g.getIndex();
     if (!position || !isWall || !index) return null;
 
-    let best: { x: number; y: number } | null = null;
+    let best: { x: number; y: number; zMin: number; zMax: number } | null = null;
     let bestDistance = Infinity;
 
     // Walk triangles rather than vertices, so a wall's z-span is known.
@@ -617,7 +617,9 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
       const c = index.getX(t + 2);
 
       const zs = [position.getZ(a), position.getZ(b), position.getZ(c)];
-      if (zM < Math.min(...zs) - 0.01 || zM > Math.max(...zs) + 0.01) continue;
+      const zMin = Math.min(...zs);
+      const zMax = Math.max(...zs);
+      if (zM < zMin - 0.01 || zM > zMax + 0.01) continue;
 
       for (const v of [a, b, c]) {
         const x = position.getX(v);
@@ -625,7 +627,17 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
         const d = Math.hypot(x - this.cameraPos.x, y - this.cameraPos.y);
         if (d < bestDistance) {
           bestDistance = d;
-          best = { x, y };
+          /**
+           * The wall's own z-span comes back with it.
+           *
+           * A probe that asks for a different wall at every height is not
+           * measuring one facade, it is measuring whichever piece of the
+           * building happens to span that height — and on a surveyed massing
+           * with wings, setbacks and annexes those are in wildly different
+           * places. The caller needs to know which heights this column can
+           * actually answer for.
+           */
+          best = { x, y, zMin, zMax };
         }
       }
     }

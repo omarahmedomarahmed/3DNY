@@ -11,7 +11,8 @@ import {
 import { occupancyColors, selectedSpaceColor, type ColorOverrides } from '../map/colors';
 import { bandRingAt, collarOf } from '@/lib/explore/profile';
 import { ringToLocal, type LocalFrame } from '@/lib/explore/frame';
-import { extrudedMassing, mergeMassings, type MassingArrays } from '@/lib/explore/massing';
+import { insetRingLocal, mergeMassings, type MassingArrays } from '@/lib/explore/massing';
+import { parapetMassing } from './roofs3d';
 
 /**
  * Availability, drawn in the same buffer as the city.
@@ -120,8 +121,24 @@ export function buildBandGroups(frame: LocalFrame, input: BandInput): BandGroup[
       const heightM = Math.max(0.4, floorFt * (band.floors - 1 + fraction) * FT_TO_M);
       const baseM = band.baseFt * FT_TO_M;
 
+      /**
+       * A band is a hollow collar, not a solid prism.
+       *
+       * A prism carries a lid, and a lid is invisible right up until the
+       * collar's ring is materially wider than the wall it belongs to. That
+       * happens at ground level on a building with an L-shaped base: the
+       * cross-section there is a convex hull, so the ring is wider than the
+       * masonry, and the lid became a Goldenrod apron lying on the pavement
+       * all round the Empire State Building — visible from any pitched
+       * camera, and large enough that a probe six floors up landed on it.
+       *
+       * The parapet builder already makes exactly the right shape: an outer
+       * face, an inner face and a coping between them. Reused rather than
+       * rewritten, so a fix to one is a fix to both.
+       */
+      const outer = ringToLocal(frame, ring);
       group.parts.push(
-        extrudedMassing(ringToLocal(frame, ring), baseM + heightM, baseM),
+        parapetMassing(outer, insetRingLocal(outer, 0.97), baseM, heightM),
       );
     }
   }

@@ -1,5 +1,5 @@
 import type { Massing, Surface } from '@/lib/citygml';
-import { toLocal, type LocalFrame } from './frame';
+import { toCCW, toLocal, type LocalFrame } from './frame';
 import { triangulatePlanar, polygonNormal } from './tessellate';
 import type { MassingArrays } from './massing';
 
@@ -297,11 +297,24 @@ export function radiusFromProfile(profile: HeightProfile, zM: number): number {
  * its light well. That is a real limitation and it is worth the exchange.
  */
 export function sectionAt(massing: Massing, zM: number): [number, number][] {
-  const points: [number, number][] = [];
+  /**
+   * Each wall contributes a SEGMENT, not two loose points.
+   *
+   * That is the whole difference between this and the convex hull it
+   * replaces. A wall in this model is a vertical polygon, so a plane through
+   * it cuts a single horizontal segment between its two vertical edges — and
+   * a segment carries the one piece of information a point does not: which
+   * other point it is joined to. With that, the slice can be chained into the
+   * building's real outline; without it, the best available answer is the
+   * hull, which fills in every concavity.
+   */
+  const segments: [number, number, number, number][] = [];
 
   for (const s of massing.surfaces) {
     if (s.k !== 'W' || s.p.length < 9) continue;
     const n = s.p.length / 3;
+    const crossings: [number, number][] = [];
+
     for (let i = 0; i < n; i++) {
       const j = (i + 1) % n;
       const az = s.p[i * 3 + 2];
@@ -310,19 +323,114 @@ export function sectionAt(massing: Massing, zM: number): [number, number][] {
       // double-count a vertex sitting exactly on it.
       if ((az < zM && bz < zM) || (az > zM && bz > zM)) continue;
       if (Math.abs(bz - az) < 1e-9) {
-        points.push([s.p[i * 3], s.p[i * 3 + 1]]);
+        // A horizontal edge lying in the plane: both ends are on the cut.
+        crossings.push([s.p[i * 3], s.p[i * 3 + 1]]);
+        crossings.push([s.p[j * 3], s.p[j * 3 + 1]]);
         continue;
       }
       const t = (zM - az) / (bz - az);
       if (t < -0.001 || t > 1.001) continue;
-      points.push([
+      crossings.push([
         s.p[i * 3] + (s.p[j * 3] - s.p[i * 3]) * t,
         s.p[i * 3 + 1] + (s.p[j * 3 + 1] - s.p[i * 3 + 1]) * t,
       ]);
     }
+
+    // A convex wall gives two crossings. More than two happens on a folded
+    // surface; pairing them in order is right for those and harmless
+    // otherwise, because they arrive in the polygon's own winding order.
+    for (let i = 0; i + 1 < crossings.length; i += 2) {
+      const [ax, ay] = crossings[i];
+      const [bx, by] = crossings[i + 1];
+      if (Math.hypot(bx - ax, by - ay) < 1e-4) continue;
+      segments.push([ax, ay, bx, by]);
+    }
   }
 
+  if (segments.length === 0) return [];
+
+  const stitched = stitchLoop(segments);
+  if (stitched.length >= 3) return toCCW(stitched);
+
+  /**
+   * The hull, when stitching cannot find a loop.
+   *
+   * A building whose walls do not close at this height — a model with a gap
+   * in it, or a slice exactly through a setback where two shells meet — has
+   * no outline to chain. A hull is always a simple polygon of about the right
+   * size in about the right place, which is a far better failure than a
+   * self-intersecting ring drawn as a bow tie across the building.
+   */
+  const points: [number, number][] = [];
+  for (const [ax, ay, bx, by] of segments) {
+    points.push([ax, ay], [bx, by]);
+  }
   return convexHull(points);
+}
+
+/**
+ * Chains cut segments into the longest closed loop they form.
+ *
+ * Endpoints are matched on a decimetre grid, which is exactly the precision
+ * `citygml.ts` rounds its coordinates to — so two segments that genuinely
+ * share a corner share it to the bit, and two that merely pass near each other
+ * do not.
+ *
+ * The LONGEST loop, because a building can slice into several: a tower with a
+ * detached annexe, or a lightwell, gives an outer ring and an inner one. The
+ * outer is the one a collar wraps and the one a floor plate stands on.
+ */
+export function stitchLoop(
+  segments: [number, number, number, number][],
+): [number, number][] {
+  const key = (x: number, y: number) => `${Math.round(x * 10)},${Math.round(y * 10)}`;
+
+  /** Every segment that touches a given node. */
+  const at = new Map<string, number[]>();
+  for (let i = 0; i < segments.length; i++) {
+    for (const k of [key(segments[i][0], segments[i][1]), key(segments[i][2], segments[i][3])]) {
+      const list = at.get(k);
+      if (list) list.push(i);
+      else at.set(k, [i]);
+    }
+  }
+
+  const used = new Array<boolean>(segments.length).fill(false);
+  let best: [number, number][] = [];
+
+  for (let start = 0; start < segments.length; start++) {
+    if (used[start]) continue;
+
+    const loop: [number, number][] = [];
+    let current = start;
+    let [cx, cy] = [segments[start][0], segments[start][1]];
+    const startKey = key(cx, cy);
+    // A guard rather than a condition: a malformed set of segments could
+    // otherwise walk in a circle that never returns to its start.
+    let guard = segments.length + 2;
+
+    while (guard-- > 0) {
+      used[current] = true;
+      loop.push([cx, cy]);
+
+      const [ax, ay, bx, by] = segments[current];
+      // Step to whichever end of this segment we did NOT arrive at.
+      const [nx, ny] = key(ax, ay) === key(cx, cy) ? [bx, by] : [ax, ay];
+      if (key(nx, ny) === startKey) {
+        // Closed. A loop of two segments is a degenerate back-and-forth.
+        if (loop.length >= 3 && loop.length > best.length) best = loop;
+        break;
+      }
+
+      const next = (at.get(key(nx, ny)) ?? []).find((i) => !used[i]);
+      if (next === undefined) break;
+      current = next;
+      cx = nx;
+      cy = ny;
+    }
+  }
+
+  return best;
 }
 
 /** Andrew's monotone chain. Counter-clockwise, no repeated closing vertex. */

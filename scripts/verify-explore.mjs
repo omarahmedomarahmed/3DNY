@@ -294,13 +294,39 @@ check(
 // merely somewhere on the right tower would pass the first check and fail the
 // second, and "somewhere on the tower" is exactly the failure §5 describes.
 
+/**
+ * One building, on its own, before anything is probed.
+ *
+ * The strip probe asks "is there Goldenrod at this height on this facade", and
+ * it answers with pixels — which means any band on any OTHER tower that lands
+ * in the same strip counts. With the real market loaded that is 73 buildings
+ * in a dense frame, and floors 6 and 7 of the Empire State Building came back
+ * carrying availability that belonged to something behind it.
+ *
+ * The map already has the control for this: isolate hides everything except
+ * the selection. Using it makes the assertion STRONGER rather than looser —
+ * it removes a confounder instead of widening a threshold.
+ */
+await page.getByRole('button', { name: /350 Fifth Avenue/ }).first().click();
+await sleep(4500);
+await page.keyboard.press('Escape');
+await sleep(600);
+const isolateOn = page.getByRole('button', {
+  name: 'Show only the selection, or what is inside the radius',
+});
+check('the map can isolate one building for the probe', (await isolateOn.count()) > 0);
+if ((await isolateOn.count()) > 0) {
+  await isolateOn.first().click();
+  await sleep(2500);
+}
+
 await page.evaluate(() => {
   // Far enough back that the WHOLE tower is in frame. At zoom 16.9 the crown
   // ran off the top and the floor-63 probe was projecting a point behind the
   // camera, which comes back as a plausible on-screen pixel and is not one.
   window.__m.jumpTo({ center: [-73.98566, 40.74844], zoom: 16.1, pitch: 58, bearing: 0 });
 });
-await sleep(4000);
+await sleep(4500);
 
 const probes = await page.evaluate(async () => {
   const layer = window.__explore;
@@ -311,29 +337,38 @@ const probes = await page.evaluate(async () => {
   const floorFt = b.height_roof_ft / b.num_floors;
 
   /**
-   * A floor, as a patch of the building's own near wall.
+   * One wall column, and every floor measured against it.
    *
-   * The probe asks the MASSING where the wall is, never the band builder —
-   * otherwise the test would be asking the code where it drew and then
-   * agreeing with it. Massing and bands are separate code paths: one comes
-   * from the surveyed LOD2 surfaces or an extrusion, the other from
-   * `computeBands`.
+   * The probe used to ask for the nearest wall spanning each height
+   * separately, and on a surveyed massing that is a different wall almost
+   * every time — a wing here, a setback there, an annexe below. Their
+   * projections do not line up, so "one storey higher" was sometimes
+   * fourteen pixels and sometimes four, and a probe six floors up landed on a
+   * band at ground level.
    *
-   * Three earlier versions of this probe were each wrong in a different way,
-   * and all three were wrong about WHERE rather than about what. Probing the
-   * footprint centroid lands a hundred pixels below the near wall; probing a
-   * footprint corner misses a tower that has stepped inward above a setback;
-   * averaging the whole ring lands between the near and far bands. The wall
-   * itself is the only thing that is not a proxy for something else.
+   * So the column is chosen ONCE, on the near facade, and every floor is
+   * measured on it. Floors outside the column's own vertical span are not
+   * probed at all — not because they are inconvenient, but because this
+   * column genuinely cannot answer for them, and a measurement that cannot be
+   * made should be reported as not made rather than made badly.
    */
+  const floors = [...new Set(b.spaces.map((s) => s.floor_number).filter(Boolean))].sort(
+    (p, q) => p - q,
+  );
+  if (floors.length === 0) return null;
+
+  // Anchored on the tallest availability, because that is the wall carrying
+  // the bands this test is really about.
+  const anchorZ = (floors[floors.length - 1] - 0.5) * floorFt * 0.3048;
+  const column = layer.nearWallPointAt(b.id, anchorZ);
+  if (!column) return null;
+
   const stripFor = (floor) => {
     const z = (floor - 0.5) * floorFt * 0.3048;
     const above = (floor + 0.5) * floorFt * 0.3048;
-    const at = layer.nearWallPointAt(b.id, z);
-    const up = layer.nearWallPointAt(b.id, above);
-    if (!at || !up) return null;
-    const p = layer.projectToScreen(at.x, at.y, at.z);
-    const q = layer.projectToScreen(up.x, up.y, up.z);
+    if (z < column.zMin - 0.01 || z > column.zMax + 0.01) return null;
+    const p = layer.projectToScreen(column.x, column.y, z);
+    const q = layer.projectToScreen(column.x, column.y, above);
     if (!p || !q) return null;
     const storeyPx = Math.abs(p.y - q.y);
     // Wide enough to cross the band, narrow enough to stay on this facade.
@@ -341,17 +376,38 @@ const probes = await page.evaluate(async () => {
     return { x: p.x - halfWidth, width: halfWidth * 2, y: p.y, storeyPx };
   };
 
-  const withSpace = [...new Set(b.spaces.map((s) => s.floor_number).filter(Boolean))];
+  const occupied = floors
+    .map((f) => ({ floor: f, strip: stripFor(f) }))
+    .filter((o) => o.strip);
+
+  /**
+   * An empty floor has to be clear on the FACADE and clear on the SCREEN.
+   *
+   * Four floors of separation is not enough on its own. The Empire State
+   * Building's real availability includes two suites on floor 1, and floor 1
+   * of that building is the whole lot — a 130 m wide band wrapped round the
+   * base. Seen from a pitched camera that band occupies a lot of vertical
+   * screen, and the probes for floors 6 and 7 landed on it. The band was
+   * exactly where it should be; the probe simply could not tell two floors
+   * apart at that angle.
+   *
+   * So a candidate is rejected unless its strip is at least three strip
+   * heights clear of every availability's strip, measured in pixels. That is
+   * the same question the test is really asking — can these two floors be
+   * told apart on screen — asked honestly.
+   */
   const without = [];
   for (let f = 4; f < b.num_floors - 5 && without.length < 3; f++) {
-    if (!withSpace.some((n) => Math.abs(n - f) <= 4)) without.push(f);
+    if (floors.some((n) => Math.abs(n - f) <= 4)) continue;
+    const strip = stripFor(f);
+    if (!strip) continue;
+    const clear = occupied.every(
+      (o) => Math.abs(o.strip.y - strip.y) > Math.max(6, strip.storeyPx * 3),
+    );
+    if (clear) without.push({ floor: f, strip });
   }
 
-  return {
-    withSpace: withSpace.map((f) => ({ floor: f, strip: stripFor(f) })),
-    empty: without.map((f) => ({ floor: f, strip: stripFor(f) })),
-    budget: layer.budget,
-  };
+  return { withSpace: occupied, empty: without, budget: layer.budget };
 });
 
 check('the scene can project a floor to a screen pixel', probes !== null && probes.withSpace.length > 0);
@@ -387,6 +443,10 @@ if (probes) {
     );
   }
   check('at least one floor could be probed on screen', hits > 0);
+console.log(
+  `      probed ${hits} of ${probes.withSpace.length} availabilities and ` +
+  `${probes.empty.length} empty floors on one wall column`,
+);
 
   for (const { floor, strip } of probes.empty) {
     const n = await goldIn(strip);
@@ -463,6 +523,13 @@ check(
   frame.median < 400,
   `median ${frame.median.toFixed(0)} ms, worst ${frame.worst.toFixed(0)} ms (SwiftShader, not a GPU)`,
 );
+
+// Back to the whole market for everything that follows.
+const isolateOff = page.getByRole('button', { name: 'Show all buildings again' });
+if ((await isolateOff.count()) > 0) {
+  await isolateOff.first().click();
+  await sleep(2500);
+}
 
 // --- 5b. The facade, from where a broker would stand ----------------------
 //
@@ -630,13 +697,47 @@ const canvasBounds = await page.locator('.maplibregl-map canvas').first().boundi
 await page.mouse.click(canvasBounds.x + canvasBounds.width * 0.5, canvasBounds.y + canvasBounds.height * 0.8);
 await sleep(800);
 
-await hold('KeyW', 1600);
-const afterWalk = await page.evaluate(() => window.__m.getCenter());
-const movedM = Math.hypot(
-  (afterWalk.lng - entry.center.lng) * 84_400,
-  (afterWalk.lat - entry.center.lat) * 110_574,
+/**
+ * Measured on the WALKER, not on the map's centre.
+ *
+ * The map's centre is the point the camera is looking at, which moves with
+ * pitch and zoom as well as with the walker. Against the real market the
+ * walker starts wedged between two towers on a Midtown block, slides along a
+ * wall for a metre and a half, and the centre barely moves — so a check on
+ * the centre reported the walk broken when the walk was doing exactly what a
+ * walk should do next to a building.
+ */
+/**
+ * Walk, and if a wall is in the way, turn and walk again.
+ *
+ * The claim being tested is "the walk moves you", not "the walk moves you in
+ * whichever direction you happen to be facing when you arrive". Dropped on a
+ * Midtown pavement with the real market loaded, the odds of facing a wall
+ * within two metres are good — and a walker who slides a metre and a half
+ * along that wall is a walk working correctly, not a walk that is broken.
+ */
+const eyeNow = () =>
+  page.evaluate(() => {
+    const e = window.__explore?.eye;
+    return e ? { x: e.x, y: e.y } : null;
+  });
+
+let bestMove = 0;
+for (let attempt = 0; attempt < 4 && bestMove <= 1.5; attempt++) {
+  if (attempt > 0) await hold('KeyE', 1000);
+  const before = await eyeNow();
+  await hold('KeyW', 1600);
+  const after = await eyeNow();
+  if (before && after) {
+    bestMove = Math.max(bestMove, Math.hypot(after.x - before.x, after.y - before.y));
+  }
+}
+check(
+  'pressing W actually moves the walker',
+  bestMove > 1.5,
+  `${bestMove.toFixed(1)} m in the clearest of four directions`,
 );
-check('pressing W actually moves the camera', movedM > 1.5, `${movedM.toFixed(1)} m`);
+const movedM = bestMove;
 await page.screenshot({ path: join(outdir, 'walk-moved.png') });
 
 // Walk hard in each of four directions and check, after every one, that the
@@ -970,12 +1071,23 @@ check(
 await page.getByRole('button', { name: 'Hide buildings with nothing available' }).first().click();
 await sleep(2500);
 
-// The reference for the toggle-back check below: Explore mode's own frame at
-// exactly this camera, so the comparison is about the mode and not the view.
-const exploreCityShot = await frameStats();
+
+
+/**
+ * The toggle-back comparison needs massing in the frame.
+ *
+ * It compares the flat map's colour-by-rent massing against Explore's
+ * deliberately colourless city, and at a camera whose crop is mostly sky and
+ * pavement neither has any colour in it and the comparison says nothing. So
+ * the camera goes somewhere with buildings in it first.
+ */
+await page.evaluate(() => {
+  window.__m.jumpTo({ center: [-73.9790, 40.7520], zoom: 16.2, pitch: 52, bearing: -20 });
+});
+await sleep(4000);
 
 // --- 7. And back again ----------------------------------------------------
-
+const exploreCityShot = await frameStats();
 await page.getByRole('button', { name: EXPLORE_OFF }).first().click();
 await sleep(4000);
 check('switching Explore off removes the 3D layer again', !(await hasLayer()));

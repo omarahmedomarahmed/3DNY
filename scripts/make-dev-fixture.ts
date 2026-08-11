@@ -1,7 +1,8 @@
 /**
  * A development dataset, so the map can be driven without the live database.
  *
- *   npx tsx scripts/make-dev-fixture.ts
+ *   npx tsx scripts/make-dev-fixture.ts --live      # the real market, preferred
+ *   npx tsx scripts/make-dev-fixture.ts             # synthetic, offline fallback
  *
  * The production map reads Neon. A development container has no connection
  * string and no way to get one, which would leave every browser harness and
@@ -12,18 +13,27 @@
  * **only** when `SPACES_FIXTURE_DB=1` is set. It is never on in production and
  * never on by default.
  *
- * What is real here and what is not, stated plainly:
+ * Two modes, and `--live` is the one to use:
  *
- * | Field | Source |
+ * | Mode | Where the data comes from |
  * |---|---|
- * | BIN, footprint ring, roof height, ground elevation | NYC Building Footprints `5zhs-2jue` — real |
- * | Floor count, year built, building area | MapPLUTO `64uk-42ks` — real |
- * | Address, coordinates | Real |
- * | Floors available, SF, asking rent, landlord | **Invented.** Development scaffolding |
+ * | `--live` | The deployed app's own `/api/buildings`, which reads the real Neon database. 73 buildings, 312 real availabilities, real landlords, provenance intact |
+ * | default | Real NYC Open Data geometry with **invented** availability rows on top |
  *
- * Every invented row is stamped FIXTURE in its notes and carries a fixture
- * import filename, so it cannot be mistaken for a landlord feed at a glance or
- * in a screenshot. Nothing here is ever written to a database.
+ * The `--live` route needs no credentials: the map is served without a sign-in,
+ * deliberately, so its read-only API is reachable. It is a **read**, and the
+ * only one this script has ever made — nothing here writes to a database in
+ * either mode.
+ *
+ * **The output is gitignored**, and that is not incidental. In `--live` mode
+ * `fixtures/dev-buildings.json` holds real landlord availability with real
+ * asking rents, and a snapshot of a live market does not belong in a git
+ * history where it will still be sitting, silently stale, in a year. Same rule
+ * as `public/lod2/massing.json`: cheap to regenerate, never committed.
+ *
+ * In the synthetic mode every invented row is stamped FIXTURE in its notes and
+ * carries a fixture import filename, so it cannot be mistaken for a landlord
+ * feed at a glance or in a screenshot.
  */
 
 import { writeFile, mkdir } from 'node:fs/promises';
@@ -32,6 +42,24 @@ import { dirname } from 'node:path';
 const FOOTPRINTS = 'https://data.cityofnewyork.us/resource/5zhs-2jue.json';
 const PLUTO = 'https://data.cityofnewyork.us/resource/64uk-42ks.json';
 const OUT = 'fixtures/dev-buildings.json';
+
+const args = process.argv.slice(2);
+const value = (name: string) =>
+  args.find((a) => a.startsWith(`--${name}=`))?.split('=').slice(1).join('=');
+
+/** Read the real market rather than synthesising one. */
+const LIVE = args.includes('--live') || Boolean(value('live'));
+
+/**
+ * The deployed app to read from.
+ *
+ * Defaults to the production alias rather than a preview: previews come and go
+ * with branches, and a fixture regenerated from a branch that has since been
+ * deleted fails with a 404 that looks like a network problem.
+ */
+const LIVE_URL =
+  value('live') ??
+  'https://cresa-git-main-omarabdelgawad001-4055s-projects.vercel.app';
 
 const FIXTURE_NOTE =
   'FIXTURE — synthetic development data. Not a listing, not from a landlord feed.';
@@ -236,7 +264,75 @@ async function getJson(url: string): Promise<any[]> {
   return (await res.json()) as any[];
 }
 
+/**
+ * The real market, straight from the deployed app.
+ *
+ * `/api/buildings` returns exactly what the map itself consumes —
+ * `BuildingWithSpaces[]`, footprints joined, rents and provenance intact — so
+ * the fixture is not a reconstruction of the live data, it IS the live data
+ * as the map sees it. Nothing is reshaped, because every reshaping is a place
+ * the fixture could diverge from what a broker actually looks at.
+ */
+async function fetchLive(): Promise<void> {
+  const url = `${LIVE_URL.replace(/\/$/, '')}/api/buildings`;
+  console.log(`Reading the live market from ${url}`);
+
+  const res = await fetch(url, { headers: { accept: 'application/json' } });
+  if (!res.ok) {
+    throw new Error(
+      `${res.status} from ${url}. The deployment may have been renamed or ` +
+        'removed; pass --live=<base-url> with a current one.',
+    );
+  }
+
+  const buildings = (await res.json()) as {
+    address_display: string;
+    bin: string | null;
+    footprint: unknown;
+    spaces?: unknown[];
+    tenants?: unknown[];
+  }[];
+
+  if (!Array.isArray(buildings) || buildings.length === 0) {
+    throw new Error('The live API returned no buildings. Refusing to write an empty fixture.');
+  }
+
+  const spaces = buildings.reduce((n, b) => n + (b.spaces?.length ?? 0), 0);
+  const tenants = buildings.reduce((n, b) => n + (b.tenants?.length ?? 0), 0);
+  const withBin = buildings.filter((b) => b.bin).length;
+  const withRing = buildings.filter((b) => b.footprint).length;
+
+  await mkdir(dirname(OUT), { recursive: true });
+  await writeFile(
+    OUT,
+    JSON.stringify(
+      {
+        generatedAt: new Date().toISOString(),
+        source: url,
+        note:
+          'A read-only snapshot of the live market, for local development. ' +
+          'Real landlord availability — gitignored, and regenerated rather than committed.',
+        buildings,
+      },
+      null,
+      1,
+    ),
+  );
+
+  console.log(
+    `\nWrote ${OUT} — ${buildings.length} buildings, ${spaces} spaces, ` +
+      `${tenants} tenancies.\n` +
+      `${withBin} carry a BIN and ${withRing} a footprint, which is what the ` +
+      'surveyed massing and the floor bands both need.',
+  );
+}
+
 async function main() {
+  if (LIVE) {
+    await fetchLive();
+    return;
+  }
+
   const now = new Date().toISOString();
   const buildings: unknown[] = [];
 
