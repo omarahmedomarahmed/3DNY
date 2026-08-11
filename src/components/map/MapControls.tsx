@@ -179,6 +179,8 @@ export default function MapControls({
   snapshotBusy,
 }: MapControlsProps) {
   const photoreal = useApp((s) => s.photoreal);
+  const mapMode = useApp((s) => s.mapMode);
+  const setMapMode = useApp((s) => s.setMapMode);
   const setPhotoreal = useApp((s) => s.setPhotoreal);
   const showContext = useApp((s) => s.showContext);
   const setShowContext = useApp((s) => s.setShowContext);
@@ -505,6 +507,31 @@ export default function MapControls({
           <path d="M5 20V12h4v8" />
           <path d="M10.5 20V6h4v14" />
           <path d="M16 20v-6h3v6" />
+        </Icon>
+      </ControlButton>
+
+      {/* Explore mode: the same city, as something you move through rather
+          than look down at. It is a second mode reached by a button, never the
+          default — the flat map is the working tool and stays untouched
+          behind this. */}
+      <ControlButton
+        label={
+          mapMode === 'explore'
+            ? 'Back to the flat map'
+            : 'Explore this city in 3D'
+        }
+        hint="Turns the map into a real-time 3D Manhattan you can move through: real facades, real glass, and every available floor still lit. The flat map is one click away."
+        active={mapMode === 'explore'}
+        disabled={!map}
+        onClick={() => setMapMode(mapMode === 'explore' ? 'flat' : 'explore')}
+      >
+        {/* A tower seen in perspective, rather than the flat elevation the
+            "surrounding city" button uses. The difference between the two
+            buttons IS the difference between the two modes. */}
+        <Icon>
+          <path d="M4 9.2 12 5l8 4.2v8.4L12 22l-8-4.4z" />
+          <path d="M12 5v17" />
+          <path d="M4 9.2 12 13.5l8-4.3" />
         </Icon>
       </ControlButton>
 

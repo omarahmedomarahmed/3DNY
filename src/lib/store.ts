@@ -49,6 +49,16 @@ export interface PopupWindow {
   pinned: boolean;
 }
 
+/**
+ * Which map you are looking at.
+ *
+ * `flat` is the map that exists today and it is the default and the fallback:
+ * every existing behaviour, harness and habit belongs to it. `explore` is the
+ * second mode — a real-time 3-D Manhattan you move through — reached by a
+ * button and never entered by accident.
+ */
+export type MapMode = 'flat' | 'explore';
+
 interface AppState {
   buildings: BuildingWithSpaces[];
   loading: boolean;
@@ -58,6 +68,10 @@ interface AppState {
   colorMode: ColorMode;
   /** Google photorealistic tiles instead of the free grey city massing. */
   photoreal: boolean;
+  /** Flat map, or the 3-D city you can walk through. Flat is the default. */
+  mapMode: MapMode;
+  /** First person at street level, rather than the free drone camera. */
+  walking: boolean;
   /**
    * Whether buildings with nothing available are drawn at all — the grey city
    * and the filtered-out massing. Off by default: the clean map is the one
@@ -141,6 +155,8 @@ interface AppState {
   resetFilters: () => void;
   setColorMode: (m: ColorMode) => void;
   setPhotoreal: (on: boolean) => void;
+  setMapMode: (m: MapMode) => void;
+  setWalking: (on: boolean) => void;
   setShowContext: (on: boolean) => void;
   setMapTheme: (t: 'dark' | 'light') => void;
   setTimeOfDay: (t: TimeOfDay | null) => void;
@@ -189,6 +205,8 @@ export const useApp = create<AppState>((set, get) => ({
   filters: EMPTY_FILTERS,
   colorMode: 'rent',
   photoreal: false,
+  mapMode: 'flat',
+  walking: false,
   showContext: false,
   // Light. Dark was the default on the argument that these maps are shown in
   // dim rooms on projectors — true of some meetings and not of the laptop
@@ -264,6 +282,19 @@ export const useApp = create<AppState>((set, get) => ({
 
   setPhotoreal(photoreal) {
     set({ photoreal });
+  },
+
+  setMapMode(mapMode) {
+    // Explore mode draws the city itself, so Google's photorealistic mesh and
+    // it are two answers to the same question. Leaving both on gives a scene
+    // with two of every building in it, half a metre apart.
+    set(mapMode === 'explore' ? { mapMode, photoreal: false } : { mapMode, walking: false });
+  },
+
+  setWalking(walking) {
+    // Walking is a thing you do inside Explore mode. Asking for it from the
+    // flat map is a reasonable thing to want and means switching modes.
+    set(walking ? { walking, mapMode: 'explore' } : { walking });
   },
 
   setShowContext(showContext) {

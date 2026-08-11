@@ -8,6 +8,7 @@ import {
   computeBands,
   computeFloorLines,
   contactShadowRings,
+  insetRing,
   spaceClaims,
   tenantClaims,
   type FloorClaim,
@@ -35,6 +36,7 @@ import { buildGroundLayers, cachedRoadIndex, GROUND_TOP_Z, type ViewportBounds }
 import { buildRoofLayers, CONTEXT_ROOF_LIMIT, CONTEXT_ROOF_ZOOM } from './roofs';
 import type { StreetscapeResult } from '@/lib/streetscape';
 import { seededUnit } from '@/lib/roofscape';
+import { bandRingAt, collarOf } from '@/lib/explore/profile';
 import { routeOnStreets, walkGraphFor } from '@/lib/walk-network';
 import { buildStationLayers } from './stations';
 import type { Building } from '@/types';
@@ -136,6 +138,22 @@ export interface BuildLayersOptions {
    * shape of the product before any tenant data exists.
    */
   occupancyKinds?: OccupancyKind[];
+  /**
+   * True while Explore mode is drawing the city in three.js.
+   *
+   * deck.gl's overlay is a SEPARATE canvas composited on top of MapLibre's,
+   * so anything opaque it draws hides the three.js scene underneath entirely —
+   * a grey massing box would simply cover the facade it is standing in for.
+   * So in Explore mode deck.gl draws only the things that belong on top of the
+   * world rather than in it: the availability bands, the name-plates, transit,
+   * the radius ring.
+   *
+   * The buildings layer stays, invisible, because it is what makes a tower
+   * clickable. Picking runs in its own framebuffer and does not care what
+   * alpha the layer was drawn with, so the popups, the fly-to and every
+   * existing click behaviour keep working untouched.
+   */
+  explore?: boolean;
 }
 
 /**
@@ -159,6 +177,15 @@ const KIND_ORDER: Record<OccupancyKind, number> = {
   available: 2,
 };
 
+/**
+ * Fully transparent, for the buildings layer in Explore mode.
+ *
+ * Named rather than inlined because "why is the buildings layer invisible" is
+ * a question somebody will ask, and the answer — it is there to be clicked, not
+ * to be seen — belongs next to the value.
+ */
+const EXPLORE_INVISIBLE: RGBA = [0, 0, 0, 0];
+
 /** A polygon ring carrying a fixed z, so deck.gl extrudes from that base. */
 type Ring3 = [number, number, number][];
 
@@ -169,7 +196,8 @@ interface FloorLineDatum {
 }
 
 interface BandDatum extends FloorBand {
-  ring: Ring3;
+  /** Outer ring, and — in Explore mode — the hole that makes it a collar. */
+  ring: Ring3 | Ring3[];
   heightM: number;
   building: BuildingWithSpaces;
 }
@@ -354,6 +382,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
     onTenantClick,
     onHover,
     occupancyKinds = ['available'],
+    explore = false,
   } = opts;
 
   const kinds = new Set<OccupancyKind>(occupancyKinds);
@@ -402,7 +431,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
   // --- Our own ground: streets, kerbs, sidewalks, water. Drawn before every
   // other layer so the whole city stands on it. Photoreal imagery carries its
   // own ground, so the two never draw together.
-  if (!photoreal && streetscape) {
+  if (!photoreal && !explore && streetscape) {
     layers.push(...buildGroundLayers({ streetscape, theme, zoom, view, haze: sceneryHaze }));
   }
 
@@ -412,7 +441,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
   //
   // BINs we already render are skipped, otherwise the tower carrying the data
   // would be buried inside an identical gray copy of itself.
-  if (showContext && !photoreal && cityContext && cityContext.length > 0) {
+  if (showContext && !photoreal && !explore && cityContext && cityContext.length > 0) {
     const ownBins = new Set(
       buildings.map((b) => b.bin).filter((bin): bin is string => Boolean(bin)),
     );
@@ -461,7 +490,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
   // --- Context: everything the filters excluded, kept as dim massing so the
   // map never empties out mid-meeting.
   const context =
-    photoreal || !showContext
+    photoreal || explore || !showContext
       ? []
       : buildings.filter((b) => !filteredIds.has(b.id) && buildingRing(b) !== null);
 
@@ -499,7 +528,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
   // striped every facade, and this is what renderers use in their place.
   const pools: { ring: [number, number][]; opacity: number }[] = [];
   for (const building of active) pools.push(...contactShadowRings(building));
-  if (!photoreal && pools.length > 0) {
+  if (!photoreal && !explore && pools.length > 0) {
     layers.push(
       new PolygonLayer<{ ring: [number, number][]; opacity: number }>({
         id: 'contact-shadows',
@@ -558,7 +587,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       // sits where a real shadow would.
       extruded: !photoreal,
       filled: true,
-      stroked: photoreal,
+      stroked: photoreal && !explore,
       getLineColor: palette.labelBorder,
       getLineWidth: 2,
       lineWidthUnits: 'pixels',
@@ -569,7 +598,8 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       // footprint is a flat plate with no side faces to draw them on. The
       // haze rides alongside at reduced strength — a building carrying data
       // sits in the air but is never softened out of the conversation.
-      extensions: photoreal ? [] : [theme === 'dark' ? FACADE_DARK : FACADE_LIGHT, subjectHaze],
+      extensions:
+        photoreal || explore ? [] : [theme === 'dark' ? FACADE_DARK : FACADE_LIGHT, subjectHaze],
       // Tuned for a real sun rather than a flat ambient wash: enough diffuse
       // that the lit and shaded walls of a tower differ plainly as the camera
       // orbits, and a small specular term so the highlight travels across the
@@ -577,7 +607,12 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       material: { ambient: 0.62, diffuse: 0.6, shininess: 12, specularColor: [38, 44, 58] },
       getPolygon: (b) => buildingRing(b) ?? [],
       getElevation: (b) => buildingHeightFt(b) * FT_TO_M,
-      getFillColor: buildingFill,
+      // Invisible in Explore mode, where three.js draws the real thing — but
+      // still in the scene, because this layer IS how a building gets clicked.
+      // Depth writing goes with it: an invisible box must not occlude the
+      // Goldenrod band standing just outside its own wall.
+      getFillColor: explore ? EXPLORE_INVISIBLE : buildingFill,
+      ...(explore ? { parameters: { depthWriteEnabled: false } } : {}),
       onClick: (info: PickingInfo<BuildingWithSpaces>) => {
         if (!info.object) return false;
         onBuildingClick(info.object.id, { x: info.x, y: info.y });
@@ -588,7 +623,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         return false;
       },
       updateTriggers: {
-        getFillColor: [colorMode, selectedBuildingId, hoveredBuildingId, active.length, theme, overrideKey],
+        getFillColor: [colorMode, selectedBuildingId, hoveredBuildingId, active.length, theme, overrideKey, explore],
         getElevation: [active.length, photoreal],
       },
     }),
@@ -601,7 +636,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
   //
   // Drawn after the massing so it stands on it, and never pickable: a click
   // near the top of a tower has to select the tower.
-  if (!photoreal) {
+  if (!photoreal && !explore) {
     layers.push(
       ...buildRoofLayers({
         buildings: active,
@@ -623,7 +658,7 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
   //
   // Decorative and never pickable. It appears at the same zoom as the bands,
   // because below that the lines are closer together than a pixel.
-  if (zoom >= BAND_ZOOM_THRESHOLD && !photoreal) {
+  if (zoom >= BAND_ZOOM_THRESHOLD && !photoreal && !explore) {
     const lines: FloorLineDatum[] = [];
     // The plate thickness is a fixed fraction of a metre rather than of the
     // floor height: a slab reads the same on a 12ft floor and a 20ft one.
@@ -694,6 +729,25 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
     }
 
     for (const band of computeBands(building, claims)) {
+      /**
+       * In Explore mode the collar follows the massing, not the plot.
+       *
+       * The flat map extrudes a plain prism, so the ground footprint is the
+       * building's width at every height and the band computed from it is
+       * exactly right. Explore mode's massing has setbacks, and a collar drawn
+       * on the ground footprint hangs out in mid-air above the first one —
+       * which is the specific failure §5 of the plan is about. So the ring is
+       * re-taken at the band's own elevation, keeping whatever collar radius
+       * `computeBands` chose for its kind.
+       */
+      if (explore) {
+        const footprint = buildingRing(building);
+        const profiled = footprint
+          ? bandRingAt(building, band.baseFt, collarOf(footprint, band.polygon))
+          : null;
+        if (profiled) band.polygon = profiled;
+      }
+
       // A part floor is drawn as a thinner stripe than a whole one, so the two
       // are distinguishable at a glance and not only by colour.
       const thickness = BAND_THICKNESS[band.kind];
@@ -708,11 +762,29 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
       // exactly how a stacking plan reads on paper.
       const floorFt = (band.topFt - band.baseFt) / Math.max(1, band.floors);
       const heightM = Math.max(0.4, floorFt * (band.floors - 1 + fraction) * FT_TO_M);
+      /**
+       * A band is a solid slab on the flat map and a hollow collar in Explore.
+       *
+       * deck.gl extrudes a polygon as walls PLUS a cap over the whole thing.
+       * On the flat map that cap is inside the building's own opaque massing,
+       * in the same depth buffer, so it is never seen. Explore mode draws its
+       * city on MapLibre's canvas underneath deck.gl's, so the cap has nothing
+       * in front of it: a band on the Empire State Building rendered as a
+       * sixty-by-hundred-metre pale yellow plate lying across the tower, which
+       * is both wrong and — being large, flat and sun-facing — quieter than
+       * the bright stripe it replaced. Availability got LESS legible, which is
+       * the one thing that fails this work.
+       *
+       * Punching a hole leaves the collar as a stripe with a thin lip, which
+       * is what it looks like on the flat map and what it should look like.
+       */
+      const z = band.baseFt * FT_TO_M;
+      const outer = ringWithZ(band.polygon, z);
       bands.push({
         ...band,
         building,
         heightM,
-        ring: ringWithZ(band.polygon, band.baseFt * FT_TO_M),
+        ring: explore ? [outer, ringWithZ(insetRing(band.polygon, 0.985), z)] : outer,
       });
     }
   }
@@ -739,13 +811,26 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         material: { ambient: 0.92, diffuse: 0.16, shininess: 1, specularColor: [255, 255, 255] },
         getPolygon: (d) => d.ring,
         getElevation: (d) => d.heightM,
+        /**
+         * Invisible in Explore mode, and still clickable.
+         *
+         * three.js draws the band a person sees, in the same depth buffer as
+         * the city, so it is occluded by the tower in front of it — see
+         * `explore/bands3d.ts`. This copy stays because it is what makes a
+         * band a thing you can click: picking runs in its own framebuffer and
+         * is indifferent to the alpha a layer was drawn with, so the space
+         * card, the fly-to and Compare all keep working with no changes at
+         * all in either mode.
+         */
         getFillColor: (d): RGBA => {
+          if (explore) return EXPLORE_INVISIBLE;
           if (d.kind === 'available' && d.recordId === selectedSpaceId) {
             return selectedSpaceColor(colorOverrides);
           }
           const colors = occupancyColors(d.kind, theme, colorOverrides);
           return d.portion === 'partial' ? colors.partial : colors.entire;
         },
+        ...(explore ? { parameters: { depthWriteEnabled: false } } : {}),
         onClick: (info: PickingInfo<BandDatum>) => {
           if (!info.object) return false;
           const { kind, recordId, buildingId } = info.object;
@@ -764,9 +849,21 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         // 14th floor is inside the mesh and therefore invisible. Drawing it
         // without depth testing is the only way availability stays the loudest
         // thing on screen — the same trade already made for the name-plates.
+        /**
+         * Photogrammetry is opaque and lives in the SAME buffer, so a band at
+         * its true position is inside the mesh unless depth testing is off.
+         *
+         * Explore mode is the opposite case and must NOT do this. Its city is
+         * drawn on MapLibre's canvas, underneath deck.gl's own — so a band is
+         * already guaranteed to be in front of every facade, and switching
+         * depth off additionally stops the collar from occluding ITSELF. The
+         * result was the back of each band drawn over its front, which read as
+         * a pale translucent plate instead of a bright stripe. Bands losing
+         * their punch is the one regression this project cannot ship.
+         */
         ...(photoreal ? { parameters: { depthCompare: 'always' as const } } : {}),
         updateTriggers: {
-          getFillColor: [selectedSpaceId, colorMode, theme, kindKey, overrideKey],
+          getFillColor: [selectedSpaceId, colorMode, theme, kindKey, overrideKey, explore],
           getElevation: [bands.length],
           getPolygon: [bands.length, selectedBuildingId, showAllBands, kindKey],
         },

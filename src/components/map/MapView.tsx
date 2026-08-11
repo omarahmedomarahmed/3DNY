@@ -54,6 +54,7 @@ import SpacePopup from './SpacePopup';
 import DraggableCard from './DraggableCard';
 import TenantPopup from './TenantPopup';
 import { useVisibleBuildings } from './useVisibleBuildings';
+import { useExplore } from '../explore/useExplore';
 
 const DEFAULT_CENTER: [number, number] = [-73.98, 40.75];
 
@@ -615,6 +616,7 @@ export default function MapView() {
 
   const radius = useApp((s) => s.radius);
   const photoreal = useApp((s) => s.photoreal);
+  const mapMode = useApp((s) => s.mapMode);
   const showContext = useApp((s) => s.showContext);
   const mapTheme = useApp((s) => s.mapTheme);
   const timeOfDay = useApp((s) => s.timeOfDay);
@@ -684,6 +686,24 @@ export default function MapView() {
   }, [allFiltered, isolateSelection, radius, selectedBuildingId]);
 
   useVisibleBuildings(map, filtered);
+
+  /**
+   * Explore mode's three.js scene.
+   *
+   * The anchor is the origin of the scene's metric frame and is fixed for the
+   * life of the layer, so it is the configured map centre rather than wherever
+   * the camera happens to be — a frame that moved would move every vertex in
+   * the city with it.
+   */
+  const exploreAnchor = useMemo(
+    () => parseCenter(process.env.NEXT_PUBLIC_MAP_CENTER),
+    [],
+  );
+  useExplore(map, mapMode === 'explore', filtered, atmosphere, exploreAnchor, mapTheme, {
+    kinds: occupancyKinds,
+    selectedSpaceId,
+    colorOverrides,
+  });
 
   // The surrounding city, so the towers that carry data stand in Manhattan
   // rather than in an empty plane.
@@ -1229,6 +1249,7 @@ export default function MapView() {
             .openPopup({ kind: 'tenant', buildingId, recordId: tenantId, x: p.x, y: p.y });
         },
         occupancyKinds,
+        explore: mapMode === 'explore',
         onHover: (id) => useApp.getState().setHovered(id),
         photorealLayer: activePhotorealLayer,
       }),
@@ -1246,6 +1267,7 @@ export default function MapView() {
     streetscape,
     view,
     photoreal,
+    mapMode,
     activePhotorealLayer,
     photorealDrawn,
     showContext,
