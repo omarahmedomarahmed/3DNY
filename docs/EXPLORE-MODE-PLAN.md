@@ -7,14 +7,18 @@ conversation that produced this. Everything you need is here.
 
 ## 0. Read this first
 
-Five rules. Breaking any of them fails the work regardless of how good the
+Eight rules. Breaking any of them fails the work regardless of how good the
 result looks.
 
 | Rule | Why |
 |---|---|
-| **Work only on `claude/spaces-lab`.** Never push to `main`. | The owner merges when and if he wants. This is a lab. |
+| **Work only on `claude/spaces-lab`.** Never push to `main`. | `main` is live. Brokers use that map in front of tenants today. The owner merges when and if he wants. This is a lab. |
+| **Run the sprints back to back until the work is done.** Do not stop between them for approval. | The owner has explicitly delegated this. Stopping to ask "shall I continue?" after every sprint is the failure mode this rule exists to prevent. See §7a. |
+| **Decide the small things yourself. Escalate only the major ones.** | Your judgement is the point. §7a defines the line, and it is a short list — if a decision is not on it, make the call and write it down. |
+| **Log every decision as you make it, to a file.** | A run this long will lose context. A decision held only in memory is a decision the owner never gets to review. `docs/EXPLORE-MODE-DECISIONS.md`, appended immediately, never reconstructed at the end. |
+| **Answer in tables. Never walls of text.** | The owner reads these between meetings. A table he can scan beats three paragraphs he skips. §7b has the shapes to use. |
 | **Never remove or degrade the existing flat map.** | It is the working tool. Explore is a second mode, reached by a button, and `/map` must behave exactly as it does today when Explore is off. |
-| **A Goldenrod band on the 14th floor stays the loudest thing on screen.** | The one rule of this product. Every item below competes with it. Any phase that dims availability is a regression, however good it looks. |
+| **A Goldenrod band on the 14th floor stays the loudest thing on screen.** | The one rule of this product. Every item below competes with it. Any sprint that dims availability is a regression, however good it looks. |
 | **Nothing is hand-authored per building.** | Detail comes from data — footprint, height, floor count, year built, and now NYC's surveyed massing. A treatment that needs an artist per tower cannot scale to "every building we ever add". The heroes are not exceptions to this: their silhouettes are surveyed data too (§5). |
 | **Read `docs/MAP-REALISM-BRIEF.md` before writing shader code.** | It carries the traps this codebase has already fallen into three times — chief among them: any shader injecting into `DECKGL_FILTER_COLOR` must guard with `!bool(picking.isActive)` or building clicks silently break, and the GLSL preprocessor only evaluates *integer* constant expressions. |
 
@@ -230,25 +234,109 @@ source for hero interiors later. Nobody else has bothered to use them.
 
 ## 7. Track A — Explore mode
 
-Each phase has a kill criterion. If it trips, stop and report rather than
-pressing on.
+Ten sprints, run **one straight after another** until the work is done. Do not
+pause between them to ask whether to continue — §7a is the standing answer.
 
-| Phase | Deliverable | Kill criterion |
+Each sprint has a kill criterion. A kill criterion is *not* a request for
+permission: it is a condition under which continuing would waste the rest of
+the run. If one trips, stop that sprint, record it, and escalate (§7a).
+
+| Sprint | Deliverable | Kill criterion |
 |---|---|---|
-| **0. Spike** | ONE building — Empire State — full treatment, free camera, walk up to it. Throwaway code is fine | It does not read as VU.CITY. Stop; the art direction is wrong and no amount of phase 2 fixes it |
-| **1. Renderer** | three.js in MapLibre's context; deck.gl still drawing bands correctly over it | Bands and facades disagree about where a floor is, or frame rate collapses on 73 buildings |
-| **2. Massing** | §5 resolved. Setbacks on the three heroes, automatic path for the rest | Heroes still read as boxes |
-| **3. Facades** | Procedural windows, mullions, spandrels, reflective glass, across all eligible buildings | Availability bands stop being the loudest thing |
-| **4. Roofs** | `roofs.ts` promoted to real geometry | — |
-| **5. Movement** | Free camera with no pitch cap; first-person walk; capsule collision on footprints | Walking feels bad — it will need iteration, budget for it |
-| **6. Interiors** | Interior mapping behind the glass; ONE walkable floor plate on a hero, entered from its band | Interior mapping reads as a texture rather than a room |
-| **7. Life** | Cars on the street graph, then people on the pavements. Instanced | Frame budget |
+| **1. Spike** | ONE building — Empire State — full treatment, free camera, walk up to it. Throwaway code is fine | It does not read as VU.CITY. Stop; the art direction is wrong and no amount of sprint 4 fixes it |
+| **2. Renderer** | three.js in MapLibre's context; deck.gl still drawing bands correctly over it | Bands and facades disagree about where a floor is, or frame rate collapses on 73 buildings |
+| **3. Massing** | The §5 pipeline wired in: surveyed setbacks on every eligible building, extrusion fallback for the rest | Heroes still read as boxes |
+| **4. Facades** | Procedural windows, mullions, spandrels, reflective glass, across all eligible buildings | Availability bands stop being the loudest thing |
+| **5. Roofs** | `roofs.ts` promoted from proxy geometry to real meshes | — |
+| **6. Movement** | Free camera with no pitch cap; first-person walk; capsule collision on footprints | Walking feels bad — it will need iteration, budget for it |
+| **7. Interiors** | Interior mapping behind the glass; ONE walkable floor plate on a hero, entered from its band | Interior mapping reads as a texture rather than a room |
+| **8. Life** | Cars on the street graph, then people on the pavements. Instanced | Frame budget |
+| **9. Track B** | §8 — the flat map inherits sky, cars and people | The existing browser suites stop passing |
+| **10. Close out** | Full suite green, budget re-measured, README and decision log finished, one screenshot per sprint | — |
 
-**Interior mapping** (phase 6) is the technique to look up if it is unfamiliar:
-a parallax shader that draws a convincing room behind a window with zero
-geometry. It is how open-world games fill a city with lit offices. It is the
-single highest-payoff item on this list — and it is what makes glass worth
-having.
+**Interior mapping** (sprint 7) is the technique to look up if it is
+unfamiliar: a parallax shader that draws a convincing room behind a window
+with zero geometry. It is how open-world games fill a city with lit offices.
+It is the single highest-payoff item on this list — and it is what makes glass
+worth having.
+
+**Between sprints**, every time, no exceptions:
+
+1. Full test suite, typecheck, build.
+2. The relevant `verify-*.mjs` harnesses, including the existing ones.
+3. One screenshot from a broker's eye height — is the Goldenrod band still the
+   loudest thing?
+4. Commit, with a message that says what changed and what you decided.
+5. Append any decisions to `docs/EXPLORE-MODE-DECISIONS.md`.
+6. Start the next sprint. Do not ask.
+
+---
+
+## 7a. Autonomy — what to decide, what to escalate
+
+The owner has delegated this run. Ship all ten sprints without asking for
+confirmation. Your judgement is the deliverable, not a risk to be managed.
+
+**Decide yourself, write it in the log, move on.** Library choices, shader
+technique, file layout, naming, data structures, LOD thresholds, how many
+window bays a facade gets, whether cars are billboards or meshes, what a
+sprint's screenshot shows, how to handle a building whose data is odd,
+scope trims inside a sprint, the order of work within a sprint.
+
+**Stop and ask only for these.** The list is deliberately short. If a decision
+is not on it, it is yours.
+
+| Escalate | Why it is not yours |
+|---|---|
+| A kill criterion trips and you cannot clear it inside the sprint | The plan says stop. That is what it is for |
+| The work would need something on `main`, or a change brokers would see today | `main` is live. Never unilaterally |
+| Money — a paid API, a licensed asset, a hosted GPU | Not your budget |
+| A dependency whose licence is not permissive, or that ships >10 MB to the browser | Both are the owner's call |
+| Anything that would weaken the one rule — availability stops leading — and you cannot see a way around it | This is the product |
+| Real data would have to be invented, guessed, or scraped from a source that forbids it | Non-negotiable in this codebase. Fall back and report the gap |
+| Two sprints in a row fail their kill criterion | The plan is wrong, not the code |
+
+Everything else: **decide, log, continue.**
+
+**The decision log.** `docs/EXPLORE-MODE-DECISIONS.md`, appended the moment a
+decision is made — never reconstructed at the end, because a run this long
+will lose context and a reconstructed log is a fiction. One row per decision:
+
+| # | Sprint | Decision | Why | What changes if the owner disagrees |
+|---|---|---|---|---|
+| 1 | 2 | Example: three.js `WebGLRenderer` reuses MapLibre's context rather than a second canvas | One depth buffer, so deck.gl bands and three.js facades cannot disagree | Swap to an overlaid canvas: ~1 day, and band/facade alignment becomes a per-frame sync problem |
+
+That last column is the one that matters. It is what turns a log into
+something the owner can act on rather than just read.
+
+---
+
+## 7b. Reporting — tables, not prose
+
+The owner reads these between meetings. Every report he gets uses these
+shapes. Prose is for the one or two sentences that a table genuinely cannot
+carry, and never more than that.
+
+**After each sprint** — short, four rows or so:
+
+| | |
+|---|---|
+| Sprint | 3 — Massing |
+| Done | Surveyed setbacks on all 71; extrusion fallback on 2 |
+| Verified | 412 tests, build green, verify-explore + verify-picking pass, screenshot attached |
+| Decided | 2 entries added to the decision log (#7, #8) |
+| Next | Sprint 4 — Facades. Starting now |
+
+**At the end of the run** — three tables and nothing else:
+
+1. **What shipped** — sprint, deliverable, state (done / trimmed / killed), evidence.
+2. **Every decision** — the full log, with the "what changes if you disagree"
+   column intact.
+3. **What is open** — anything trimmed, deferred, or failing, with what it
+   would take to close it.
+
+**Never** end a sprint with a wall of prose describing what you did. The
+commits and the screenshots are the record; the table is the summary.
 
 ---
 
@@ -263,7 +351,7 @@ It is **not** free, and the plan should not pretend otherwise:
 |---|---|
 | People | Genuinely cheap. Instanced billboards near, dots far, on existing pavement polygons |
 | Cars | Moderate. Instanced meshes as agents on the existing walk graph. No traffic simulation — timed paths, stop at junctions |
-| "Great clear realistic skyline" | **Not cheap.** This is the same massing and facade work as Track A phases 2–3, applied to context buildings at lower detail. It is cheap only *because* Track A already paid for it |
+| "Great clear realistic skyline" | **Not cheap.** This is the same massing and facade work as sprints 3–4, applied to context buildings at lower detail. It is cheap only *because* Track A already paid for it |
 
 Track B lands on `/map` as it exists today. It must survive the existing
 browser suites — `verify-picking`, `verify-sources`, `verify-map-chrome`,
@@ -274,8 +362,8 @@ unchanged.
 
 ## 9. Performance budget
 
-Validate in phase 1 and hold to it. If a phase cannot stay inside, cut the
-phase, not the budget.
+Validate in sprint 2 and hold to it. If a sprint cannot stay inside, cut the
+sprint, not the budget.
 
 | | Target |
 |---|---|
@@ -292,7 +380,7 @@ budget will be spent on glass, light, and whatever happens at street level, so
 treat any *facade* technique that costs more than the entire city's massing as
 a decision, not an accident.
 
-LOD is not optional past phase 3: shader facades near, flat massing far, and a
+LOD is not optional past sprint 4: shader facades near, flat massing far, and a
 tile-based stream for the context city.
 
 ---
@@ -309,8 +397,18 @@ of a click test that passed while the feature was broken.
   It must assert, at minimum: the flat map still works with Explore off; a
   band and its facade agree on floor position; the FPS camera cannot walk
   through a building; frame time stays inside budget.
-- Screenshot every phase. The kill criteria above are visual, so the evidence
-  has to be visual.
+- Screenshot every sprint. The kill criteria are visual, so the evidence has
+  to be visual. Keep them; the closing report references them.
+
+A run without a human watching raises the bar rather than lowering it. Nobody
+is going to catch a regression by looking at the screen this time, so:
+
+| | |
+|---|---|
+| Never report a sprint done on unrun tests | "Should pass" is not evidence |
+| A harness that fails is a finding, not an obstacle | Fix the code or record why the harness was wrong. Never weaken an assertion to get green |
+| Re-run the **existing** suites every sprint | The flat map is what breaks silently, because nothing in Explore mode touches it deliberately |
+| If something is broken and you cannot fix it, say so in the table | A trimmed sprint reported honestly is worth more than a finished one reported optimistically |
 
 ---
 
@@ -330,6 +428,6 @@ Say no to these out loud, so they do not creep in:
 ## 12. The one open question
 
 Nothing in here is worth doing if the availability data stops leading. Before
-each phase ships, take one screenshot from a broker's eye height and ask: **is
-the 14th floor still the first thing I see?** If the answer is no, the phase is
+each sprint ships, take one screenshot from a broker's eye height and ask: **is
+the 14th floor still the first thing I see?** If the answer is no, the sprint is
 not done, whatever else is true of it.
