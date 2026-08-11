@@ -1,0 +1,2522 @@
+{
+ "generatedAt": "2026-08-11T03:17:27.885Z",
+ "note": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+ "buildings": [
+  {
+   "id": "fx-1015862",
+   "bin": "1015862",
+   "bbl": "1008350041",
+   "address_normalized": "350 FIFTH AVENUE",
+   "address_display": "350 Fifth Avenue",
+   "building_name": "Empire State Building",
+   "landlord_id": null,
+   "landlord_name": "Empire State Realty Trust",
+   "class": "A",
+   "submarket": "Midtown",
+   "submarket_cluster": "Penn Plaza/Garment",
+   "num_floors": 102,
+   "height_roof_ft": 1238.79032716,
+   "year_built": 1931,
+   "bldg_area_sf": 2812739,
+   "lon": -73.98566,
+   "lat": 40.74844,
+   "footprint": [
+    [
+     -73.98608527878,
+     40.748921498021
+    ],
+    [
+     -73.98482339139,
+     40.74839078918
+    ],
+    [
+     -73.984909832216,
+     40.748271913883
+    ],
+    [
+     -73.985031089296,
+     40.74810515772
+    ],
+    [
+     -73.985157291953,
+     40.747931600537
+    ],
+    [
+     -73.98648794223,
+     40.748491226399
+    ],
+    [
+     -73.986469871701,
+     40.748516078254
+    ],
+    [
+     -73.986682947706,
+     40.748605687253
+    ],
+    [
+     -73.98655560005,
+     40.748780826345
+    ],
+    [
+     -73.98635802669,
+     40.748697735913
+    ],
+    [
+     -73.986345130771,
+     40.748715469858
+    ],
+    [
+     -73.98632962892,
+     40.748708950154
+    ],
+    [
+     -73.986312563843,
+     40.748732419825
+    ],
+    [
+     -73.986154048034,
+     40.748950418863
+    ],
+    [
+     -73.98608527878,
+     40.748921498021
+    ]
+   ],
+   "match_confidence": "exact",
+   "floor_height_override": null,
+   "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+   "field_sources": {},
+   "updated_at": "2026-08-11T03:17:27.885Z",
+   "spaces": [
+    {
+     "id": "fx-space-1015862-0",
+     "building_id": "fx-1015862",
+     "floor_number": 14,
+     "floor_label": "Entire 14",
+     "floor_portion": "entire",
+     "sf": 24500,
+     "asking_rent_psf": 78,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "Empire State Realty Trust",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    },
+    {
+     "id": "fx-space-1015862-1",
+     "building_id": "fx-1015862",
+     "floor_number": 63,
+     "floor_label": "Partial 63",
+     "floor_portion": "partial",
+     "sf": 9800,
+     "asking_rent_psf": 96,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "Empire State Realty Trust",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    },
+    {
+     "id": "fx-space-1015862-2",
+     "building_id": "fx-1015862",
+     "floor_number": 32,
+     "floor_label": "Entire 32",
+     "floor_portion": "entire",
+     "sf": 18200,
+     "asking_rent_psf": null,
+     "asking_rent_withheld": true,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "Empire State Realty Trust",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    }
+   ],
+   "tenants": [
+    {
+     "id": "fx-tenant-1015862-0",
+     "building_id": "fx-1015862",
+     "company_name": "Harlan Media Group",
+     "floors": "40-44",
+     "floor_numbers": [
+      40,
+      41,
+      42,
+      43,
+      44
+     ],
+     "suite": null,
+     "sf": null,
+     "lease_start": null,
+     "lease_expiration": null,
+     "industry": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "relationship": "occupier",
+     "source": "manual",
+     "salesforce_id": null,
+     "field_sources": {},
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    },
+    {
+     "id": "fx-tenant-1015862-1",
+     "building_id": "fx-1015862",
+     "company_name": "Vance Kerr Realty",
+     "floors": "21",
+     "floor_numbers": [
+      21
+     ],
+     "suite": null,
+     "sf": null,
+     "lease_start": null,
+     "lease_expiration": null,
+     "industry": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "relationship": "client",
+     "source": "manual",
+     "salesforce_id": null,
+     "field_sources": {},
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    }
+   ],
+   "minRent": 78,
+   "maxRent": 96,
+   "totalAvailableSf": 52500,
+   "spaceCount": 3
+  },
+  {
+   "id": "fx-1088469",
+   "bin": "1088469",
+   "bbl": "1000580001",
+   "address_normalized": "285 FULTON STREET",
+   "address_display": "285 Fulton Street",
+   "building_name": "One World Trade Center",
+   "landlord_id": null,
+   "landlord_name": "The Durst Organization",
+   "class": "A",
+   "submarket": "Downtown",
+   "submarket_cluster": "World Trade Center",
+   "num_floors": 104,
+   "height_roof_ft": 1408.377901,
+   "year_built": 2009,
+   "bldg_area_sf": 8966500,
+   "lon": -74.01337,
+   "lat": 40.71274,
+   "footprint": [
+    [
+     -74.0130301554,
+     40.712627417796
+    ],
+    [
+     -74.013674674942,
+     40.7129028597
+    ],
+    [
+     -74.013311382243,
+     40.713390681937
+    ],
+    [
+     -74.012676098965,
+     40.713116748056
+    ],
+    [
+     -74.0130301554,
+     40.712627417796
+    ]
+   ],
+   "match_confidence": "exact",
+   "floor_height_override": null,
+   "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+   "field_sources": {},
+   "updated_at": "2026-08-11T03:17:27.885Z",
+   "spaces": [
+    {
+     "id": "fx-space-1088469-0",
+     "building_id": "fx-1088469",
+     "floor_number": 64,
+     "floor_label": "Entire 64",
+     "floor_portion": "entire",
+     "sf": 32400,
+     "asking_rent_psf": 105,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "The Durst Organization",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    },
+    {
+     "id": "fx-space-1088469-1",
+     "building_id": "fx-1088469",
+     "floor_number": 22,
+     "floor_label": "Partial 22",
+     "floor_portion": "partial",
+     "sf": 14100,
+     "asking_rent_psf": 88,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "The Durst Organization",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    }
+   ],
+   "tenants": [],
+   "minRent": 88,
+   "maxRent": 105,
+   "totalAvailableSf": 46500,
+   "spaceCount": 2
+  },
+  {
+   "id": "fx-1000021",
+   "bin": "1000021",
+   "bbl": "1000090029",
+   "address_normalized": "1 BATTERY PARK PLAZA",
+   "address_display": "1 Battery Park Plaza",
+   "building_name": "One Battery Park Plaza",
+   "landlord_id": null,
+   "landlord_name": "Rudin Management",
+   "class": "B",
+   "submarket": "Downtown",
+   "submarket_cluster": "Financial District",
+   "num_floors": 35,
+   "height_roof_ft": 446.23,
+   "year_built": 1971,
+   "bldg_area_sf": 896956,
+   "lon": -74.0136,
+   "lat": 40.7042,
+   "footprint": [
+    [
+     -74.013412615863,
+     40.703222644958
+    ],
+    [
+     -74.013412709987,
+     40.703219968625
+    ],
+    [
+     -74.014143686712,
+     40.703234930463
+    ],
+    [
+     -74.014143082138,
+     40.703252032159
+    ],
+    [
+     -74.014142583429,
+     40.703266169357
+    ],
+    [
+     -74.014132878456,
+     40.703540783448
+    ],
+    [
+     -74.013938254113,
+     40.703536800807
+    ],
+    [
+     -74.013815932043,
+     40.703534296826
+    ],
+    [
+     -74.013569600566,
+     40.703529254452
+    ],
+    [
+     -74.01340931639,
+     40.703525973765
+    ],
+    [
+     -74.013401899562,
+     40.703525821542
+    ],
+    [
+     -74.013402012516,
+     40.703522633716
+    ],
+    [
+     -74.013412234648,
+     40.70323340702
+    ],
+    [
+     -74.013412615863,
+     40.703222644958
+    ]
+   ],
+   "match_confidence": "exact",
+   "floor_height_override": null,
+   "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+   "field_sources": {},
+   "updated_at": "2026-08-11T03:17:27.885Z",
+   "spaces": [
+    {
+     "id": "fx-space-1000021-0",
+     "building_id": "fx-1000021",
+     "floor_number": 9,
+     "floor_label": "Entire 9",
+     "floor_portion": "entire",
+     "sf": 15600,
+     "asking_rent_psf": 58,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "Rudin Management",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    },
+    {
+     "id": "fx-space-1000021-1",
+     "building_id": "fx-1000021",
+     "floor_number": 14,
+     "floor_label": "Partial 14",
+     "floor_portion": "partial",
+     "sf": 7300,
+     "asking_rent_psf": 62,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "Rudin Management",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    }
+   ],
+   "tenants": [],
+   "minRent": 58,
+   "maxRent": 62,
+   "totalAvailableSf": 22900,
+   "spaceCount": 2
+  },
+  {
+   "id": "fx-1035321",
+   "bin": "1035321",
+   "bbl": "1012750050",
+   "address_normalized": "100 PARK AVENUE",
+   "address_display": "100 Park Avenue",
+   "building_name": null,
+   "landlord_id": null,
+   "landlord_name": "SL Green Realty",
+   "class": "A",
+   "submarket": "Midtown",
+   "submarket_cluster": "Grand Central",
+   "num_floors": 45,
+   "height_roof_ft": 538.44,
+   "year_built": 1929,
+   "bldg_area_sf": 301128,
+   "lon": -73.9796,
+   "lat": 40.7513,
+   "footprint": [
+    [
+     -73.979126128213,
+     40.751779879272
+    ],
+    [
+     -73.979283465109,
+     40.751564553475
+    ],
+    [
+     -73.979302055924,
+     40.751572410129
+    ],
+    [
+     -73.979290150322,
+     40.751588703546
+    ],
+    [
+     -73.979330115504,
+     40.751605591608
+    ],
+    [
+     -73.979551202478,
+     40.751699016233
+    ],
+    [
+     -73.979583412709,
+     40.75171262769
+    ],
+    [
+     -73.979568494628,
+     40.751733044018
+    ],
+    [
+     -73.979565289011,
+     40.751737431615
+    ],
+    [
+     -73.979520135487,
+     40.75179922712
+    ],
+    [
+     -73.979601051316,
+     40.751833420179
+    ],
+    [
+     -73.979783745077,
+     40.75191062124
+    ],
+    [
+     -73.979702556253,
+     40.752021734796
+    ],
+    [
+     -73.97970159196,
+     40.752023053868
+    ],
+    [
+     -73.979618580191,
+     40.751987975312
+    ],
+    [
+     -73.979355168296,
+     40.751876665499
+    ],
+    [
+     -73.979126128213,
+     40.751779879272
+    ]
+   ],
+   "match_confidence": "exact",
+   "floor_height_override": null,
+   "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+   "field_sources": {},
+   "updated_at": "2026-08-11T03:17:27.885Z",
+   "spaces": [
+    {
+     "id": "fx-space-1035321-0",
+     "building_id": "fx-1035321",
+     "floor_number": 14,
+     "floor_label": "Entire 14",
+     "floor_portion": "entire",
+     "sf": 21900,
+     "asking_rent_psf": 92,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "SL Green Realty",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    },
+    {
+     "id": "fx-space-1035321-1",
+     "building_id": "fx-1035321",
+     "floor_number": 26,
+     "floor_label": "Partial 26",
+     "floor_portion": "partial",
+     "sf": 11400,
+     "asking_rent_psf": 98,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "SL Green Realty",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    },
+    {
+     "id": "fx-space-1035321-2",
+     "building_id": "fx-1035321",
+     "floor_number": 8,
+     "floor_label": "Entire 8",
+     "floor_portion": "entire",
+     "sf": 19050,
+     "asking_rent_psf": 84,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "SL Green Realty",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    }
+   ],
+   "tenants": [
+    {
+     "id": "fx-tenant-1035321-0",
+     "building_id": "fx-1035321",
+     "company_name": "Kestrel Analytics Group",
+     "floors": "20-23",
+     "floor_numbers": [
+      20,
+      21,
+      22,
+      23
+     ],
+     "suite": null,
+     "sf": null,
+     "lease_start": null,
+     "lease_expiration": null,
+     "industry": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "relationship": "client",
+     "source": "manual",
+     "salesforce_id": null,
+     "field_sources": {},
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    },
+    {
+     "id": "fx-tenant-1035321-1",
+     "building_id": "fx-1035321",
+     "company_name": "Example Law Partners LLP",
+     "floors": "4-7",
+     "floor_numbers": [
+      4,
+      5,
+      6,
+      7
+     ],
+     "suite": null,
+     "sf": null,
+     "lease_start": null,
+     "lease_expiration": null,
+     "industry": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "relationship": "occupier",
+     "source": "manual",
+     "salesforce_id": null,
+     "field_sources": {},
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    },
+    {
+     "id": "fx-tenant-1035321-2",
+     "building_id": "fx-1035321",
+     "company_name": "Northbridge Consumer Brands",
+     "floors": "30-31",
+     "floor_numbers": [
+      30,
+      31
+     ],
+     "suite": null,
+     "sf": null,
+     "lease_start": null,
+     "lease_expiration": null,
+     "industry": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "relationship": "occupier",
+     "source": "manual",
+     "salesforce_id": null,
+     "field_sources": {},
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    }
+   ],
+   "minRent": 84,
+   "maxRent": 98,
+   "totalAvailableSf": 52350,
+   "spaceCount": 3
+  },
+  {
+   "id": "fx-1035335",
+   "bin": "1035335",
+   "bbl": "1012760042",
+   "address_normalized": "90 PARK AVENUE",
+   "address_display": "90 Park Avenue",
+   "building_name": null,
+   "landlord_id": null,
+   "landlord_name": "Vornado Realty Trust",
+   "class": "A",
+   "submarket": "Midtown",
+   "submarket_cluster": "Grand Central",
+   "num_floors": 55,
+   "height_roof_ft": 669.14,
+   "year_built": 1929,
+   "bldg_area_sf": 1150564,
+   "lon": -73.9793,
+   "lat": 40.7522,
+   "footprint": [
+    [
+     -73.978305598214,
+     40.752242282442
+    ],
+    [
+     -73.978309107215,
+     40.752237480705
+    ],
+    [
+     -73.978397962248,
+     40.752115879577
+    ],
+    [
+     -73.978487256467,
+     40.751993676924
+    ],
+    [
+     -73.978577007636,
+     40.751870849333
+    ],
+    [
+     -73.978650651896,
+     40.751770063972
+    ],
+    [
+     -73.978700215526,
+     40.751791009009
+    ],
+    [
+     -73.978995687015,
+     40.751915868879
+    ],
+    [
+     -73.979008716732,
+     40.751921374246
+    ],
+    [
+     -73.97915784173,
+     40.75198439081
+    ],
+    [
+     -73.979151253904,
+     40.751993406384
+    ],
+    [
+     -73.97920843088,
+     40.752017567385
+    ],
+    [
+     -73.979132742484,
+     40.752121151501
+    ],
+    [
+     -73.979124018715,
+     40.752133090629
+    ],
+    [
+     -73.979150602763,
+     40.752144323851
+    ],
+    [
+     -73.979192186754,
+     40.752161896638
+    ],
+    [
+     -73.979196767795,
+     40.752155625441
+    ],
+    [
+     -73.97936175422,
+     40.752225343466
+    ],
+    [
+     -73.979498418717,
+     40.752283093897
+    ],
+    [
+     -73.979430444899,
+     40.752376121146
+    ],
+    [
+     -73.979412715452,
+     40.752400384811
+    ],
+    [
+     -73.979272541438,
+     40.752341151415
+    ],
+    [
+     -73.979062768096,
+     40.752252507306
+    ],
+    [
+     -73.978987887998,
+     40.752220865204
+    ],
+    [
+     -73.978936457292,
+     40.752291249257
+    ],
+    [
+     -73.978850491216,
+     40.752408897206
+    ],
+    [
+     -73.978814957234,
+     40.752457526998
+    ],
+    [
+     -73.978684510091,
+     40.752402402784
+    ],
+    [
+     -73.978319642611,
+     40.752248217618
+    ],
+    [
+     -73.978305598214,
+     40.752242282442
+    ]
+   ],
+   "match_confidence": "exact",
+   "floor_height_override": null,
+   "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+   "field_sources": {},
+   "updated_at": "2026-08-11T03:17:27.885Z",
+   "spaces": [
+    {
+     "id": "fx-space-1035335-0",
+     "building_id": "fx-1035335",
+     "floor_number": 19,
+     "floor_label": "Entire 19",
+     "floor_portion": "entire",
+     "sf": 16400,
+     "asking_rent_psf": 89,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "Vornado Realty Trust",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    },
+    {
+     "id": "fx-space-1035335-1",
+     "building_id": "fx-1035335",
+     "floor_number": 14,
+     "floor_label": "Partial 14",
+     "floor_portion": "partial",
+     "sf": 9700,
+     "asking_rent_psf": 91,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "Vornado Realty Trust",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    }
+   ],
+   "tenants": [],
+   "minRent": 89,
+   "maxRent": 91,
+   "totalAvailableSf": 26100,
+   "spaceCount": 2
+  },
+  {
+   "id": "fx-1036144",
+   "bin": "1036144",
+   "bbl": "1012950001",
+   "address_normalized": "101 PARK AVENUE",
+   "address_display": "101 Park Avenue",
+   "building_name": null,
+   "landlord_id": null,
+   "landlord_name": "H.J. Kalikow & Co.",
+   "class": "A",
+   "submarket": "Midtown",
+   "submarket_cluster": "Grand Central",
+   "num_floors": 46,
+   "height_roof_ft": 630.64,
+   "year_built": 1982,
+   "bldg_area_sf": 1088389,
+   "lon": -73.9786,
+   "lat": 40.7509,
+   "footprint": [
+    [
+     -73.977196493587,
+     40.750938268871
+    ],
+    [
+     -73.97727131845,
+     40.750833534992
+    ],
+    [
+     -73.977293213801,
+     40.750802887885
+    ],
+    [
+     -73.977259053221,
+     40.750788773818
+    ],
+    [
+     -73.977214254851,
+     40.750770263168
+    ],
+    [
+     -73.977244832761,
+     40.750727461855
+    ],
+    [
+     -73.977273386007,
+     40.750687495827
+    ],
+    [
+     -73.977340669984,
+     40.750593317045
+    ],
+    [
+     -73.977435728489,
+     40.750460260712
+    ],
+    [
+     -73.977442092562,
+     40.750451353251
+    ],
+    [
+     -73.977442117409,
+     40.750451409988
+    ],
+    [
+     -73.977492920966,
+     40.75056950149
+    ],
+    [
+     -73.977589020757,
+     40.75061011324
+    ],
+    [
+     -73.977723660586,
+     40.750667011717
+    ],
+    [
+     -73.977826228583,
+     40.750710357554
+    ],
+    [
+     -73.977912243872,
+     40.750746706797
+    ],
+    [
+     -73.977925141852,
+     40.750752157331
+    ],
+    [
+     -73.977972633907,
+     40.750879233231
+    ],
+    [
+     -73.978018255698,
+     40.751001301038
+    ],
+    [
+     -73.977993991451,
+     40.751034726792
+    ],
+    [
+     -73.978129794073,
+     40.751091739377
+    ],
+    [
+     -73.978111879634,
+     40.751116417944
+    ],
+    [
+     -73.97803846717,
+     40.751131599111
+    ],
+    [
+     -73.977921653498,
+     40.75115575537
+    ],
+    [
+     -73.977804904872,
+     40.751179898015
+    ],
+    [
+     -73.977789173857,
+     40.751183151212
+    ],
+    [
+     -73.977637374541,
+     40.751120431317
+    ],
+    [
+     -73.977492268429,
+     40.751060477083
+    ],
+    [
+     -73.977326958361,
+     40.750992174601
+    ],
+    [
+     -73.977196493587,
+     40.750938268871
+    ]
+   ],
+   "match_confidence": "exact",
+   "floor_height_override": null,
+   "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+   "field_sources": {},
+   "updated_at": "2026-08-11T03:17:27.885Z",
+   "spaces": [
+    {
+     "id": "fx-space-1036144-0",
+     "building_id": "fx-1036144",
+     "floor_number": 34,
+     "floor_label": "Entire 34",
+     "floor_portion": "entire",
+     "sf": 20800,
+     "asking_rent_psf": 96,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "H.J. Kalikow & Co.",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    }
+   ],
+   "tenants": [],
+   "minRent": 96,
+   "maxRent": 96,
+   "totalAvailableSf": 20800,
+   "spaceCount": 1
+  },
+  {
+   "id": "fx-1035334",
+   "bin": "1035334",
+   "bbl": "1012760033",
+   "address_normalized": "110 EAST 42ND STREET",
+   "address_display": "110 East 42nd Street",
+   "building_name": "Bowery Savings Bank Building",
+   "landlord_id": null,
+   "landlord_name": "The Feil Organization",
+   "class": "B",
+   "submarket": "Midtown",
+   "submarket_cluster": "Grand Central",
+   "num_floors": 26,
+   "height_roof_ft": 405.38,
+   "year_built": 1981,
+   "bldg_area_sf": 600000,
+   "lon": -73.978,
+   "lat": 40.7521,
+   "footprint": [
+    [
+     -73.978650651896,
+     40.751770063972
+    ],
+    [
+     -73.978577007636,
+     40.751870849333
+    ],
+    [
+     -73.978487256467,
+     40.751993676924
+    ],
+    [
+     -73.978397962248,
+     40.752115879577
+    ],
+    [
+     -73.978309107215,
+     40.752237480705
+    ],
+    [
+     -73.978305598214,
+     40.752242282442
+    ],
+    [
+     -73.978006828009,
+     40.752116026194
+    ],
+    [
+     -73.977976759721,
+     40.752103319715
+    ],
+    [
+     -73.977996454992,
+     40.752076365933
+    ],
+    [
+     -73.97809910708,
+     40.75193588496
+    ],
+    [
+     -73.978147794702,
+     40.751869254966
+    ],
+    [
+     -73.978292876081,
+     40.751670706426
+    ],
+    [
+     -73.978321082892,
+     40.751632104345
+    ],
+    [
+     -73.978321815013,
+     40.75163110312
+    ],
+    [
+     -73.97845813759,
+     40.751688710645
+    ],
+    [
+     -73.978650651896,
+     40.751770063972
+    ]
+   ],
+   "match_confidence": "exact",
+   "floor_height_override": null,
+   "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+   "field_sources": {},
+   "updated_at": "2026-08-11T03:17:27.885Z",
+   "spaces": [
+    {
+     "id": "fx-space-1035334-0",
+     "building_id": "fx-1035334",
+     "floor_number": 12,
+     "floor_label": "Partial 12",
+     "floor_portion": "partial",
+     "sf": 6900,
+     "asking_rent_psf": 71,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "The Feil Organization",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    }
+   ],
+   "tenants": [],
+   "minRent": 71,
+   "maxRent": 71,
+   "totalAvailableSf": 6900,
+   "spaceCount": 1
+  },
+  {
+   "id": "fx-1036185",
+   "bin": "1036185",
+   "bbl": "1013000001",
+   "address_normalized": "200 PARK AVENUE",
+   "address_display": "200 Park Avenue",
+   "building_name": "MetLife Building",
+   "landlord_id": null,
+   "landlord_name": "Tishman Speyer",
+   "class": "A",
+   "submarket": "Midtown",
+   "submarket_cluster": "Grand Central",
+   "num_floors": 34,
+   "height_roof_ft": 473.31549171,
+   "year_built": 1929,
+   "bldg_area_sf": 1212596,
+   "lon": -73.97635,
+   "lat": 40.75434,
+   "footprint": [
+    [
+     -73.97539005046,
+     40.754407195805
+    ],
+    [
+     -73.975457917878,
+     40.754315350605
+    ],
+    [
+     -73.975736141173,
+     40.753938828886
+    ],
+    [
+     -73.975741418089,
+     40.753931688086
+    ],
+    [
+     -73.975757851883,
+     40.753938710087
+    ],
+    [
+     -73.975812571233,
+     40.753962092412
+    ],
+    [
+     -73.975845189032,
+     40.753976030979
+    ],
+    [
+     -73.9758630614,
+     40.753983667411
+    ],
+    [
+     -73.975863250838,
+     40.753983748496
+    ],
+    [
+     -73.976195259663,
+     40.754125616601
+    ],
+    [
+     -73.976675588883,
+     40.754330860838
+    ],
+    [
+     -73.97674056,
+     40.754358623054
+    ],
+    [
+     -73.976804559102,
+     40.754385969004
+    ],
+    [
+     -73.976817819981,
+     40.754391634953
+    ],
+    [
+     -73.976768058433,
+     40.754458981848
+    ],
+    [
+     -73.976466457609,
+     40.754867145923
+    ],
+    [
+     -73.976290916048,
+     40.754792138341
+    ],
+    [
+     -73.976039193502,
+     40.754684577605
+    ],
+    [
+     -73.976000028947,
+     40.754667842561
+    ],
+    [
+     -73.975958882386,
+     40.754650260616
+    ],
+    [
+     -73.97576983842,
+     40.754569482581
+    ],
+    [
+     -73.97572809998,
+     40.754551646486
+    ],
+    [
+     -73.975686407738,
+     40.754533831997
+    ],
+    [
+     -73.975635725404,
+     40.754512174036
+    ],
+    [
+     -73.975569504294,
+     40.754483877833
+    ],
+    [
+     -73.975506720387,
+     40.754457050146
+    ],
+    [
+     -73.975402337978,
+     40.754412446576
+    ],
+    [
+     -73.97539005046,
+     40.754407195805
+    ]
+   ],
+   "match_confidence": "exact",
+   "floor_height_override": null,
+   "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+   "field_sources": {},
+   "updated_at": "2026-08-11T03:17:27.885Z",
+   "spaces": [
+    {
+     "id": "fx-space-1036185-0",
+     "building_id": "fx-1036185",
+     "floor_number": 41,
+     "floor_label": "Entire 41",
+     "floor_portion": "entire",
+     "sf": 28700,
+     "asking_rent_psf": 118,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "Tishman Speyer",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    },
+    {
+     "id": "fx-space-1036185-1",
+     "building_id": "fx-1036185",
+     "floor_number": 14,
+     "floor_label": "Partial 14",
+     "floor_portion": "partial",
+     "sf": 12300,
+     "asking_rent_psf": 104,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "Tishman Speyer",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    }
+   ],
+   "tenants": [],
+   "minRent": 104,
+   "maxRent": 118,
+   "totalAvailableSf": 41000,
+   "spaceCount": 2
+  },
+  {
+   "id": "fx-1087268",
+   "bin": "1087268",
+   "bbl": "1009950033",
+   "address_normalized": "1 BRYANT PARK",
+   "address_display": "1 Bryant Park",
+   "building_name": "Bank of America Tower",
+   "landlord_id": null,
+   "landlord_name": "The Durst Organization",
+   "class": "A",
+   "submarket": "Midtown",
+   "submarket_cluster": "Times Square",
+   "num_floors": 55,
+   "height_roof_ft": 887.74953871,
+   "year_built": 2005,
+   "bldg_area_sf": 2245112,
+   "lon": -73.98455,
+   "lat": 40.75565,
+   "footprint": [
+    [
+     -73.985538519276,
+     40.755640629909
+    ],
+    [
+     -73.98530893998,
+     40.755951049201
+    ],
+    [
+     -73.985204155588,
+     40.756092729413
+    ],
+    [
+     -73.984993407216,
+     40.75600260029
+    ],
+    [
+     -73.984501522721,
+     40.755792236546
+    ],
+    [
+     -73.984258811826,
+     40.755688435701
+    ],
+    [
+     -73.983863487762,
+     40.755519364246
+    ],
+    [
+     -73.984218411225,
+     40.755039477311
+    ],
+    [
+     -73.984586326614,
+     40.755196826519
+    ],
+    [
+     -73.985211461969,
+     40.755464178478
+    ],
+    [
+     -73.98544577594,
+     40.755564386844
+    ],
+    [
+     -73.985425222736,
+     40.755592177445
+    ],
+    [
+     -73.985538519276,
+     40.755640629909
+    ]
+   ],
+   "match_confidence": "exact",
+   "floor_height_override": null,
+   "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+   "field_sources": {},
+   "updated_at": "2026-08-11T03:17:27.885Z",
+   "spaces": [
+    {
+     "id": "fx-space-1087268-0",
+     "building_id": "fx-1087268",
+     "floor_number": 38,
+     "floor_label": "Entire 38",
+     "floor_portion": "entire",
+     "sf": 26100,
+     "asking_rent_psf": 132,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "The Durst Organization",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    }
+   ],
+   "tenants": [],
+   "minRent": 132,
+   "maxRent": 132,
+   "totalAvailableSf": 26100,
+   "spaceCount": 1
+  },
+  {
+   "id": "fx-1077286",
+   "bin": "1077286",
+   "bbl": "1012640005",
+   "address_normalized": "30 ROCKEFELLER PLAZA",
+   "address_display": "30 Rockefeller Plaza",
+   "building_name": "Comcast Building",
+   "landlord_id": null,
+   "landlord_name": "Tishman Speyer",
+   "class": "A",
+   "submarket": "Midtown",
+   "submarket_cluster": "Rockefeller Center",
+   "num_floors": 22,
+   "height_roof_ft": 422.72,
+   "year_built": 1939,
+   "bldg_area_sf": 1898155,
+   "lon": -73.9787,
+   "lat": 40.7587,
+   "footprint": [
+    [
+     -73.978617915718,
+     40.758170080343
+    ],
+    [
+     -73.978676860522,
+     40.758088918836
+    ],
+    [
+     -73.978733391808,
+     40.758011079717
+    ],
+    [
+     -73.978807369814,
+     40.757909216501
+    ],
+    [
+     -73.97872389879,
+     40.757874165163
+    ],
+    [
+     -73.978776459698,
+     40.757801791353
+    ],
+    [
+     -73.978849318992,
+     40.757701468665
+    ],
+    [
+     -73.979163428727,
+     40.757833372464
+    ],
+    [
+     -73.979207546706,
+     40.757851898422
+    ],
+    [
+     -73.979013527078,
+     40.75811905032
+    ],
+    [
+     -73.978892672618,
+     40.758285458695
+    ],
+    [
+     -73.978687575809,
+     40.758199332651
+    ],
+    [
+     -73.978617915718,
+     40.758170080343
+    ]
+   ],
+   "match_confidence": "exact",
+   "floor_height_override": null,
+   "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+   "field_sources": {},
+   "updated_at": "2026-08-11T03:17:27.885Z",
+   "spaces": [
+    {
+     "id": "fx-space-1077286-0",
+     "building_id": "fx-1077286",
+     "floor_number": 52,
+     "floor_label": "Partial 52",
+     "floor_portion": "partial",
+     "sf": 17800,
+     "asking_rent_psf": 126,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "Tishman Speyer",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    },
+    {
+     "id": "fx-space-1077286-1",
+     "building_id": "fx-1077286",
+     "floor_number": 14,
+     "floor_label": "Entire 14",
+     "floor_portion": "entire",
+     "sf": 23400,
+     "asking_rent_psf": 112,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "Tishman Speyer",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    }
+   ],
+   "tenants": [],
+   "minRent": 112,
+   "maxRent": 126,
+   "totalAvailableSf": 41200,
+   "spaceCount": 2
+  },
+  {
+   "id": "fx-1000867",
+   "bin": "1000867",
+   "bbl": "1000350001",
+   "address_normalized": "55 WATER STREET",
+   "address_display": "55 Water Street",
+   "building_name": null,
+   "landlord_id": null,
+   "landlord_name": "Retirement Systems of Alabama",
+   "class": "B",
+   "submarket": "Downtown",
+   "submarket_cluster": "Financial District",
+   "num_floors": 36,
+   "height_roof_ft": 550.65,
+   "year_built": 1987,
+   "bldg_area_sf": 973587,
+   "lon": -74.0079,
+   "lat": 40.7031,
+   "footprint": [
+    [
+     -74.007260140965,
+     40.703774077622
+    ],
+    [
+     -74.0077452951,
+     40.703443146605
+    ],
+    [
+     -74.00781297233,
+     40.703500609995
+    ],
+    [
+     -74.008188088476,
+     40.703819107559
+    ],
+    [
+     -74.008180176513,
+     40.703824503989
+    ],
+    [
+     -74.008138120154,
+     40.703853191875
+    ],
+    [
+     -74.007987136994,
+     40.703956180482
+    ],
+    [
+     -74.007702933803,
+     40.704150040426
+    ],
+    [
+     -74.007260140965,
+     40.703774077622
+    ]
+   ],
+   "match_confidence": "exact",
+   "floor_height_override": null,
+   "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+   "field_sources": {},
+   "updated_at": "2026-08-11T03:17:27.885Z",
+   "spaces": [
+    {
+     "id": "fx-space-1000867-0",
+     "building_id": "fx-1000867",
+     "floor_number": 27,
+     "floor_label": "Entire 27",
+     "floor_portion": "entire",
+     "sf": 41200,
+     "asking_rent_psf": 56,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "Retirement Systems of Alabama",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    },
+    {
+     "id": "fx-space-1000867-1",
+     "building_id": "fx-1000867",
+     "floor_number": 12,
+     "floor_label": "Entire 12",
+     "floor_portion": "entire",
+     "sf": 22700,
+     "asking_rent_psf": null,
+     "asking_rent_withheld": true,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "Retirement Systems of Alabama",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    }
+   ],
+   "tenants": [],
+   "minRent": 56,
+   "maxRent": 56,
+   "totalAvailableSf": 63900,
+   "spaceCount": 2
+  },
+  {
+   "id": "fx-1090179",
+   "bin": "1090179",
+   "bbl": "1013070059",
+   "address_normalized": "601 LEXINGTON AVENUE",
+   "address_display": "601 Lexington Avenue",
+   "building_name": "Citigroup Center",
+   "landlord_id": null,
+   "landlord_name": "Boston Properties",
+   "class": "A",
+   "submarket": "Midtown",
+   "submarket_cluster": "Plaza District",
+   "num_floors": null,
+   "height_roof_ft": 711,
+   "year_built": null,
+   "bldg_area_sf": null,
+   "lon": -73.9718,
+   "lat": 40.7587,
+   "footprint": [
+    [
+     -73.971519593604,
+     40.758505037832
+    ],
+    [
+     -73.971170667795,
+     40.758360166938
+    ],
+    [
+     -73.971343926072,
+     40.758118883796
+    ],
+    [
+     -73.971692850993,
+     40.758263754171
+    ],
+    [
+     -73.971519593604,
+     40.758505037832
+    ]
+   ],
+   "match_confidence": "exact",
+   "floor_height_override": null,
+   "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+   "field_sources": {},
+   "updated_at": "2026-08-11T03:17:27.885Z",
+   "spaces": [
+    {
+     "id": "fx-space-1090179-0",
+     "building_id": "fx-1090179",
+     "floor_number": 45,
+     "floor_label": "Entire 45",
+     "floor_portion": "entire",
+     "sf": 19600,
+     "asking_rent_psf": 121,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "Boston Properties",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    },
+    {
+     "id": "fx-space-1090179-1",
+     "building_id": "fx-1090179",
+     "floor_number": 14,
+     "floor_label": "Partial 14",
+     "floor_portion": "partial",
+     "sf": 8900,
+     "asking_rent_psf": 108,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "Boston Properties",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    }
+   ],
+   "tenants": [],
+   "minRent": 108,
+   "maxRent": 121,
+   "totalAvailableSf": 28500,
+   "spaceCount": 2
+  },
+  {
+   "id": "fx-1085682",
+   "bin": "1085682",
+   "bbl": "1009950005",
+   "address_normalized": "4 TIMES SQUARE",
+   "address_display": "4 Times Square",
+   "building_name": null,
+   "landlord_id": null,
+   "landlord_name": "The Durst Organization",
+   "class": "A",
+   "submarket": "Midtown",
+   "submarket_cluster": "Times Square",
+   "num_floors": 51,
+   "height_roof_ft": 737,
+   "year_built": 1998,
+   "bldg_area_sf": 1642675,
+   "lon": -73.98622,
+   "lat": 40.75612,
+   "footprint": [
+    [
+     -73.985204155588,
+     40.756092729413
+    ],
+    [
+     -73.98530893998,
+     40.755951049201
+    ],
+    [
+     -73.985538519276,
+     40.755640629909
+    ],
+    [
+     -73.985545028394,
+     40.755631828285
+    ],
+    [
+     -73.985846156267,
+     40.755760608229
+    ],
+    [
+     -73.985860200261,
+     40.755741619195
+    ],
+    [
+     -73.985934089302,
+     40.755773217969
+    ],
+    [
+     -73.986024806872,
+     40.755812014676
+    ],
+    [
+     -73.986093333265,
+     40.755841320011
+    ],
+    [
+     -73.986102404416,
+     40.755846467494
+    ],
+    [
+     -73.986110984023,
+     40.755852086781
+    ],
+    [
+     -73.986119030645,
+     40.755858149053
+    ],
+    [
+     -73.986126504026,
+     40.755864625487
+    ],
+    [
+     -73.986133369829,
+     40.755871482762
+    ],
+    [
+     -73.986139592534,
+     40.755878689355
+    ],
+    [
+     -73.986145141361,
+     40.755886208342
+    ],
+    [
+     -73.986149990264,
+     40.755894003699
+    ],
+    [
+     -73.986154115566,
+     40.755902036703
+    ],
+    [
+     -73.986157495959,
+     40.755910268629
+    ],
+    [
+     -73.986160116058,
+     40.755918658953
+    ],
+    [
+     -73.986161961659,
+     40.755927166249
+    ],
+    [
+     -73.986163025666,
+     40.755935749093
+    ],
+    [
+     -73.986163300981,
+     40.755944365162
+    ],
+    [
+     -73.986162787615,
+     40.755952973031
+    ],
+    [
+     -73.986161487942,
+     40.755961529477
+    ],
+    [
+     -73.986159406709,
+     40.755969993077
+    ],
+    [
+     -73.986133220262,
+     40.756055261484
+    ],
+    [
+     -73.986049833911,
+     40.756326777194
+    ],
+    [
+     -73.98604782766,
+     40.756333320924
+    ],
+    [
+     -73.986041642224,
+     40.756345900234
+    ],
+    [
+     -73.986032717895,
+     40.756357497661
+    ],
+    [
+     -73.986021315271,
+     40.756367773746
+    ],
+    [
+     -73.986007768365,
+     40.756376426858
+    ],
+    [
+     -73.986000312945,
+     40.756380063093
+    ],
+    [
+     -73.985992475127,
+     40.756383204004
+    ],
+    [
+     -73.985984311757,
+     40.756385824382
+    ],
+    [
+     -73.985975883234,
+     40.756387907126
+    ],
+    [
+     -73.985967249959,
+     40.756389434232
+    ],
+    [
+     -73.985958477064,
+     40.756390396704
+    ],
+    [
+     -73.985949628499,
+     40.756390787345
+    ],
+    [
+     -73.985940769398,
+     40.756390602561
+    ],
+    [
+     -73.985931963708,
+     40.756389843261
+    ],
+    [
+     -73.98592327656,
+     40.756388515756
+    ],
+    [
+     -73.985914770716,
+     40.756386629958
+    ],
+    [
+     -73.985906511305,
+     40.756384199385
+    ],
+    [
+     -73.985549258789,
+     40.75623594456
+    ],
+    [
+     -73.985204155588,
+     40.756092729413
+    ]
+   ],
+   "match_confidence": "exact",
+   "floor_height_override": null,
+   "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+   "field_sources": {},
+   "updated_at": "2026-08-11T03:17:27.885Z",
+   "spaces": [
+    {
+     "id": "fx-space-1085682-0",
+     "building_id": "fx-1085682",
+     "floor_number": 29,
+     "floor_label": "Entire 29",
+     "floor_portion": "entire",
+     "sf": 33500,
+     "asking_rent_psf": 94,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "The Durst Organization",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    }
+   ],
+   "tenants": [],
+   "minRent": 94,
+   "maxRent": 94,
+   "totalAvailableSf": 33500,
+   "spaceCount": 1
+  },
+  {
+   "id": "fx-1015266",
+   "bin": "1015266",
+   "bbl": "1008140019",
+   "address_normalized": "1440 BROADWAY",
+   "address_display": "1440 Broadway",
+   "building_name": null,
+   "landlord_id": null,
+   "landlord_name": "CIM Group",
+   "class": "B",
+   "submarket": "Midtown",
+   "submarket_cluster": "Penn Plaza/Garment",
+   "num_floors": 35,
+   "height_roof_ft": 435.57,
+   "year_built": 1930,
+   "bldg_area_sf": 768321,
+   "lon": -73.9868,
+   "lat": 40.75346,
+   "footprint": [
+    [
+     -73.986269280706,
+     40.753169216903
+    ],
+    [
+     -73.986286213183,
+     40.753145465379
+    ],
+    [
+     -73.986434856,
+     40.752936967265
+    ],
+    [
+     -73.986318633693,
+     40.752889051117
+    ],
+    [
+     -73.98643153974,
+     40.752730679909
+    ],
+    [
+     -73.986486098563,
+     40.752654149631
+    ],
+    [
+     -73.986874022921,
+     40.752818371096
+    ],
+    [
+     -73.987113868131,
+     40.752919904984
+    ],
+    [
+     -73.987035539647,
+     40.753175763202
+    ],
+    [
+     -73.986909137988,
+     40.753155222781
+    ],
+    [
+     -73.986864176828,
+     40.753147916363
+    ],
+    [
+     -73.986650619179,
+     40.753059871882
+    ],
+    [
+     -73.986634930572,
+     40.753081878424
+    ],
+    [
+     -73.986502330928,
+     40.753267875034
+    ],
+    [
+     -73.986306185439,
+     40.753184839666
+    ],
+    [
+     -73.986269280706,
+     40.753169216903
+    ]
+   ],
+   "match_confidence": "exact",
+   "floor_height_override": null,
+   "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+   "field_sources": {},
+   "updated_at": "2026-08-11T03:17:27.885Z",
+   "spaces": [
+    {
+     "id": "fx-space-1015266-0",
+     "building_id": "fx-1015266",
+     "floor_number": 14,
+     "floor_label": "Entire 14",
+     "floor_portion": "entire",
+     "sf": 43800,
+     "asking_rent_psf": 72,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "CIM Group",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    },
+    {
+     "id": "fx-space-1015266-1",
+     "building_id": "fx-1015266",
+     "floor_number": 17,
+     "floor_label": "Entire 17",
+     "floor_portion": "entire",
+     "sf": 21000,
+     "asking_rent_psf": 74,
+     "asking_rent_withheld": false,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "CIM Group",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    }
+   ],
+   "tenants": [],
+   "minRent": 72,
+   "maxRent": 74,
+   "totalAvailableSf": 64800,
+   "spaceCount": 2
+  },
+  {
+   "id": "fx-1089428",
+   "bin": "1089428",
+   "bbl": "1001230010",
+   "address_normalized": "100 CHURCH STREET",
+   "address_display": "100 Church Street",
+   "building_name": null,
+   "landlord_id": null,
+   "landlord_name": "SL Green Realty",
+   "class": "B",
+   "submarket": "Downtown",
+   "submarket_cluster": "Financial District",
+   "num_floors": null,
+   "height_roof_ft": 919,
+   "year_built": null,
+   "bldg_area_sf": null,
+   "lon": -74.00988,
+   "lat": 40.7123,
+   "footprint": [
+    [
+     -74.008833353005,
+     40.712927206952
+    ],
+    [
+     -74.009096209908,
+     40.712583458813
+    ],
+    [
+     -74.009442561924,
+     40.712736805014
+    ],
+    [
+     -74.009453190212,
+     40.712777005644
+    ],
+    [
+     -74.009432028236,
+     40.712804680076
+    ],
+    [
+     -74.009230420043,
+     40.713068335353
+    ],
+    [
+     -74.009215593102,
+     40.713071886354
+    ],
+    [
+     -74.009179597318,
+     40.713080506218
+    ],
+    [
+     -74.008833353005,
+     40.712927206952
+    ]
+   ],
+   "match_confidence": "exact",
+   "floor_height_override": null,
+   "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+   "field_sources": {},
+   "updated_at": "2026-08-11T03:17:27.885Z",
+   "spaces": [
+    {
+     "id": "fx-space-1089428-0",
+     "building_id": "fx-1089428",
+     "floor_number": 21,
+     "floor_label": "Entire 21",
+     "floor_portion": "entire",
+     "sf": 18087,
+     "asking_rent_psf": null,
+     "asking_rent_withheld": true,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "SL Green Realty",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    },
+    {
+     "id": "fx-space-1089428-1",
+     "building_id": "fx-1089428",
+     "floor_number": 8,
+     "floor_label": "Partial 8",
+     "floor_portion": "partial",
+     "sf": 4170,
+     "asking_rent_psf": null,
+     "asking_rent_withheld": true,
+     "space_use": "Office",
+     "lease_type": "direct",
+     "sub_landlord": null,
+     "occupancy_raw": "Vacant",
+     "available_from": null,
+     "term_raw": "Negotiable",
+     "term_expires": null,
+     "leasing_company": "SL Green Realty",
+     "agent_name": null,
+     "agent_email": null,
+     "agent_email_suspect": false,
+     "date_added": "2026-08-11",
+     "source_import_id": "dev-fixture",
+     "import_filename": "dev-fixture.json",
+     "import_uploaded_at": "2026-08-11T03:17:27.885Z",
+     "import_source_kind": "fixture",
+     "import_source_url": null,
+     "notes": "FIXTURE — synthetic development data. Not a listing, not from a landlord feed.",
+     "is_active": true,
+     "updated_at": "2026-08-11T03:17:27.885Z"
+    }
+   ],
+   "tenants": [],
+   "minRent": null,
+   "maxRent": null,
+   "totalAvailableSf": 22257,
+   "spaceCount": 2
+  }
+ ]
+}

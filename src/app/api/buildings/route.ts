@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getBuildingsWithSpaces } from '@/lib/queries';
 import { createBuildingFromAddress } from '@/lib/manual-entry';
+import { fixtureBuildings, fixtureEnabled } from '@/lib/dev-fixture';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,6 +16,12 @@ function fail(err: unknown) {
 }
 
 export async function GET() {
+  // Development only, and only behind an explicit flag. Never a fallback for a
+  // failed query — see the note in `dev-fixture.ts` for why that distinction
+  // is the whole safety argument.
+  if (fixtureEnabled()) {
+    return NextResponse.json(await fixtureBuildings());
+  }
   try {
     return NextResponse.json(await getBuildingsWithSpaces());
   } catch (err) {

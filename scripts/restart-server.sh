@@ -4,10 +4,20 @@
 # The bracket in the pattern keeps pkill from matching the shell running this
 # script — without it, pkill kills its own caller and the step "fails" with a
 # signal exit code while the server is still up.
+#
+# SPACES_FIXTURE_DB is passed through rather than set here: a machine with a
+# real DATABASE_URL should verify against the real database, and only one
+# without a connection string needs the development fixture. Run it as
+# `SPACES_FIXTURE_DB=1 scripts/restart-server.sh` in that case.
+#
+# A stale server is the specific failure to watch for. `next start` survives
+# between sessions and goes on serving the fixture it loaded at boot, so a
+# fixture fixed on disk still fails its harnesses. Always restart before
+# blaming the code.
 set -e
 pkill -f "[n]ext-server" 2>/dev/null || true
 pkill -f "[n]ext start" 2>/dev/null || true
-sleep 1
+sleep 2
 cd "$(dirname "$0")/.."
 nohup npx next start -p 3111 >/tmp/3dny-server.log 2>&1 &
 # Poll rather than sleep a fixed time: a cold start is slower than a warm one.
