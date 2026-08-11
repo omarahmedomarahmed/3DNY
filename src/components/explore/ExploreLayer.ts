@@ -39,6 +39,7 @@ import { makeStreets, type StreetsHandle } from './streets3d';
 import { applySkyPreset, makeSky, updateSky, type SkyHandle } from './sky3d';
 import { applyWaterPreset, makeWater, type WaterHandle } from './water3d';
 import { makeFurniture, type FurnitureHandle } from './furniture3d';
+import { makeNature, type NatureHandle } from './nature3d';
 import type { StreetscapeResult } from '@/lib/streetscape';
 import type { Inside } from '@/lib/explore/walk';
 import { freeForward, type FreeCam } from '@/lib/explore/freecam';
@@ -120,6 +121,9 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
   private hostMaterial: THREE.Material | null = null;
   private interiorGlass: THREE.ShaderMaterial | null = null;
   private furniture: FurnitureHandle | null = null;
+  private nature: NatureHandle | null = null;
+  /** Held so the hour can rebuild the streets — the lamps depend on it. */
+  private streetscape: StreetscapeResult | null = null;
   private contextMesh: THREE.Mesh | null = null;
   private contextMaterial: THREE.ShaderMaterial | null = null;
   private contextTriangles = 0;
@@ -244,6 +248,11 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
       this.scene.remove(this.water.mesh);
       this.water.dispose();
       this.water = null;
+    }
+    if (this.nature) {
+      this.scene.remove(this.nature.group);
+      this.nature.dispose();
+      this.nature = null;
     }
     if (this.life) {
       this.scene.remove(this.life.cars);
@@ -542,6 +551,12 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
       this.water.dispose();
       this.water = null;
     }
+    if (this.nature) {
+      this.scene.remove(this.nature.group);
+      this.nature.dispose();
+      this.nature = null;
+    }
+    this.streetscape = streetscape;
     if (streetscape) {
       this.streets = makeStreets(this.frame, streetscape, this.preset);
       if (this.streets) {
@@ -549,6 +564,8 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
       }
       this.water = makeWater(this.frame, streetscape, this.preset, this.sunDir);
       if (this.water) this.scene.add(this.water.mesh);
+      this.nature = makeNature(this.frame, streetscape, this.preset);
+      if (this.nature) this.scene.add(this.nature.group);
     }
     this.map?.triggerRepaint();
   }
@@ -575,6 +592,15 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     this.sunDir = sunDirection(preset.timestamp, this.frame.lon0, this.frame.lat0);
     for (const m of this.materials) applyPreset(m, preset, this.sunDir);
     if (this.sky) applySkyPreset(this.sky, preset, this.sunDir);
+    /**
+     * The streets and the planting are rebuilt for the hour, not re-tinted.
+     *
+     * Their colours are baked into materials — and the street lamps do not
+     * exist at all before dusk — so there is nothing to interpolate. A rebuild
+     * is a few tens of milliseconds on a payload that is already in memory,
+     * and it happens when somebody presses the clock, not per frame.
+     */
+    if (this.streetscape) this.setStreets(this.streetscape);
     if (this.water) applyWaterPreset(this.water, preset, this.sunDir);
     if (this.ground) {
       (this.ground.material.uniforms.uHazeColor.value as THREE.Color).setRGB(
@@ -875,6 +901,9 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     buildings: number;
     streetTriangles: number;
     waterTriangles: number;
+    natureTriangles: number;
+    trees: number;
+    lamps: number;
     furnitureTriangles: number;
     desks: number;
     contextTriangles: number;
@@ -885,8 +914,11 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
       triangles:
         this.triangles + this.bandTriangles + this.contextTriangles +
         (this.streets?.triangles ?? 0) + (this.water?.triangles ?? 0) +
-        (this.furniture?.triangles ?? 0),
+        (this.furniture?.triangles ?? 0) + (this.nature?.triangles ?? 0),
       waterTriangles: this.water?.triangles ?? 0,
+      natureTriangles: this.nature?.triangles ?? 0,
+      trees: this.nature?.trees ?? 0,
+      lamps: this.streets?.lamps ?? 0,
       furnitureTriangles: this.furniture?.triangles ?? 0,
       desks: this.furniture?.desks ?? 0,
       bandTriangles: this.bandTriangles,

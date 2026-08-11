@@ -202,6 +202,26 @@ function laneDashes(path: [number, number][], out: Mesh): void {
   }
 }
 
+/**
+ * Street lighting, after dark.
+ *
+ * At night the model had streets with cars on them and no reason for either
+ * to be visible: New York's roadway is legible after dark because it is lit,
+ * and the double row of sodium points running up an avenue is most of what
+ * the city looks like from a tower at 9pm.
+ *
+ * Drawn as an emissive head on a thin pole, instanced, and only at the hours
+ * where it means anything. The head is warm — the one place in this scene
+ * besides an availability band where warmth is allowed, and it is allowed
+ * because a street lamp is two pixels across: it has chroma but almost no
+ * area, which is exactly the opposite of what would threaten the hierarchy.
+ */
+const LAMP_SPACING_M = 34;
+const LAMP_HEIGHT_M = 9;
+// Trimmed from 2,200 for the same reason the tree count was: an avenue lit
+// every 34 m for a kilometre is already unmistakably a lit avenue.
+const MAX_LAMPS = 1400;
+
 export interface StreetsHandle {
   /**
    * Everything the streetscape draws, as one node.
@@ -214,6 +234,8 @@ export interface StreetsHandle {
   group: THREE.Group;
   dispose(): void;
   triangles: number;
+  /** How many street lamps are lit. Zero by day. */
+  lamps: number;
 }
 
 /**
@@ -237,6 +259,33 @@ export function makeStreets(
   const kerbs: Mesh = { position: [], index: [] };
   const markings: Mesh = { position: [], index: [] };
 
+  /**
+   * Lamp positions: both kerbs, every `LAMP_SPACING_M`, phase carried across
+   * vertices exactly as the lane dashes are.
+   */
+  const lampSpots: [number, number][] = [];
+  const lampFor = (path: [number, number][], offset: number): void => {
+    if (lampSpots.length >= MAX_LAMPS || path.length < 2) return;
+    const normals = normalsFor(path);
+    let travelled = 0;
+    for (let i = 0; i < path.length - 1 && lampSpots.length < MAX_LAMPS; i++) {
+      const [x0, y0] = path[i];
+      const [x1, y1] = path[i + 1];
+      const dx = x1 - x0;
+      const dy = y1 - y0;
+      const len = Math.hypot(dx, dy);
+      if (len < 1e-6) continue;
+      const [nx, ny] = normals[i];
+      for (let s = -(travelled % LAMP_SPACING_M); s < len; s += LAMP_SPACING_M) {
+        if (s < 0) continue;
+        const t = s / len;
+        lampSpots.push([x0 + dx * t + nx * offset, y0 + dy * t + ny * offset]);
+        if (lampSpots.length >= MAX_LAMPS) break;
+      }
+      travelled += len;
+    }
+  };
+
   for (const road of streetscape.roads) {
     if (!drivable(road)) continue;
     const path = ringToLocal(frame, road.p);
@@ -248,6 +297,11 @@ export function makeStreets(
       kerbFace(path, side * half, kerbs);
     }
     if (road.w >= LANE_LINE_MIN_FT) laneDashes(path, markings);
+    // Lamps on the kerb line, both sides, on the wider roads only — a lamp
+    // every 34 m on every service alley is a field of dots.
+    if (road.w >= 30) {
+      for (const side of [1, -1]) lampFor(path, side * (half + 0.6));
+    }
   }
 
   if (roads.index.length === 0) return null;
@@ -297,6 +351,16 @@ export function makeStreets(
     return mesh;
   };
 
+  /**
+   * Lit hours only.
+   *
+   * At noon a street lamp is a grey pole nobody looks at, and two thousand of
+   * them is two thousand instances of nothing. `golden` gets them at half
+   * strength because that is when they actually come on.
+   */
+  const lampGlow =
+    preset.key === 'night' ? 1 : preset.key === 'golden' ? 0.45 : 0;
+
   const group = new THREE.Group();
   const meshes = [
     build(roads, roadMaterial, -8),
@@ -305,13 +369,55 @@ export function makeStreets(
     build(pavements, pavementMaterial, -7),
   ];
   for (const mesh of meshes) group.add(mesh);
-  const materials = [roadMaterial, markingMaterial, kerbMaterial, pavementMaterial];
+  const materials: THREE.Material[] = [
+    roadMaterial,
+    markingMaterial,
+    kerbMaterial,
+    pavementMaterial,
+  ];
+
+  let lamps = 0;
+  if (lampGlow > 0 && lampSpots.length > 0) {
+    const poleGeometry = new THREE.CylinderGeometry(0.09, 0.11, LAMP_HEIGHT_M, 5);
+    poleGeometry.rotateX(Math.PI / 2);
+    poleGeometry.translate(0, 0, LAMP_HEIGHT_M / 2);
+    const headGeometry = new THREE.SphereGeometry(0.42, 6, 4);
+    headGeometry.translate(0, 0, LAMP_HEIGHT_M);
+
+    const poleMaterial = new THREE.MeshBasicMaterial({
+      color: ground.clone().multiplyScalar(0.55),
+    });
+    // Warm, and bright enough to read as a light source rather than as a pale
+    // ball. Small area, so it cannot compete with a band — see the note above.
+    const headMaterial = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(1.0, 0.86, 0.62).multiplyScalar(0.35 + lampGlow * 0.65),
+    });
+
+    const poles = new THREE.InstancedMesh(poleGeometry, poleMaterial, lampSpots.length);
+    const heads = new THREE.InstancedMesh(headGeometry, headMaterial, lampSpots.length);
+    const matrix = new THREE.Matrix4();
+    lampSpots.forEach(([x, y], i) => {
+      matrix.makeTranslation(x, y, PAVEMENT_Z);
+      poles.setMatrixAt(i, matrix);
+      heads.setMatrixAt(i, matrix);
+    });
+    for (const mesh of [poles, heads]) {
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.frustumCulled = false;
+      group.add(mesh);
+    }
+    lamps = lampSpots.length;
+    materials.push(poleMaterial, headMaterial);
+    meshes.push(poles as unknown as THREE.Mesh, heads as unknown as THREE.Mesh);
+  }
 
   return {
     group,
+    lamps,
     triangles:
       (roads.index.length + pavements.index.length +
-        kerbs.index.length + markings.index.length) / 3,
+        kerbs.index.length + markings.index.length) / 3 +
+      lamps * 42,
     dispose() {
       for (const mesh of meshes) mesh.geometry.dispose();
       for (const material of materials) material.dispose();

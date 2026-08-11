@@ -1,4 +1,5 @@
 import { ColumnLayer, PathLayer, PolygonLayer, TextLayer } from '@deck.gl/layers';
+import { CollisionFilterExtension } from '@deck.gl/extensions';
 import type { Layer, PickingInfo } from '@deck.gl/core';
 import { circle as turfCircle } from '@turf/turf';
 import {
@@ -218,6 +219,8 @@ interface LabelDatum {
   buildingId: string;
   position: [number, number, number];
   text: string;
+  /** Higher wins when two pills would overlap. See the layer for the rule. */
+  priority: number;
 }
 
 function ringWithZ(ring: [number, number][], z: number): Ring3 {
@@ -1068,6 +1071,18 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         buildingId: b.id,
         position: [lon, lat, buildingHeightFt(b) * FT_TO_M],
         text: labelText(b),
+        /**
+         * Which name survives when two collide: the one with more on the
+         * market, and then the taller building.
+         *
+         * A tower with twelve availabilities is the reason this map exists and
+         * a tower with none is scenery, so when only one pill fits it should
+         * be the first. Height breaks the tie because a taller building is
+         * visible from further away and its label is the one that orients you.
+         */
+        priority:
+          b.spaces.filter((s) => s.is_active).length * 100 +
+          Math.round(buildingHeightFt(b) / 10),
       });
     }
 
@@ -1076,9 +1091,41 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
         new TextLayer<LabelDatum>({
           id: 'building-labels',
           data: labels,
-          // Labels are a reading aid, not a target: picking stays with the
-          // massing and the bands so a click never lands on a pill.
-          pickable: false,
+          /**
+           * Overlapping pills are hidden, not stacked.
+           *
+           * Without this every name-plate is drawn whatever else is there, so
+           * two towers a block apart produce two pills on top of each other
+           * and neither can be read — which is worse than one of them being
+           * absent, because a half-legible label over the wrong building is a
+           * wrong answer rather than a missing one.
+           *
+           * `CollisionFilterExtension` does the test in its own pass at the
+           * real drawn size, so it is exact rather than an estimate, and it
+           * respects `getCollisionPriority` — see the datum for the rule.
+           */
+          // The extension's props are not in `TextLayer`'s type, so they are
+          // spread in. They are validated by deck.gl at run time.
+          ...({
+            extensions: [new CollisionFilterExtension()],
+            collisionEnabled: true,
+            collisionGroup: 'building-labels',
+            getCollisionPriority: (d: LabelDatum) => d.priority,
+            collisionTestProps: { sizeScale: 1.15 },
+          } as Record<string, unknown>),
+          // A name you can read is a building you can open. It used to be
+          // unpickable on the grounds that a click should land on the massing;
+          // that was right when a label could be sitting anywhere, and once
+          // they cannot overlap the pill is an unambiguous target.
+          pickable: true,
+          onClick: (info: PickingInfo) => {
+            const d = info.object as LabelDatum | undefined;
+            if (!d) return false;
+            // Screen coordinates, which is what every other click in this
+            // file hands over — the card is placed at the pixel you clicked.
+            onBuildingClick?.(d.buildingId, { x: info.x, y: info.y });
+            return true;
+          },
           billboard: true,
           background: true,
           getPosition: (d) => d.position,

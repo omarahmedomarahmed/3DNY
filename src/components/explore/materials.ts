@@ -475,7 +475,7 @@ export function makeFacadeMaterial(
     uSeed: { value: options.seed ?? 0 },
   };
 
-  return new THREE.ShaderMaterial({
+  const material = new THREE.ShaderMaterial({
     uniforms: uniforms as THREE.ShaderMaterial['uniforms'],
     vertexShader: FACADE_VERTEX,
     fragmentShader: FACADE_FRAGMENT,
@@ -484,6 +484,21 @@ export function makeFacadeMaterial(
     // just passed. Sprint 7 handles that case; until then, cull.
     side: THREE.FrontSide,
   });
+
+  /**
+   * Remembered, because the hour changes what "plain" means.
+   *
+   * The surrounding city is drawn without a window grid on purpose: in
+   * daylight it is scenery, and forty thousand fenestrated footprints would
+   * be a field of speckle behind the towers that carry data. At night that
+   * argument inverts — a black massing city behind a lit Midtown reads as a
+   * hole in the map, and the lights of the buildings nobody is selling are a
+   * large part of what New York looks like after dark. So the glass fraction
+   * for context massing is driven by the preset rather than fixed at zero.
+   */
+  material.userData.plain = Boolean(options.plain);
+  material.userData.glassFraction = options.glassFraction ?? 0.56;
+  return material;
 }
 
 /** deck.gl's 0-255 triples, as a three.js colour. */
@@ -518,6 +533,22 @@ export function applyPreset(
   // city — and, worse, adds warm speckle to a frame whose whole point is that
   // Goldenrod is the only warm thing in it.
   material.uniforms.uInterior.value = interiorFor(preset);
+
+  // Context massing: no window grid by day, a real one after dark. See the
+  // note where `userData.plain` is set.
+  if (material.userData.plain) {
+    material.uniforms.uGlassFraction.value =
+      preset.key === 'night' ? 0.50 : preset.key === 'golden' ? 0.22 : 0;
+    /**
+     * And lit harder than the towers that carry data.
+     *
+     * The surrounding city has no fenestration by day, so at night it starts
+     * from black; the detailed towers start from a facade the sun has been on
+     * all day. Matching the interior glow leaves the context city a dark mass
+     * behind a lit Midtown, which is the state this was meant to fix.
+     */
+    material.uniforms.uInterior.value = interiorFor(preset) * 1.9;
+  }
   (material.uniforms.uSunDir.value as THREE.Vector3).set(...sunDir);
   (material.uniforms.uSunColor.value as THREE.Color).copy(rgb(preset.sunColor));
   material.uniforms.uSunIntensity.value = preset.sun;

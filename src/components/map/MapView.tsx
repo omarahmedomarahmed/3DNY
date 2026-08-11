@@ -58,6 +58,7 @@ import { useExplore } from '../explore/useExplore';
 import { useWalk } from '../explore/useWalk';
 import { useFreeCam } from '../explore/useFreeCam';
 import SpaceHud from '../explore/SpaceHud';
+import FreeLabels from '../explore/FreeLabels';
 
 const DEFAULT_CENTER: [number, number] = [-73.98, 40.75];
 
@@ -1694,6 +1695,15 @@ export default function MapView() {
             looks like a bug. It comes back when the panel is minimised. */}
         {!compareOpen && <MapLegend />}
         {mapMode === 'explore' && spaceExplore ? <SpaceHud /> : null}
+        {/* Name-plates while free look owns the camera. deck.gl's are switched
+            off because they would be drawn from a camera this frame was not
+            rendered with — see `FreeLabels`. */}
+        <FreeLabels
+          map={map}
+          layer={explore.layer ?? null}
+          buildings={filtered}
+          active={mapMode === 'explore' && freeLook && !spaceExplore}
+        />
         <RadiusControl />
         <ResetView
           map={map}

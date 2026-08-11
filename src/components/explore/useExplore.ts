@@ -286,17 +286,29 @@ export function useExplore(
     const frame = layer.localFrame;
     layer.setAgents(
       populate(frame, streetscape.roads, {
-        count: 420,
-        // Manhattan average traffic speed is famously about seven miles an
-        // hour. Three metres a second is a shade over that and it reads as
-        // moving rather than as stationary.
-        speed: 3.2,
+        /**
+         * Enough traffic that a street reads as a street.
+         *
+         * 420 was a car every couple of blocks — technically traffic, and from
+         * the pavement it read as an unusually quiet Sunday. Manhattan is the
+         * densest street network in the country and it should look it.
+         */
+        count: 900,
+        /**
+         * Faster than the famous seven-miles-an-hour average, on purpose.
+         *
+         * The average includes standing at lights, and this model has no
+         * lights: at 3.2 m/s every car crawls continuously, which reads as
+         * slower than real traffic rather than as the same. 6 m/s is a moving
+         * car between junctions, which is what is being drawn.
+         */
+        speed: 6.0,
         lane: 'road',
         z: 0.02,
       }),
       populate(frame, streetscape.roads, {
-        count: 700,
-        speed: 1.35,
+        count: 1300,
+        speed: 1.4,
         lane: 'kerb',
         z: 0.05,
         // A pavement on a fifteen-metre stub is not somewhere anyone walks.
