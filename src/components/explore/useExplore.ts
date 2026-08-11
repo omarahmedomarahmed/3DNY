@@ -15,6 +15,7 @@ import {
 import { detailedBuildings } from '@/lib/explore/eligibility';
 import { loadLod2, lod2For } from '@/lib/explore/lod2-registry';
 import { massingToArrays } from '@/lib/explore/lod2';
+import { roofMassing, roofscapeFor } from './roofs3d';
 import { buildingHeightFt, buildingRing, floorHeightFt, FT_TO_M } from '@/lib/floor-bands';
 import type { BuildingWithSpaces, OccupancyKind } from '@/types';
 import type { ContextBuilding } from '@/lib/city-context';
@@ -255,6 +256,18 @@ export function buildSpecs(
       arrays =
         steps.length > 1 ? steppedMassing(local, steps) : extrudedMassing(local, heightM);
     }
+
+    /**
+     * The roofscape, merged into the same buffer as the building.
+     *
+     * One mesh per building rather than one per parapet and tank: a tower's
+     * roof furniture is a dozen small pieces, and at 400 buildings that is
+     * five thousand draw calls against a budget of one thousand. They share
+     * the building's material anyway — roof furniture is the same stone, and
+     * it is never coloured by data.
+     */
+    const scape = roofMassing(layer.localFrame, roofscapeFor(building, surveyed ?? null));
+    if (scape) arrays = mergeMassings([arrays, scape]);
 
     specs.push({
       id: building.id,
