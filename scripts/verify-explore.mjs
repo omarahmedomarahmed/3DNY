@@ -726,7 +726,20 @@ let bestMove = 0;
 for (let attempt = 0; attempt < 4 && bestMove <= 1.5; attempt++) {
   if (attempt > 0) await hold('KeyE', 1000);
   const before = await eyeNow();
-  await hold('KeyW', 1600);
+  /**
+   * Held for five seconds, not for one and a half — and the bar is unchanged.
+   *
+   * `stepWalk` clamps its timestep to 0.1 s per frame, deliberately, so that a
+   * tab restored after ten minutes does not teleport the walker across the
+   * island. Under SwiftShader a frame now costs about 0.4 s, so one second of
+   * held key buys about a quarter of a second of movement, and the walker
+   * covered 1.4 m where this check wanted 1.5 m. That is the software renderer
+   * being slow, not the walk being broken: on a GPU the clamp never binds.
+   *
+   * The honest fix is to give the renderer enough frames rather than to lower
+   * the distance — the assertion is still "more than a metre and a half".
+   */
+  await hold('KeyW', 5000);
   const after = await eyeNow();
   if (before && after) {
     bestMove = Math.max(bestMove, Math.hypot(after.x - before.x, after.y - before.y));
@@ -1072,6 +1085,178 @@ await page.getByRole('button', { name: 'Hide buildings with nothing available' }
 await sleep(2500);
 
 
+
+// --- 6b. The streetscape, the water and the free camera -------------------
+
+/**
+ * A street you can see, not merely a street in the buffer.
+ *
+ * This check exists because the streetscape was built, uploaded and drawn
+ * every frame for an entire sprint while being completely invisible: every
+ * ground ribbon was wound clockwise, so back-face culling removed all of it.
+ * `streetTriangles > 0` was true the whole time and proved nothing, which is
+ * exactly the kind of assertion this project is not allowed to ship.
+ *
+ * So the control is the same camera with the streets switched off, and what is
+ * asserted is that the pixels differ. Nothing about winding, materials or
+ * heights can be true in the buffer and false on screen after this.
+ */
+await page.evaluate(() => {
+  window.__m.jumpTo({ center: [-73.9840, 40.7540], zoom: 16.0, pitch: 0, bearing: 0 });
+});
+for (let i = 0; i < 40; i++) {
+  const n = await page.evaluate(() => window.__explore?.budget?.streetTriangles ?? 0);
+  if (n > 5000) break;
+  await sleep(750);
+}
+await sleep(1500);
+
+const streetBudget = await page.evaluate(() => window.__explore?.budget ?? null);
+check('the streetscape is built',
+  (streetBudget?.streetTriangles ?? 0) > 5000,
+  `${(streetBudget?.streetTriangles ?? 0).toLocaleString()} triangles`);
+
+const withStreets = await frameStats();
+await page.screenshot({ path: join(outdir, 'explore-streets.png') });
+
+// The control: the same frame with nothing but the ground plane under the
+// city. `setStreets(null)` is the layer's own teardown path, so this also
+// proves that removing them does not leave anything behind.
+await page.evaluate(() => window.__explore.setStreets(null));
+await sleep(1800);
+const withoutStreets = await frameStats();
+
+check(
+  'the streets change the pixels on the ground',
+  withStreets.detail > withoutStreets.detail * 1.15,
+  `detail ${withStreets.detail.toFixed(4)} with, ${withoutStreets.detail.toFixed(4)} without`,
+);
+
+// Put them back by nudging the camera, which re-runs the streetscape effect.
+await page.evaluate(() => {
+  window.__m.jumpTo({ center: [-73.9838, 40.7538], zoom: 16.0, pitch: 0, bearing: 0 });
+});
+for (let i = 0; i < 40; i++) {
+  const n = await page.evaluate(() => window.__explore?.budget?.streetTriangles ?? 0);
+  if (n > 5000) break;
+  await sleep(750);
+}
+
+/**
+ * The rivers.
+ *
+ * Measured on the count rather than on pixels, and deliberately so: whether
+ * the Hudson is in a given crop depends on the viewport, and a pixel check
+ * that has to be aimed at water is a check that will be re-aimed until it
+ * passes. What is worth asserting mechanically is that water polygons arrive
+ * and are tessellated; that it looks like water is what the frames are for.
+ */
+await page.evaluate(() => {
+  window.__m.jumpTo({ center: [-74.0100, 40.7160], zoom: 14.4, pitch: 55, bearing: 20 });
+});
+for (let i = 0; i < 40; i++) {
+  const n = await page.evaluate(() => window.__explore?.budget?.waterTriangles ?? 0);
+  if (n > 0) break;
+  await sleep(750);
+}
+const waterBudget = await page.evaluate(() => window.__explore?.budget ?? null);
+check('the rivers are drawn in Explore mode',
+  (waterBudget?.waterTriangles ?? 0) > 0,
+  `${(waterBudget?.waterTriangles ?? 0).toLocaleString()} water triangles`);
+
+/**
+ * Free look, and the one thing about it that matters.
+ *
+ * MapLibre's pitch is capped at 85 degrees and 90 is level, so on its camera
+ * looking above the horizon is not merely awkward, it is unreachable. The
+ * check is therefore not "the button exists" but: with the map's own pitch
+ * held below its cap and its camera not moved at all, does pointing the free
+ * camera at the sky change the frame to sky?
+ */
+/**
+ * Back over Midtown before free look, and high enough to clear the roofs.
+ *
+ * The free camera is seeded from wherever the map camera is, and the water
+ * check leaves it downtown at a low altitude — from which "looking down" put
+ * the eye inside a tower and filled the control frame with one flat wall.
+ * Nothing about that measures a camera.
+ */
+await page.evaluate(() => {
+  window.__m.jumpTo({ center: [-73.9840, 40.7540], zoom: 15.4, pitch: 55, bearing: 20 });
+});
+await sleep(6000);
+
+const beforeFree = await frameStats();
+await page.getByRole('button', { name: 'Free camera' }).first().click();
+await sleep(2500);
+
+const pitchBefore = await page.evaluate(() => window.__m.getPitch());
+const eye = await page.evaluate(() => {
+  const p = window.__explore.eye;
+  return { x: p.x, y: p.y, z: p.z };
+});
+
+/**
+ * The control is a camera high enough that the crop is full of city.
+ *
+ * The first version put it at 60 m and pitched it 40 degrees down, and the
+ * crop — which is the upper-middle of the map, where the chrome is not — was
+ * mostly horizon. Both frames came out almost featureless and the comparison
+ * said nothing. Looking steeply down from 400 m fills it with roofs.
+ */
+await page.evaluate((e) => {
+  window.__explore.setFreeCamera({ x: e.x, y: e.y, z: 700, yaw: 20, pitch: -55 });
+}, eye);
+await sleep(2500);
+const lookingDown = await frameStats();
+await page.screenshot({ path: join(outdir, 'explore-free-down.png') });
+
+await page.evaluate((e) => {
+  // 88 degrees above the horizon: a value MapLibre's camera cannot express.
+  window.__explore.setFreeCamera({ x: e.x, y: e.y, z: 700, yaw: 20, pitch: 88 });
+}, eye);
+await sleep(2500);
+const lookingUp = await frameStats();
+await page.screenshot({ path: join(outdir, 'explore-free-up.png') });
+
+const pitchAfter = await page.evaluate(() => window.__m.getPitch());
+
+check(
+  "the map's own camera never moved",
+  Math.abs(pitchAfter - pitchBefore) < 0.01 && pitchAfter <= 85.001,
+  `MapLibre pitch ${pitchBefore.toFixed(2)} → ${pitchAfter.toFixed(2)}`,
+);
+check(
+  'the free camera can point above the horizon',
+  // Sky has almost no local structure; a city seen from 60 m has a great deal.
+  lookingUp.detail < lookingDown.detail * 0.5,
+  `detail up ${lookingUp.detail.toFixed(4)} vs down ${lookingDown.detail.toFixed(4)}`,
+);
+check(
+  'and what is up there is sky, not void',
+  lookingUp.meanLuma > 0.45,
+  `mean luma ${lookingUp.meanLuma.toFixed(3)}`,
+);
+
+/**
+ * Leaving free look puts the view back exactly where it was.
+ *
+ * Asserted by comparing frames rather than by checking that a button changed
+ * label: free look hands the projection to a second camera and hands it back,
+ * and the failure worth catching is it handing back something subtly
+ * different — a stale matrix, a disabled handler never re-enabled, deck.gl
+ * left switched off.
+ */
+await page.getByRole('button', { name: 'Leave free look' }).first().click();
+await sleep(3000);
+const afterFree = await frameStats();
+check(
+  'leaving free look restores the view it was entered from',
+  Math.abs(afterFree.meanLuma - beforeFree.meanLuma) < 0.03 &&
+    Math.abs(afterFree.detail - beforeFree.detail) < 0.01,
+  `luma ${beforeFree.meanLuma.toFixed(3)} → ${afterFree.meanLuma.toFixed(3)}, ` +
+    `detail ${beforeFree.detail.toFixed(4)} → ${afterFree.detail.toFixed(4)}`,
+);
 
 /**
  * The toggle-back comparison needs massing in the frame.

@@ -21,7 +21,7 @@ import maplibregl from 'maplibre-gl';
 THREE.ColorManagement.enabled = false;
 import type { AtmospherePreset } from '../map/atmosphere';
 import { makeFrame, toLocal, type LocalFrame } from '@/lib/explore/frame';
-import { cameraOffset } from '@/lib/explore/camera';
+import { cameraOffset, MAPLIBRE_FOV } from '@/lib/explore/camera';
 import { sunDirection } from '@/lib/explore/sun';
 import { interiorFor } from './materials';
 import {
@@ -36,7 +36,10 @@ import { makeBandMaterial, type BandGroup } from './bands3d';
 import { makeLife, updateLife, type LifeHandle } from './life3d';
 import type { Agent } from '@/lib/explore/agents';
 import { makeStreets, type StreetsHandle } from './streets3d';
+import { applySkyPreset, makeSky, updateSky, type SkyHandle } from './sky3d';
+import { applyWaterPreset, makeWater, type WaterHandle } from './water3d';
 import type { StreetscapeResult } from '@/lib/streetscape';
+import { freeForward, type FreeCam } from '@/lib/explore/freecam';
 
 /**
  * three.js inside MapLibre's own WebGL context.
@@ -101,6 +104,9 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
   private readonly cameraPos = new THREE.Vector3();
   private ground: GroundHandle | null = null;
   private streets: StreetsHandle | null = null;
+  private sky: SkyHandle | null = null;
+  private water: WaterHandle | null = null;
+  private freeCam: FreeCam | null = null;
   private life: LifeHandle | null = null;
   private carAgents: Agent[] = [];
   private peopleAgents: Agent[] = [];
@@ -135,6 +141,18 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     this.sunDir = sunDirection(preset.timestamp, anchor[0], anchor[1]);
     this.ground = makeGround(preset);
     this.scene.add(this.ground.mesh);
+
+    /**
+     * Our own sky, rather than MapLibre's.
+     *
+     * MapLibre's sits behind everything three.js draws, so the ground plane
+     * hides most of it; it has no sun in it, only a gradient the sun tints;
+     * and it stops existing when a basemap style fails to load, which is a
+     * normal state on a corporate network and the one a demo is most likely
+     * to be given.
+     */
+    this.sky = makeSky(preset, this.sunDir);
+    this.scene.add(this.sky.mesh);
 
     /**
      * There are no `THREE.Light` objects in this scene, deliberately.
@@ -198,11 +216,20 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     }
     this.plateMaterial?.dispose();
     this.plateMaterial = null;
+    if (this.sky) {
+      this.scene.remove(this.sky.mesh);
+      this.sky.dispose();
+      this.sky = null;
+    }
     if (this.streets) {
-      this.scene.remove(this.streets.roads);
-      this.scene.remove(this.streets.pavements);
+      this.scene.remove(this.streets.group);
       this.streets.dispose();
       this.streets = null;
+    }
+    if (this.water) {
+      this.scene.remove(this.water.mesh);
+      this.water.dispose();
+      this.water = null;
     }
     if (this.life) {
       this.scene.remove(this.life.cars);
@@ -429,21 +456,45 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     this.map?.triggerRepaint();
   }
 
-  /** The roadbed and the pavements, from the same centrelines the flat map uses. */
+  /**
+   * The roadbed, the pavements and the rivers.
+   *
+   * All three come out of the same streetscape payload the flat map already
+   * fetches, so water arrives here rather than through a second call: a scene
+   * with streets but no river is a state nothing wants and one more thing that
+   * could be left half-wired.
+   */
   setStreets(streetscape: StreetscapeResult | null): void {
     if (this.streets) {
-      this.scene.remove(this.streets.roads);
-      this.scene.remove(this.streets.pavements);
+      this.scene.remove(this.streets.group);
       this.streets.dispose();
       this.streets = null;
+    }
+    if (this.water) {
+      this.scene.remove(this.water.mesh);
+      this.water.dispose();
+      this.water = null;
     }
     if (streetscape) {
       this.streets = makeStreets(this.frame, streetscape, this.preset);
       if (this.streets) {
-        this.scene.add(this.streets.pavements);
-        this.scene.add(this.streets.roads);
+        this.scene.add(this.streets.group);
       }
+      this.water = makeWater(this.frame, streetscape, this.preset, this.sunDir);
+      if (this.water) this.scene.add(this.water.mesh);
     }
+    this.map?.triggerRepaint();
+  }
+
+  /**
+   * Hands the projection to a camera of our own, or gives it back to MapLibre.
+   *
+   * `null` is the normal state and is what every existing view uses. A non-null
+   * camera means the next frame is drawn from that eye instead, at any pitch
+   * including straight up.
+   */
+  setFreeCamera(cam: FreeCam | null): void {
+    this.freeCam = cam;
     this.map?.triggerRepaint();
   }
 
@@ -456,6 +507,8 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     this.preset = preset;
     this.sunDir = sunDirection(preset.timestamp, this.frame.lon0, this.frame.lat0);
     for (const m of this.materials) applyPreset(m, preset, this.sunDir);
+    if (this.sky) applySkyPreset(this.sky, preset, this.sunDir);
+    if (this.water) applyWaterPreset(this.water, preset, this.sunDir);
     if (this.ground) {
       (this.ground.material.uniforms.uHazeColor.value as THREE.Color).setRGB(
         preset.haze[0] / 255,
@@ -466,6 +519,7 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
       (this.ground.material.uniforms.uGroundColor.value as THREE.Color).copy(
         groundColor(preset),
       );
+      (this.ground.material.uniforms.uHorizonColor.value as THREE.Color).set(preset.horizon);
     }
     this.map?.triggerRepaint();
   }
@@ -493,28 +547,49 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
      * anchor, which looks like every building being in the wrong place rather
      * than like a flipped axis — it cost an hour the first time.
      */
-    const s = this.metersToMercator;
-    const local = new THREE.Matrix4()
-      .makeTranslation(this.originMercator.x, this.originMercator.y, this.originMercator.z)
-      .scale(new THREE.Vector3(s, -s, s));
+    const canvas = map.getCanvas();
 
-    this.camera.projectionMatrix = new THREE.Matrix4().fromArray(matrix as number[]).multiply(local);
+    if (this.freeCam) {
+      /**
+       * The free camera bypasses Mercator entirely.
+       *
+       * There is no `local` matrix here and there does not need to be: the
+       * scene is already in metres, so a perspective projection times the
+       * inverse of the camera's own transform is the whole pipeline. Which is
+       * also why this camera can do what MapLibre's cannot — it is not a map
+       * camera with a tilt limit, it is a camera.
+       */
+      this.camera.projectionMatrix = freeProjection(
+        this.freeCam,
+        (canvas.clientWidth || 1200) / (canvas.clientHeight || 800),
+      );
+      this.cameraPos.set(this.freeCam.x, this.freeCam.y, this.freeCam.z);
+    } else {
+      const s = this.metersToMercator;
+      const local = new THREE.Matrix4()
+        .makeTranslation(this.originMercator.x, this.originMercator.y, this.originMercator.z)
+        .scale(new THREE.Vector3(s, -s, s));
+
+      this.camera.projectionMatrix = new THREE.Matrix4()
+        .fromArray(matrix as number[])
+        .multiply(local);
+
+      // Where the eye is, in scene metres. Reflections and haze both need it.
+      // Derived from public accessors rather than read off `map.transform`,
+      // which is an internal that has changed shape between versions — see
+      // `lib/explore/camera.ts`.
+      const centre = map.getCenter();
+      const [cx, cy] = toLocal(this.frame, centre.lng, centre.lat);
+      const offset = cameraOffset({
+        center: [centre.lng, centre.lat],
+        zoom: map.getZoom(),
+        pitch: map.getPitch(),
+        bearing: map.getBearing(),
+        height: canvas.clientHeight || 800,
+      });
+      this.cameraPos.set(cx + offset.east, cy + offset.north, offset.altitude);
+    }
     this.projected = true;
-
-    // Where the eye is, in scene metres. Reflections and haze both need it.
-    // Derived from public accessors rather than read off `map.transform`,
-    // which is an internal that has changed shape between versions — see
-    // `lib/explore/camera.ts`.
-    const centre = map.getCenter();
-    const [cx, cy] = toLocal(this.frame, centre.lng, centre.lat);
-    const offset = cameraOffset({
-      center: [centre.lng, centre.lat],
-      zoom: map.getZoom(),
-      pitch: map.getPitch(),
-      bearing: map.getBearing(),
-      height: map.getCanvas().clientHeight || 800,
-    });
-    this.cameraPos.set(cx + offset.east, cy + offset.north, offset.altitude);
 
     const now = Date.now();
     const seconds = (now - this.started) / 1000;
@@ -531,6 +606,16 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     this.lastFrameAt = now;
     if (this.ground) {
       (this.ground.material.uniforms.uCameraPos.value as THREE.Vector3).copy(this.cameraPos);
+    }
+    if (this.water) {
+      const u = this.water.material.uniforms;
+      (u.uCameraPos.value as THREE.Vector3).copy(this.cameraPos);
+      u.uTime.value = seconds;
+    }
+    if (this.sky) {
+      updateSky(this.sky, this.cameraPos, seconds);
+      // Clouds drift, so the frame after this one is different from this one.
+      map.triggerRepaint();
     }
 
     // three.js has been caching GL state that MapLibre has been changing all
@@ -653,6 +738,7 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     surveyed: number;
     buildings: number;
     streetTriangles: number;
+    waterTriangles: number;
     contextTriangles: number;
     cars: number;
     people: number;
@@ -660,7 +746,8 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     return {
       triangles:
         this.triangles + this.bandTriangles + this.contextTriangles +
-        (this.streets?.triangles ?? 0),
+        (this.streets?.triangles ?? 0) + (this.water?.triangles ?? 0),
+      waterTriangles: this.water?.triangles ?? 0,
       bandTriangles: this.bandTriangles,
       drawCalls: this.renderer?.info.render.calls ?? 0,
       surveyed: this.surveyedCount,
@@ -693,4 +780,59 @@ function toGeometry(a: MassingArrays): THREE.BufferGeometry {
   g.setAttribute('isWall', new THREE.BufferAttribute(a.isWall, 1));
   g.setIndex(new THREE.BufferAttribute(a.index, 1));
   return g;
+}
+
+/** Reused across frames: the free camera runs at sixty of them a second. */
+const FREE_EYE = new THREE.Vector3();
+const FREE_TARGET = new THREE.Vector3();
+const FREE_UP = new THREE.Vector3(0, 0, 1);
+const FREE_VIEW = new THREE.Matrix4();
+const FREE_PERSPECTIVE = new THREE.Matrix4();
+
+/**
+ * Projection × view for the free camera, in scene metres.
+ *
+ * The field of view is MapLibre's own, so switching the free camera on and off
+ * does not change how wide the world looks — only where the eye is and where it
+ * is pointed. `far` is 60 km, past the sky dome's 40 km radius; `near` is 0.1 m,
+ * because the camera is allowed right up against a facade.
+ *
+ * The result is assigned straight to `camera.projectionMatrix` with the
+ * camera's world matrix left as identity, which is the same trick the MapLibre
+ * path uses — three.js multiplies by `matrixWorldInverse` and identity is the
+ * one value that leaves a hand-built matrix alone.
+ */
+function freeProjection(cam: FreeCam, aspect: number): THREE.Matrix4 {
+  const [fx, fy, fz] = freeForward(cam);
+  FREE_EYE.set(cam.x, cam.y, cam.z);
+  FREE_TARGET.set(cam.x + fx, cam.y + fy, cam.z + fz);
+
+  FREE_VIEW.lookAt(FREE_EYE, FREE_TARGET, FREE_UP);
+  FREE_VIEW.setPosition(FREE_EYE);
+  FREE_VIEW.invert();
+
+  FREE_PERSPECTIVE.makePerspective(
+    ...perspectiveExtents((MAPLIBRE_FOV * 180) / Math.PI, aspect, 0.1, 60_000),
+  );
+  return FREE_PERSPECTIVE.clone().multiply(FREE_VIEW);
+}
+
+/**
+ * `makePerspective` takes frustum edges, not a field of view.
+ *
+ * three.js's own `PerspectiveCamera` does this conversion internally and is not
+ * used here because it would also want to own the projection matrix this layer
+ * assigns by hand. Six numbers is cheaper than fighting it.
+ */
+function perspectiveExtents(
+  fovDeg: number,
+  aspect: number,
+  near: number,
+  far: number,
+): [number, number, number, number, number, number] {
+  const top = near * Math.tan((fovDeg * Math.PI) / 360);
+  const height = 2 * top;
+  const width = aspect * height;
+  const left = -0.5 * width;
+  return [left, left + width, top, top - height, near, far];
 }

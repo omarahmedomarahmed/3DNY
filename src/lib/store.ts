@@ -73,6 +73,22 @@ interface AppState {
   /** First person at street level, rather than the free drone camera. */
   walking: boolean;
   /**
+   * The unconstrained camera: three.js's own, not MapLibre's.
+   *
+   * MapLibre's camera cannot pitch past 85 degrees, and 90 is the horizon — so
+   * on the flat map, and in every other Explore view, it is *impossible* to
+   * look above eye level. That is fine for a map and wrong for a model with a
+   * sky, a sun and eight-hundred-foot towers in it: the one thing anyone does
+   * standing at the foot of a skyscraper is look up.
+   *
+   * With this on, `ExploreLayer` computes its own projection and the camera
+   * flies and turns without limit. The cost is stated where it is paid: the
+   * basemap and deck.gl's overlay still follow MapLibre's camera, so deck.gl's
+   * layers are switched off for the duration and picking with them. It is a
+   * look-around mode, and leaving it restores everything.
+   */
+  freeLook: boolean;
+  /**
    * The floor a broker has stepped onto, entered from its band.
    *
    * `null` means the pavement. This is the one place Explore mode goes
@@ -166,6 +182,7 @@ interface AppState {
   setPhotoreal: (on: boolean) => void;
   setMapMode: (m: MapMode) => void;
   setWalking: (on: boolean) => void;
+  setFreeLook: (on: boolean) => void;
   standOnFloor: (buildingId: string, floorNumber: number) => void;
   leaveFloor: () => void;
   setShowContext: (on: boolean) => void;
@@ -218,6 +235,7 @@ export const useApp = create<AppState>((set, get) => ({
   photoreal: false,
   mapMode: 'flat',
   walking: false,
+  freeLook: false,
   standingOn: null,
   showContext: false,
   // Light. Dark was the default on the argument that these maps are shown in
@@ -303,14 +321,29 @@ export const useApp = create<AppState>((set, get) => ({
     set(
       mapMode === 'explore'
         ? { mapMode, photoreal: false }
-        : { mapMode, walking: false, standingOn: null },
+        : { mapMode, walking: false, freeLook: false, standingOn: null },
     );
   },
 
   setWalking(walking) {
     // Walking is a thing you do inside Explore mode. Asking for it from the
     // flat map is a reasonable thing to want and means switching modes.
-    set(walking ? { walking, mapMode: 'explore' } : { walking, standingOn: null });
+    // Walking and free look are two answers to the same question, so turning
+    // one on turns the other off rather than leaving two camera drivers
+    // fighting over `jumpTo` sixty times a second.
+    set(
+      walking
+        ? { walking, mapMode: 'explore' as MapMode, freeLook: false }
+        : { walking, standingOn: null },
+    );
+  },
+
+  setFreeLook(freeLook) {
+    set(
+      freeLook
+        ? { freeLook, mapMode: 'explore' as MapMode, walking: false, standingOn: null }
+        : { freeLook },
+    );
   },
 
   standOnFloor(buildingId, floorNumber) {
@@ -320,6 +353,7 @@ export const useApp = create<AppState>((set, get) => ({
     set({
       standingOn: { buildingId, floorNumber },
       walking: true,
+      freeLook: false,
       mapMode: 'explore',
     });
   },

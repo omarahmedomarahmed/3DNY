@@ -154,6 +154,17 @@ export interface BuildLayersOptions {
    * existing click behaviour keep working untouched.
    */
   explore?: boolean;
+  /**
+   * Free look is on, so deck.gl must draw nothing.
+   *
+   * During free look `ExploreLayer` projects the frame from its own camera —
+   * the only way to look above the horizon, since MapLibre's pitch stops at 85
+   * degrees. deck.gl's overlay is still projected with MapLibre's camera, so
+   * every layer it drew would be in the wrong place: a name-plate over open sky
+   * a few blocks from its tower. An empty list is the honest answer, and the
+   * availability bands are three.js geometry now, so the one rule is unaffected.
+   */
+  freeLook?: boolean;
 }
 
 /**
@@ -383,7 +394,10 @@ export function buildLayers(opts: BuildLayersOptions): Layer[] {
     onHover,
     occupancyKinds = ['available'],
     explore = false,
+    freeLook = false,
   } = opts;
+
+  if (freeLook) return [];
 
   const kinds = new Set<OccupancyKind>(occupancyKinds);
   // A stable string for deck.gl's updateTriggers: a Set is a new object every

@@ -56,6 +56,7 @@ import TenantPopup from './TenantPopup';
 import { useVisibleBuildings } from './useVisibleBuildings';
 import { useExplore } from '../explore/useExplore';
 import { useWalk } from '../explore/useWalk';
+import { useFreeCam } from '../explore/useFreeCam';
 
 const DEFAULT_CENTER: [number, number] = [-73.98, 40.75];
 
@@ -619,6 +620,7 @@ export default function MapView() {
   const photoreal = useApp((s) => s.photoreal);
   const mapMode = useApp((s) => s.mapMode);
   const walking = useApp((s) => s.walking);
+  const freeLook = useApp((s) => s.freeLook);
   const standingOn = useApp((s) => s.standingOn);
   const showContext = useApp((s) => s.showContext);
   const mapTheme = useApp((s) => s.mapTheme);
@@ -731,6 +733,14 @@ export default function MapView() {
     explore.obstacles,
     explore.inside,
   );
+
+  /**
+   * Free look, which drives a camera of its own rather than MapLibre's.
+   *
+   * The only way to look above the horizon — MapLibre's pitch stops at 85
+   * degrees and 90 is level. See `useFreeCam` for what that costs.
+   */
+  useFreeCam(map, explore.layer ?? null, mapMode === 'explore' && freeLook, explore.layer?.localFrame ?? null);
 
 
   // An empty mode list means "all of them", so the map is useful before
@@ -1270,6 +1280,16 @@ export default function MapView() {
         },
         occupancyKinds,
         explore: mapMode === 'explore',
+        /**
+         * deck.gl draws nothing at all during free look.
+         *
+         * Its layers are projected with MapLibre's camera, which is no longer
+         * the camera the frame is being drawn from, so a name-plate would sit
+         * over open sky several blocks from the tower it belongs to. Off is
+         * strictly better than wrong; the bands are three.js geometry now, so
+         * nothing that matters goes with it.
+         */
+        freeLook: mapMode === 'explore' && freeLook,
         onHover: (id) => useApp.getState().setHovered(id),
         photorealLayer: activePhotorealLayer,
       }),
@@ -1288,6 +1308,7 @@ export default function MapView() {
     view,
     photoreal,
     mapMode,
+    freeLook,
     // The surveyed massing decides where a band's collar sits, and deck.gl's
     // copy of the bands is what a click resolves against.
     explore.lod2Ready,
@@ -1582,6 +1603,23 @@ export default function MapView() {
             <span className="mx-1.5 text-subtle">·</span>
             <span className="font-semibold text-ink">Esc</span>{' '}
             {standingOn ? 'back to the street' : 'back up'}
+          </div>
+        )}
+        {/* Same reasoning as the walk hint, and more necessary: free look is
+            the one view that needs the pointer captured, and a camera that
+            only responds after an unexplained click is a camera that reads as
+            broken. */}
+        {mapMode === 'explore' && freeLook && (
+          <div className="absolute left-1/2 bottom-4 -translate-x-1/2 rounded-full border border-hairline bg-white/95 px-3 py-1 text-[11px] font-medium text-body shadow-card">
+            <span className="font-semibold text-ink">Click</span> to look with the mouse
+            <span className="mx-1.5 text-subtle">·</span>
+            <span className="font-semibold text-ink">W A S D</span> fly
+            <span className="mx-1.5 text-subtle">·</span>
+            <span className="font-semibold text-ink">Space C</span> up and down
+            <span className="mx-1.5 text-subtle">·</span>
+            <span className="font-semibold text-ink">Shift</span> faster
+            <span className="mx-1.5 text-subtle">·</span>
+            <span className="font-semibold text-ink">Esc</span> back
           </div>
         )}
         {/* Where you are, when you are inside a building. Without it, a broker

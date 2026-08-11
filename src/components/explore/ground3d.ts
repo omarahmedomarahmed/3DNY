@@ -31,6 +31,7 @@ const GROUND_FRAGMENT = /* glsl */ `
   precision highp float;
   uniform vec3 uGroundColor;
   uniform vec3 uHazeColor;
+  uniform vec3 uHorizonColor;
   uniform float uHazeStrength;
   uniform vec3 uCameraPos;
   varying vec3 vWorld;
@@ -40,8 +41,20 @@ const GROUND_FRAGMENT = /* glsl */ `
     // The ground runs to the horizon, so it needs a much longer haze ramp than
     // a building does or it turns into a hard-edged disc of pavement sitting
     // in mid-air. Buildings fade between 700 m and 6.2 km; this keeps going.
-    float t = smoothstep(400.0, 9000.0, dist);
-    vec3 color = mix(uGroundColor, uHazeColor, t * clamp(uHazeStrength + 0.15, 0.0, 1.0));
+    /**
+     * Fade all the way to the horizon colour, well before the plane ends.
+     *
+     * The first version faded to 9 km on a 12 km plane, so the last three
+     * kilometres were flat grey and the plane's own edge showed as a hard
+     * straight line across the frame with sky above it. From a pitched camera
+     * that reads as the world running out.
+     *
+     * Now the plane is 120 km and the fade completes at 14 km — an order of
+     * magnitude inside it — so the edge is far past the point where the
+     * ground and the sky are the same colour and there is nothing to see.
+     */
+    float t = smoothstep(300.0, 14000.0, dist);
+    vec3 color = mix(uGroundColor, uHorizonColor, t);
     gl_FragColor = vec4(color, 1.0);
   }
 `;
@@ -85,15 +98,34 @@ export function makeGround(preset: AtmospherePreset): GroundHandle {
           preset.haze[2] / 255,
         ),
       },
+      uHorizonColor: { value: new THREE.Color(preset.horizon) },
       uHazeStrength: { value: preset.hazeStrength },
       uCameraPos: { value: new THREE.Vector3() },
     },
     vertexShader: GROUND_VERTEX,
     fragmentShader: GROUND_FRAGMENT,
     side: THREE.DoubleSide,
+    /**
+     * The ground plane writes colour and nothing else.
+     *
+     * It is a backdrop 120 km across sunk five centimetres below the streets,
+     * and while it wrote depth it was winning the depth test against them from
+     * any distance: at a pitched camera looking a kilometre down an avenue the
+     * far plane is tens of kilometres away, so five centimetres is well inside
+     * one step of the depth buffer and the roadbed, the kerbs and the lane
+     * lines all vanished into it. That is why the streets were not there —
+     * they were being built, uploaded and drawn every frame, and losing.
+     *
+     * Nothing needs the plane in the depth buffer. Everything else in the
+     * scene is above it, so it can never legitimately occlude anything, and
+     * drawn first at `renderOrder -10` it still sits behind them all.
+     */
+    depthWrite: false,
   });
 
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(12_000, 12_000), material);
+  // 120 km, so the plane's own edge is far past the distance at which it has
+  // already become the horizon.
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(120_000, 120_000), material);
   // The plane is born in XY facing +Z, which is already correct for a scene
   // whose up axis is Z. A rotation here is the classic way to end up with a
   // ground plane standing on edge.

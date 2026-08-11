@@ -183,6 +183,8 @@ export default function MapControls({
   const setMapMode = useApp((s) => s.setMapMode);
   const walking = useApp((s) => s.walking);
   const setWalking = useApp((s) => s.setWalking);
+  const freeLook = useApp((s) => s.freeLook);
+  const setFreeLook = useApp((s) => s.setFreeLook);
   const setPhotoreal = useApp((s) => s.setPhotoreal);
   const showContext = useApp((s) => s.showContext);
   const setShowContext = useApp((s) => s.setShowContext);
@@ -556,6 +558,28 @@ export default function MapControls({
             <path d="M11.2 14.1 8 20" />
             <path d="M13.4 9.2 17 11.4l1.4 3.2" />
             <path d="M10.4 9.6 6.4 9" />
+          </Icon>
+        </ControlButton>
+      )}
+
+      {/* Free look. The only view in this product that can point above the
+          horizon: MapLibre's camera stops at 85 degrees of pitch and 90 is
+          level, so without a camera of our own the sky, the sun and the top of
+          a tower are all unreachable. Explore mode only, for the same reason
+          the walk is. */}
+      {mapMode === 'explore' && (
+        <ControlButton
+          label={freeLook ? 'Leave free look' : 'Free camera'}
+          hint="Fly anywhere and look in any direction, including straight up. Click the map to capture the mouse, then move it to look. W A S D to fly, Space and C for up and down, Shift to go faster, Escape to come back. Labels and clicking are off while it is on."
+          active={freeLook}
+          disabled={!map}
+          onClick={() => setFreeLook(!freeLook)}
+        >
+          {/* An eye with an orbit round it: looking, in every direction. */}
+          <Icon>
+            <path d="M2.6 12s3.6-5.4 9.4-5.4S21.4 12 21.4 12s-3.6 5.4-9.4 5.4S2.6 12 2.6 12z" />
+            <circle cx="12" cy="12" r="2.3" />
+            <path d="M12 2.6v1.8M12 19.6v1.8" />
           </Icon>
         </ControlButton>
       )}

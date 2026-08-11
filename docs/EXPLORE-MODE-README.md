@@ -15,11 +15,38 @@ exactly where they did before this branch started.
 |---|---|
 | Explore | The cube button in the right-hand tool stack |
 | Walk | The walking figure, which only appears in Explore mode |
+| Free camera | The eye, also Explore only — fly anywhere, look anywhere |
 | Stand on a floor | A space card, in Explore mode: **Stand on floor 14** |
 | Come back | Escape — from a floor to the street, from the street to the drone camera |
 
 Walking: `W A S D` to move, `Q E` to turn, `R F` to look, `Shift` to move
 faster.
+
+Free camera: click the map to capture the mouse, then move it to look.
+`W A S D` to fly, `Space` and `C` for straight up and down, `Shift` for four
+times faster, `Escape` to release the pointer and again to leave.
+
+### Why free look exists, and what it costs
+
+MapLibre's camera cannot look above the horizon. Its pitch is capped at 85
+degrees and 90 degrees is level, so there is no setting of any MapLibre
+parameter that puts the sky, the sun, or the top of a tower in the middle of
+the frame. For a map that is the right constraint. For a model with a sky in
+it, it means the one thing anybody does at the foot of a skyscraper — look up —
+is unreachable.
+
+So free look hands the projection to a camera of Explore's own, and MapLibre's
+stays where it was.
+
+| Still works | Does not, while it is on |
+|---|---|
+| The whole three.js city: ground, water, streets, massing, facades, roofs, **bands**, traffic, sky | deck.gl's name-plates, transit and radius — switched off, because they are projected with MapLibre's camera and would land in the wrong place |
+| Every atmosphere preset and every filter | Clicking a building: picking is deck.gl's |
+| | The streetscape and surrounding city still load for MapLibre's viewport, so flying a long way runs off the loaded ground |
+
+That trade is only acceptable because the availability bands are three.js
+geometry. The one rule survives free look intact, which it would not have done
+before the bands moved out of deck.gl.
 
 ---
 
@@ -62,9 +89,10 @@ Compare behaviour working with no changes in either mode.
 | `lib/explore/eligibility.ts` | Which buildings get the full treatment |
 | `components/explore/ExploreLayer.ts` | The MapLibre custom layer and the three.js scene |
 | `components/explore/materials.ts` | The facade shader: bays, glass, interior mapping |
-| `components/explore/*3d.ts` | Ground, streets, roofs, bands, traffic |
+| `lib/explore/freecam.ts` | The unconstrained camera: attitude, movement, clamps |
+| `components/explore/*3d.ts` | Ground, sky, water, streets, roofs, bands, traffic |
 | `components/explore/plate.ts` | The one walkable floor plate |
-| `components/explore/useExplore.ts` | Wiring. `useWalk.ts` drives the camera |
+| `components/explore/useExplore.ts` | Wiring. `useWalk.ts` and `useFreeCam.ts` drive the camera |
 
 Everything in `lib/explore/` is pure — no three.js, no WebGL, no DOM — and is
 unit tested. That is deliberate: the maths is what decides whether a Goldenrod
@@ -95,7 +123,7 @@ missing.
 ## Verifying it
 
 ```
-npx vitest run                                    # 526 unit tests
+npx vitest run                                    # 555 unit tests
 npx tsc --noEmit && npx next build
 SPACES_FIXTURE_DB=1 scripts/restart-server.sh     # or with a real DATABASE_URL
 node scripts/verify-explore.mjs shots/explore
@@ -106,6 +134,12 @@ the presence of a control that might do nothing. In particular it projects a
 known floor to a screen pixel and looks at those pixels: floors 14, 32 and 63
 of the Empire State Building each carry Goldenrod inside their own storey-tall
 strip, and floors 4, 5 and 6 carry none.
+
+It also asserts, since the streets were once built, uploaded and drawn every
+frame while being entirely invisible — every ground ribbon was wound clockwise,
+so back-face culling removed the lot — that switching the streets **off**
+changes the pixels. A triangle count proved nothing there and would not have
+caught it.
 
 Two measurement rules it follows, both learned the hard way:
 
@@ -137,8 +171,8 @@ is never a fallback for a database that failed. See `src/lib/dev-fixture.ts`.
 
 | | Target | Measured |
 |---|---|---|
-| Triangles in view | ≤ 2,000,000 | **189,107** with the whole city, streets and traffic |
-| Draw calls | ≤ 1,000 | **22** |
+| Triangles in view | ≤ 2,000,000 | **351,389** with the whole city, streets, water and traffic |
+| Draw calls | ≤ 1,000 | **64** |
 | Load over today's bundle | ≤ 5 MB | ~170 KB gz of three.js, 150 KB gz of surveyed massing |
 | Buildings with the full treatment | 73 today, 400 later | Merged per building; the context city is one mesh |
 

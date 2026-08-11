@@ -26,7 +26,16 @@ const SETTLE_MS = 400;
 const PAD = 0.35;
 
 /** Must match the API's own guard, or a padded request comes back 400. */
+/** What `/api/context-buildings` will serve. Anything wider comes back 400. */
 const MAX_SPAN = 0.2;
+/**
+ * What we may ask for before `snapBbox` rounds outward.
+ *
+ * Snapping expands each edge to a hundredth of a degree, so a bbox trimmed to
+ * exactly `MAX_SPAN` can leave here at 0.21 and be refused — see the same
+ * constant, and the same bug, in `useStreetscape`.
+ */
+const REQUEST_SPAN = MAX_SPAN - 0.02;
 
 /**
  * Loads the surrounding city for whatever is on screen.
@@ -36,6 +45,20 @@ const MAX_SPAN = 0.2;
  * are swallowed: scenery that does not arrive should never interrupt a meeting,
  * and the map is fully usable without it.
  */
+/** Trims a bbox to `REQUEST_SPAN` on each axis, keeping its centre. */
+function clampSpan(
+  [w, s, e, n]: [number, number, number, number],
+): [number, number, number, number] {
+  const trim = (lo: number, hi: number): [number, number] => {
+    if (hi - lo <= REQUEST_SPAN) return [lo, hi];
+    const mid = (lo + hi) / 2;
+    return [mid - REQUEST_SPAN / 2, mid + REQUEST_SPAN / 2];
+  };
+  const [west, east] = trim(w, e);
+  const [south, north] = trim(s, n);
+  return [west, south, east, north];
+}
+
 export function useCityContext(
   map: maplibregl.Map | null,
   zoom: number,
@@ -45,6 +68,8 @@ export function useCityContext(
   const cache = useRef(new Map<string, ContextBuilding[]>());
   const inflight = useRef<Set<string>>(new Set());
   const lastKey = useRef<string | null>(null);
+  /** The bbox the map is currently asking for — see `load`. */
+  const wanted = useRef<string | null>(null);
 
   useEffect(() => {
     if (!map) return;
@@ -53,15 +78,16 @@ export function useCityContext(
     if (!enabled) {
       setBuildings([]);
       lastKey.current = null;
+      wanted.current = null;
       return;
     }
     if (zoom < CITY_CONTEXT_ZOOM) {
       setBuildings([]);
       lastKey.current = null;
+      wanted.current = null;
       return;
     }
 
-    let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const load = async () => {
@@ -77,18 +103,27 @@ export function useCityContext(
       // clamped so the request stays inside the size the API accepts.
       const padX = Math.min((e - w) * PAD, (MAX_SPAN - (e - w)) / 2);
       const padY = Math.min((n - s) * PAD, (MAX_SPAN - (n - s)) / 2);
-      const raw: [number, number, number, number] = [
+      // Trimmed as well as padded: the padding declined to widen a viewport
+      // already past the limit, but sent it anyway, and the surrounding city
+      // silently never arrived on any window wide enough to trip it.
+      const raw = clampSpan([
         w - Math.max(padX, 0),
         s - Math.max(padY, 0),
         e + Math.max(padX, 0),
         n + Math.max(padY, 0),
-      ];
+      ]);
       const snapped = snapBbox(raw);
       const key = bboxKey(snapped);
 
+      // What the map wants now, judged at reply time rather than by whoever
+      // asked — the opening fly-to re-runs this effect continuously, and a
+      // reply belonging to a superseded run used to be cached and discarded
+      // with nothing left to re-request it.
+      wanted.current = key;
+
       const cached = cache.current.get(key);
       if (cached) {
-        if (!cancelled && lastKey.current !== key) {
+        if (lastKey.current !== key) {
           lastKey.current = key;
           setBuildings(cached);
         }
@@ -102,7 +137,7 @@ export function useCityContext(
         if (!res.ok) return;
         const data = (await res.json()) as ContextResult;
         cache.current.set(key, data.buildings);
-        if (!cancelled) {
+        if (wanted.current === key) {
           lastKey.current = key;
           setBuildings(data.buildings);
         }
@@ -122,7 +157,6 @@ export function useCityContext(
     map.on('moveend', schedule);
 
     return () => {
-      cancelled = true;
       if (timer) clearTimeout(timer);
       map.off('moveend', schedule);
     };
