@@ -174,6 +174,8 @@ export function useFreeCam(
     from: FreeCam;
     elapsed: number;
     duration: number;
+    /** Wall-clock stamp of the last frame this orbit advanced on. */
+    lastAt: number;
   } | null>(null);
   const look = useRef({ dYaw: 0, dPitch: 0 });
   // Read through a ref so a new callback identity — which React gives on
@@ -339,19 +341,37 @@ export function useFreeCam(
             from: cam,
             elapsed: 0,
             duration: transitionSeconds(cam, orbitCamera(started)),
+            lastAt: now,
           };
         }
 
         // Not `held` — that is the key set, and shadowing it here would be a
         // very quiet bug.
         const run = lock.current;
-        run.elapsed += dt;
+        /**
+         * The orbit turns on wall-clock time, not on the frame loop's `dt`.
+         *
+         * `dt` is clamped to a tenth of a second so that a backgrounded tab
+         * does not resume by teleporting the camera across Midtown. That is
+         * right for movement and wrong here: on a machine drawing a frame a
+         * second the clamp throws away nine tenths of every interval, so a
+         * revolution promised in forty-five seconds takes minutes, and takes a
+         * different number of minutes on every machine. The browser harness
+         * caught it as an orbit covering 149 m in one six-second window and 69
+         * in the next.
+         *
+         * A cinematic camera has to keep the time it advertises, so the clock
+         * it runs on is the wall's.
+         */
+        const wall = Math.min(1, (now - run.lastAt) / 1000);
+        run.lastAt = now;
+        run.elapsed += wall;
         if (run.elapsed < run.duration) {
           // Still dollying in or out. The orbit does not begin turning until
           // the camera has arrived, so the move reads as one gesture.
           cam = blendCamera(run.from, orbitCamera(run.state), run.elapsed / run.duration);
         } else {
-          run.state = advanceOrbit(run.state, dt);
+          run.state = advanceOrbit(run.state, wall);
           cam = orbitCamera(run.state);
         }
 
