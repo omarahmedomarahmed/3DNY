@@ -738,8 +738,29 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     this.soloBuildingId = buildingId;
     const solo = buildingId;
 
-    for (const [id, mesh] of this.meshes) mesh.visible = !solo || id === solo;
-    for (const [id, mesh] of this.bandMeshes) mesh.visible = !solo || id === solo;
+    /**
+     * What is hidden, and what is deliberately not.
+     *
+     * The streamed city and the extruded context are the "other buildings" in
+     * the sense that matters: thousands of them, and the ones that cross in
+     * front of the subject on every revolution. Those go.
+     *
+     * Our own towers stay, and this is not an oversight. **Bands are batched
+     * by colour, not by building** — one mesh carries every Goldenrod band in
+     * the market — so hiding a building cannot hide its bands, and hiding the
+     * band meshes hides the subject's own. The first version of this did
+     * exactly that: it left the Empire State Building alone in a clean shot
+     * with no availability on it at all, which is the one thing this product
+     * must never do.
+     *
+     * Hiding our towers properly means rebuilding the band geometry per
+     * building, which is a real change to how bands are built and is not worth
+     * making inside a camera feature. So the shot is cleared of the city and
+     * keeps the market — which, for a broker looking at one building, is
+     * arguably the more useful of the two anyway.
+     */
+    for (const mesh of this.meshes.values()) mesh.visible = true;
+    for (const mesh of this.bandMeshes.values()) mesh.visible = true;
     if (this.contextMesh) this.contextMesh.visible = !solo;
     if (this.tiles) this.tiles.group.visible = !solo;
 
