@@ -40,7 +40,8 @@ import { applySkyPreset, makeSky, updateSky, type SkyHandle } from './sky3d';
 import { applyWaterPreset, makeWater, type WaterHandle } from './water3d';
 import { makeFurniture, type FurnitureHandle } from './furniture3d';
 import { makeNature, type NatureHandle } from './nature3d';
-import type { StreetscapeResult } from '@/lib/streetscape';
+import { makeHarbour, type HarbourHandle } from './harbour3d';
+import type { StreetscapeResult, WaterPolygon } from '@/lib/streetscape';
 import type { Inside } from '@/lib/explore/walk';
 import { freeForward, type FreeCam } from '@/lib/explore/freecam';
 
@@ -122,6 +123,8 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
   private interiorGlass: THREE.ShaderMaterial | null = null;
   private furniture: FurnitureHandle | null = null;
   private nature: NatureHandle | null = null;
+  private harbourWater: WaterHandle | null = null;
+  private harbour: HarbourHandle | null = null;
   /** Held so the hour can rebuild the streets — the lamps depend on it. */
   private streetscape: StreetscapeResult | null = null;
   private contextMesh: THREE.Mesh | null = null;
@@ -253,6 +256,16 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
       this.scene.remove(this.nature.group);
       this.nature.dispose();
       this.nature = null;
+    }
+    if (this.harbourWater) {
+      this.scene.remove(this.harbourWater.mesh);
+      this.harbourWater.dispose();
+      this.harbourWater = null;
+    }
+    if (this.harbour) {
+      this.scene.remove(this.harbour.group);
+      this.harbour.dispose();
+      this.harbour = null;
     }
     if (this.life) {
       this.scene.remove(this.life.cars);
@@ -582,9 +595,60 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     this.map?.triggerRepaint();
   }
 
+  /**
+   * The harbour: water beyond the viewport, boats on it, and the statue.
+   *
+   * Separate from `setStreets` because it is fetched once for a fixed box
+   * rather than per viewport — see `useHarbour`. Two water meshes overlapping
+   * in the middle is not a problem: they are the same surface at the same
+   * height in the same shader, so the overlap is invisible.
+   */
+  setHarbour(water: WaterPolygon[]): void {
+    if (this.harbourWater) {
+      this.scene.remove(this.harbourWater.mesh);
+      this.harbourWater.dispose();
+      this.harbourWater = null;
+    }
+    if (this.harbour) {
+      this.scene.remove(this.harbour.group);
+      this.harbour.dispose();
+      this.harbour = null;
+    }
+    if (water.length === 0) {
+      this.map?.triggerRepaint();
+      return;
+    }
+
+    const asStreetscape: StreetscapeResult = {
+      roads: [],
+      water,
+      parks: [],
+      trees: [],
+      entrances: [],
+      truncated: false,
+      bbox: [0, 0, 0, 0],
+    };
+    this.harbourWater = makeWater(
+      this.frame,
+      asStreetscape,
+      this.preset,
+      this.sunDir,
+      false,
+    );
+    if (this.harbourWater) this.scene.add(this.harbourWater.mesh);
+
+    this.harbour = makeHarbour(this.frame, water, this.preset);
+    this.scene.add(this.harbour.group);
+    this.map?.triggerRepaint();
+  }
+
   /** True while anything in the scene is moving. */
   get animating(): boolean {
-    return this.carAgents.length > 0 || this.peopleAgents.length > 0;
+    return (
+      this.carAgents.length > 0 ||
+      this.peopleAgents.length > 0 ||
+      (this.harbour?.boats ?? 0) > 0
+    );
   }
 
   setPreset(preset: AtmospherePreset): void {
@@ -613,6 +677,8 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
       this.nature?.applyPreset(preset);
     }
     if (this.water) applyWaterPreset(this.water, preset, this.sunDir);
+    if (this.harbourWater) applyWaterPreset(this.harbourWater, preset, this.sunDir);
+    this.harbour?.applyPreset(preset);
     if (this.ground) {
       (this.ground.material.uniforms.uHazeColor.value as THREE.Color).setRGB(
         preset.haze[0] / 255,
@@ -768,9 +834,10 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     const seconds = (now - this.started) / 1000;
     for (const m of this.materials) updateFacadeUniforms(m, this.cameraPos, seconds);
 
-    if (this.life && this.animating) {
+    if (this.animating) {
       const dt = this.lastFrameAt > 0 ? (now - this.lastFrameAt) / 1000 : 0;
-      updateLife(this.life, this.carAgents, this.peopleAgents, dt);
+      if (this.life) updateLife(this.life, this.carAgents, this.peopleAgents, dt);
+      this.harbour?.step(dt);
       // Keeps the frames coming. MapLibre only redraws on demand, so without
       // this the traffic advances one step and then stops — which looks far
       // more broken than no traffic at all.
@@ -780,8 +847,9 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     if (this.ground) {
       (this.ground.material.uniforms.uCameraPos.value as THREE.Vector3).copy(this.cameraPos);
     }
-    if (this.water) {
-      const u = this.water.material.uniforms;
+    for (const surface of [this.water, this.harbourWater]) {
+      if (!surface) continue;
+      const u = surface.material.uniforms;
       (u.uCameraPos.value as THREE.Vector3).copy(this.cameraPos);
       u.uTime.value = seconds;
     }
@@ -912,6 +980,7 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     buildings: number;
     streetTriangles: number;
     waterTriangles: number;
+    boats: number;
     natureTriangles: number;
     trees: number;
     lamps: number;
@@ -926,8 +995,11 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
       triangles:
         this.triangles + this.bandTriangles + this.contextTriangles +
         (this.streets?.triangles ?? 0) + (this.water?.triangles ?? 0) +
+        (this.harbourWater?.triangles ?? 0) + (this.harbour?.triangles ?? 0) +
         (this.furniture?.triangles ?? 0) + (this.nature?.triangles ?? 0),
-      waterTriangles: this.water?.triangles ?? 0,
+      waterTriangles:
+        (this.water?.triangles ?? 0) + (this.harbourWater?.triangles ?? 0),
+      boats: this.harbour?.boats ?? 0,
       natureTriangles: this.nature?.triangles ?? 0,
       trees: this.nature?.trees ?? 0,
       lamps: this.streets?.lamps ?? 0,

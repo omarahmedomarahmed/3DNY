@@ -23,7 +23,7 @@ import type { ContextBuilding } from '@/lib/city-context';
 import type { Inside, Obstacle } from '@/lib/explore/walk';
 import { floorPlateFor, plateMassing } from './plate';
 import { populate } from '@/lib/explore/agents';
-import type { StreetscapeResult } from '@/lib/streetscape';
+import type { StreetscapeResult, WaterPolygon } from '@/lib/streetscape';
 import { buildBandGroups } from './bands3d';
 import type { ColorOverrides } from '../map/colors';
 
@@ -73,6 +73,8 @@ export function useExplore(
   standingOn: { buildingId: string; floorNumber: number } | null = null,
   /** Streets, so cars and people have somewhere to be. */
   streetscape: StreetscapeResult | null = null,
+  /** The harbour, fetched once for a fixed box — see `useHarbour`. */
+  harbour: WaterPolygon[] = [],
 ): ExploreHandle {
   const handle = useRef<ExploreHandle>({
     layer: null,
@@ -248,12 +250,38 @@ export function useExplore(
    * `computeBands` uses. If the two ever disagreed, a broker would step onto
    * the 14th floor and find the Goldenrod band at their ankles.
    */
+  /**
+   * Floor plates, kept between visits.
+   *
+   * Touring six comparables re-derives six plates, and each one is a surveyed
+   * cross-section lookup plus a ring inset plus a winding pass — cheap once,
+   * and noticeable when a broker is stepping between spaces one after another.
+   * A plate is a pure function of a building and a floor, so the same key
+   * always gives the same answer and the cache can never be wrong.
+   *
+   * Bounded, and keyed on the surveyed asset too: when the massing lands, the
+   * cross-section a plate is cut from changes, and a stale plate would be the
+   * floor at the fallback outline while the band is at the surveyed one.
+   */
+  const plateCache = useRef(new Map<string, Inside | null>());
+  useEffect(() => {
+    plateCache.current.clear();
+  }, [lod2Tick]);
+
   const inside = useMemo<Inside | null>(() => {
     const layer = handle.current.layer;
     if (!layer || !active || !standingOn) return null;
+    const key = `${standingOn.buildingId}@${standingOn.floorNumber}`;
+    const cached = plateCache.current.get(key);
+    if (cached !== undefined) return cached;
     const building = buildings.find((b) => b.id === standingOn.buildingId);
-    if (!building) return null;
-    return floorPlateFor(layer.localFrame, building, standingOn.floorNumber);
+    const plate = building
+      ? floorPlateFor(layer.localFrame, building, standingOn.floorNumber)
+      : null;
+    // Twenty plates is a long tour and a few hundred kilobytes.
+    if (plateCache.current.size > 20) plateCache.current.clear();
+    plateCache.current.set(key, plate);
+    return plate;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, buildings, standingOn?.buildingId, standingOn?.floorNumber, lod2Tick]);
 
@@ -317,6 +345,13 @@ export function useExplore(
       }),
     );
   }, [active, streetscape]);
+
+  // --- The harbour. Fetched once, so this runs once.
+  useEffect(() => {
+    const layer = handle.current.layer;
+    if (!layer || !active) return;
+    layer.setHarbour(harbour);
+  }, [active, harbour]);
 
   handle.current.lod2Ready = lod2Tick;
   handle.current.obstacles = obstacles;

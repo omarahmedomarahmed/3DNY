@@ -49,6 +49,8 @@ const WATER_FRAGMENT = /* glsl */ `
   uniform vec3 uCameraPos;
   uniform float uTime;
   uniform float uSunStrength;
+  /* 1 for the water you are standing beside, 0 for the far harbour. */
+  uniform float uDetail;
 
   varying vec3 vWorld;
 
@@ -83,24 +85,45 @@ const WATER_FRAGMENT = /* glsl */ `
      * square kilometres of river for an effect that is only ever visible in
      * how the light moves.
      */
-    vec2 p = vWorld.xy * 0.05;
-    float n1 = noise(p + vec2(uTime * 0.06, uTime * 0.021));
-    float n2 = noise(p * 2.7 - vec2(uTime * 0.032, uTime * 0.05));
-    vec2 slope = vec2(n1 - n2, n2 - n1) * 0.09;
-    vec3 N = normalize(vec3(slope, 1.0));
+    /**
+     * The far harbour skips the ripples and the glitter entirely.
+     *
+     * Six noise lookups and a 90-power specular per fragment is the right cost
+     * for the river forty metres away, where you can see individual ripples
+     * moving. It is the wrong cost for the twenty square kilometres of harbour
+     * that exists so the island has a horizon: at two kilometres a ripple is
+     * far below a pixel, so every one of those instructions produces noise
+     * that averages out to the flat colour underneath it.
+     *
+     * Adding the harbour with the full shader cost about 150 ms a frame under
+     * software rendering — enough to fail the catastrophe check — for an
+     * effect nobody can resolve. The branch is on a uniform, so it is
+     * coherent across the whole draw and free.
+     */
+    vec3 N = vec3(0.0, 0.0, 1.0);
+    float spec = 0.0;
+
+    if (uDetail > 0.5) {
+      vec2 p = vWorld.xy * 0.05;
+      float n1 = noise(p + vec2(uTime * 0.06, uTime * 0.021));
+      float n2 = noise(p * 2.7 - vec2(uTime * 0.032, uTime * 0.05));
+      vec2 slope = vec2(n1 - n2, n2 - n1) * 0.09;
+      N = normalize(vec3(slope, 1.0));
+
+      // Glitter: a tight lobe on a rippled normal, which breaks the highlight
+      // into the moving speckle a river has rather than one mirror blob.
+      vec3 L = normalize(-uSunDir);
+      vec3 H = normalize(L + V);
+      spec = pow(max(dot(N, H), 0.0), 90.0);
+    }
 
     // Face-on you see into the water; at a grazing angle you see the sky in
-    // it. That flip is most of what makes a surface read as water.
+    // it. That flip is most of what makes a surface read as water, and it is
+    // cheap, so the harbour keeps it.
     float fresnel = 0.02 + 0.98 * pow(1.0 - max(dot(N, V), 0.0), 4.0);
     vec3 reflected = skyColor(reflect(-V, N));
 
     vec3 color = mix(uWaterColor, reflected, clamp(fresnel, 0.0, 0.92));
-
-    // Glitter: a tight lobe on a rippled normal, which breaks the highlight
-    // into the moving speckle a river has rather than one mirror blob.
-    vec3 L = normalize(-uSunDir);
-    vec3 H = normalize(L + V);
-    float spec = pow(max(dot(N, H), 0.0), 90.0);
     color += uSunColor * spec * uSunStrength * 0.5;
 
     gl_FragColor = vec4(color, 1.0);
@@ -131,6 +154,8 @@ export function makeWater(
   streetscape: StreetscapeResult,
   preset: AtmospherePreset,
   sunDir: [number, number, number],
+  /** False for the far harbour: no ripples, no glitter. See `uDetail`. */
+  detailed = true,
 ): WaterHandle | null {
   const position: number[] = [];
   const index: number[] = [];
@@ -170,6 +195,7 @@ export function makeWater(
       uWaterColor: { value: waterColor(preset) },
       uCameraPos: { value: new THREE.Vector3() },
       uTime: { value: 0 },
+      uDetail: { value: detailed ? 1 : 0 },
     },
     vertexShader: WATER_VERTEX,
     fragmentShader: WATER_FRAGMENT,

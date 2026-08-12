@@ -26,6 +26,7 @@ import {
   type AtmospherePreset,
 } from './atmosphere';
 import { useStreetscape } from './useStreetscape';
+import { useHarbour } from './useHarbour';
 import type { ViewportBounds } from './ground';
 import { useTransit } from './useTransit';
 import { buildingHeightFt, buildingRing, floorHeightFt, FT_TO_M } from '@/lib/floor-bands';
@@ -735,6 +736,12 @@ export default function MapView() {
   // Our own ground plane — always on (streets are orientation, not clutter),
   // except under photoreal imagery, which is its own ground.
   const streetscape = useStreetscape(map, zoom, !photoreal, freeFocus);
+  /**
+   * Water beyond the viewport, so the island has a horizon rather than an edge.
+   * Explore mode only: the flat map's own water layer already covers what it
+   * can see, and this is 3-D geometry.
+   */
+  const harbour = useHarbour(mapMode === 'explore');
   const { stops: allTransitStops, error: transitError } = useTransit(map, zoom, showTransit);
 
   /**
@@ -769,7 +776,7 @@ export default function MapView() {
     kinds: occupancyKinds,
     selectedSpaceId,
     colorOverrides,
-  }, showContext ? cityContext : [], insideTarget, streetscape);
+  }, showContext ? cityContext : [], insideTarget, streetscape, harbour);
 
   /**
    * The first-person walk.

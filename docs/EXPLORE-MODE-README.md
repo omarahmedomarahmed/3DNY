@@ -114,7 +114,7 @@ Compare behaviour working with no changes in either mode.
 | `components/explore/ExploreLayer.ts` | The MapLibre custom layer and the three.js scene |
 | `components/explore/materials.ts` | The facade shader: bays, glass, interior mapping |
 | `lib/explore/freecam.ts` | The unconstrained camera: attitude, movement, clamps |
-| `components/explore/*3d.ts` | Ground, sky, water, streets, roofs, bands, traffic |
+| `components/explore/*3d.ts` | Ground, sky, water, harbour, streets, nature, roofs, bands, traffic, furniture |
 | `components/explore/plate.ts` | The one walkable floor plate |
 | `components/explore/useExplore.ts` | Wiring. `useWalk.ts` and `useFreeCam.ts` drive the camera |
 

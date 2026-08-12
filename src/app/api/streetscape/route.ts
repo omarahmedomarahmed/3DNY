@@ -11,7 +11,10 @@ export const maxDuration = 30;
  * fetched from NYC once and shared by everyone.
  */
 export async function GET(req: Request) {
-  const raw = new URL(req.url).searchParams.get('bbox');
+  const params = new URL(req.url).searchParams;
+  const raw = params.get('bbox');
+  // `only=water` skips every other source — see `fetchStreetscape`.
+  const waterOnly = params.get('only') === 'water';
   if (!raw) {
     return NextResponse.json({ error: 'bbox is required.' }, { status: 400 });
   }
@@ -33,7 +36,7 @@ export async function GET(req: Request) {
   }
 
   try {
-    const result = await fetchStreetscape([w, s, e, n]);
+    const result = await fetchStreetscape([w, s, e, n], waterOnly);
     return NextResponse.json(result, {
       // Planimetric geometry is effectively static; a week is conservative.
       headers: { 'Cache-Control': 'public, s-maxage=604800, stale-while-revalidate=2592000' },

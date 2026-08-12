@@ -66,15 +66,74 @@ export function lod2Stats(): { matched: number; missing: number; loaded: boolean
  * Explore mode that refuses to open because a silhouette asset is missing
  * would be a far worse failure than one that opens with plainer towers.
  */
+/**
+ * The surveyed massing, from disk if it has been here before.
+ *
+ * `cache: 'force-cache'` already asks the HTTP cache, and the HTTP cache is
+ * allowed to evict whenever it likes — so the 150 KB asset that decides
+ * whether the whole city has real setbacks is re-downloaded on a schedule
+ * nobody controls. Cache Storage is not evicted casually, survives reloads and
+ * closing the tab, and this project already uses it for exactly this reason
+ * (`lib/tile-cache.ts`, for Google's 3-D tiles).
+ *
+ * It is a single static file that changes only when the asset is regenerated,
+ * so a stale copy is a real risk — hence the `ETag` check against the network
+ * on every load. The saving is not the request; it is the 150 KB of transfer
+ * and the parse.
+ *
+ * Every step is wrapped: a browser with Cache Storage disabled, a full disk or
+ * a private window must degrade to a plain fetch, never to a city with no
+ * setbacks in it.
+ */
+const SURVEYED_CACHE = 'cresa-lod2-v1';
+
+async function fetchSurveyed(url: string): Promise<Lod2Asset> {
+  let store: Cache | null = null;
+  try {
+    store = typeof caches !== 'undefined' ? await caches.open(SURVEYED_CACHE) : null;
+  } catch {
+    store = null;
+  }
+
+  const cached = store ? await store.match(url).catch(() => undefined) : undefined;
+
+  // A conditional request: the body only comes back if the asset changed.
+  const headers: Record<string, string> = {};
+  const etag = cached?.headers.get('etag');
+  if (etag) headers['If-None-Match'] = etag;
+
+  let res: Response;
+  try {
+    res = await fetch(url, { headers, cache: 'no-cache' });
+  } catch (err) {
+    if (cached) return (await cached.json()) as Lod2Asset;
+    throw err;
+  }
+
+  if (res.status === 304 && cached) {
+    return (await cached.json()) as Lod2Asset;
+  }
+  if (!res.ok) {
+    if (cached) return (await cached.json()) as Lod2Asset;
+    throw new Error(`${res.status}`);
+  }
+
+  if (store) {
+    // Cloned before reading, because a body can only be consumed once.
+    try {
+      await store.put(url, res.clone());
+    } catch {
+      // A full disk is not a reason to fail.
+    }
+  }
+  return (await res.json()) as Lod2Asset;
+}
+
 export function loadLod2(url = LOD2_URL): Promise<void> {
   if (loaded) return Promise.resolve();
   if (loading) return loading;
 
-  loading = fetch(url, { cache: 'force-cache' })
-    .then((res) => {
-      if (!res.ok) throw new Error(`${res.status}`);
-      return res.json() as Promise<Lod2Asset>;
-    })
+  loading = fetchSurveyed(url)
     .then((asset) => {
       ingest(asset);
     })

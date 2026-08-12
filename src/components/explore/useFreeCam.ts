@@ -72,8 +72,18 @@ import type { ExploreLayer } from './ExploreLayer';
 /** Degrees of turn per pixel of mouse movement. */
 const SENSITIVITY = 0.16;
 
-/** How far the camera may fly before the map is asked to load around it. */
-const REGION_STEP_M = 250;
+/**
+ * How far the camera may fly before the map is asked to load around it.
+ *
+ * And how often, which matters more. Distance alone was the whole rule and it
+ * is not enough: with Shift held the camera covers 250 m in a third of a
+ * second, so a sprint across Midtown queued a new streetscape fetch three
+ * times a second and each reply is a full rebuild of streets, water and
+ * planting. The interval is what turns a sprint into one request at the end of
+ * it instead of thirty along the way.
+ */
+const REGION_STEP_M = 350;
+const REGION_INTERVAL_MS = 2500;
 
 const HELD = new Set([
   'KeyW', 'KeyS', 'KeyA', 'KeyD',
@@ -226,9 +236,13 @@ export function useFreeCam(
     const justUnlocked = () => performance.now() - unlockedAt < 250;
 
     let lastRegion: [number, number] = [cam.x, cam.y];
+    let lastRegionAt = 0;
     const reportRegion = () => {
       if (!opts.current.onRegion) return;
       if (Math.hypot(cam.x - lastRegion[0], cam.y - lastRegion[1]) < REGION_STEP_M) return;
+      const now = performance.now();
+      if (now - lastRegionAt < REGION_INTERVAL_MS) return;
+      lastRegionAt = now;
       lastRegion = [cam.x, cam.y];
       const [lng, lat] = toLngLat(frame, cam.x, cam.y);
       opts.current.onRegion(lng, lat);

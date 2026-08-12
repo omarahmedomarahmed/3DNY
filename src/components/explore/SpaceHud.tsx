@@ -96,6 +96,7 @@ export default function SpaceHud() {
   const leaveSpace = useApp((s) => s.leaveSpace);
   const buildings = useApp((s) => s.buildings);
   const [open, setOpen] = useState(true);
+  const [query, setQuery] = useState('');
   /** Where you have been, so a comparable can be backed out of. */
   const [trail, setTrail] = useState<{ buildingId: string; spaceId: string | null; floorNumber: number }[]>([]);
 
@@ -111,6 +112,36 @@ export default function SpaceHud() {
     () => (building ? comparablesFor(buildings, building, space) : []),
     [buildings, building, space],
   );
+
+  /**
+   * Search, so a shortlist does not have to be walked in distance order.
+   *
+   * The comparables answer "what else is like this near here", which is the
+   * question you ask when you are already standing somewhere. Search answers
+   * "take me to the one I was told about", which is the question you ask when
+   * a client says an address on the phone — and it is the only way to reach a
+   * space that is neither nearby nor a similar size.
+   *
+   * It matches address, building name and floor label, because those are the
+   * three things anybody actually says out loud about a space.
+   */
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (q.length < 2) return [];
+    const out: { space: Space; building: BuildingWithSpaces }[] = [];
+    for (const b of buildings) {
+      const address = `${b.address_display ?? ''} ${b.building_name ?? ''}`.toLowerCase();
+      for (const sp of b.spaces) {
+        if (!sp.is_active) continue;
+        if (!sp.floor_number || sp.floor_number <= 0) continue;
+        const hay = `${address} ${sp.floor_label ?? ''}`.toLowerCase();
+        if (!hay.includes(q)) continue;
+        out.push({ space: sp, building: b });
+        if (out.length >= 20) return out;
+      }
+    }
+    return out;
+  }, [buildings, query]);
 
   if (!spaceExplore || !building) return null;
 
@@ -208,6 +239,40 @@ export default function SpaceHud() {
         >
           Exit
         </button>
+      </div>
+
+      <div className="border-t border-hairline px-3.5 py-2.5">
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Go to a space — address or floor"
+          aria-label="Search for a space to explore"
+          className="w-full rounded border border-hairline-strong bg-white px-2.5 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-midnight focus:outline-none"
+        />
+        {results.length > 0 ? (
+          <ul className="mt-1.5 max-h-[180px] overflow-y-auto">
+            {results.map((r) => (
+              <li key={r.space.id}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuery('');
+                    goTo(r.building.id, r.space.id, r.space.floor_number as number);
+                  }}
+                  className="flex w-full items-baseline gap-2 rounded px-1.5 py-1.5 text-left hover:bg-surface-sunken"
+                >
+                  <span className="min-w-0 flex-1 truncate text-xs font-semibold text-ink">
+                    {r.building.address_display}
+                  </span>
+                  <span className="shrink-0 text-[11px] font-medium text-muted">
+                    {r.space.floor_label || `Fl ${r.space.floor_number}`}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
 
       {comps.length > 0 ? (

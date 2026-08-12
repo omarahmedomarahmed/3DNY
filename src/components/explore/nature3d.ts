@@ -102,15 +102,24 @@ export function makeNature(
       if (local.length < 3) continue;
       const base = position.length / 3;
       for (const [x, y] of local) position.push(x, y, 0.06);
-      // `triangulate` returns a flat index list. Emitted with the second and
-      // third swapped so the fill faces the sky: the ring is wound
-      // anticlockwise, which the ear clipper preserves, and a sky-facing
-      // triangle needs the opposite — the same trap that made the entire
-      // streetscape invisible. See WINDING in `streets3d`.
-      const tris = triangulate(local);
-      for (let i = 0; i < tris.length; i += 3) {
-        index.push(base + tris[i], base + tris[i + 2], base + tris[i + 1]);
-      }
+      /**
+       * The ear clipper's own winding, unchanged.
+       *
+       * This was emitted with the second and third indices swapped, by analogy
+       * with the street ribbons — and it was exactly wrong. A ribbon's winding
+       * is derived from the direction of travel and comes out clockwise either
+       * way, which is why *those* have to be flipped. A triangulated ring does
+       * not: `toCCW` guarantees the input is anticlockwise and the clipper
+       * preserves it, so the triangles already face the sky. Flipping them
+       * turned every park in Manhattan back-facing, and Central Park was
+       * present, correctly sized, visible, and drawing nothing.
+       *
+       * The material is double-sided as well, which is not belt and braces so
+       * much as an admission: a flat fill lying on the ground has no reason to
+       * have a back face at all, and this is the second time in this codebase
+       * that a winding assumption has cost hours.
+       */
+      for (const t of triangulate(local)) index.push(base + t);
     }
   }
 
@@ -118,7 +127,10 @@ export function makeNature(
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(position, 3));
     geometry.setIndex(index);
-    const material = new THREE.MeshBasicMaterial({ color: greenFor(preset, 0.88) });
+    const material = new THREE.MeshBasicMaterial({
+      color: greenFor(preset, 0.88),
+      side: THREE.DoubleSide,
+    });
     parkMaterial = material;
     const mesh = new THREE.Mesh(geometry, material);
     mesh.frustumCulled = false;

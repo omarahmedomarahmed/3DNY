@@ -453,10 +453,25 @@ async function fetchEntrances(
 
 export async function fetchStreetscape(
   rawBbox: [number, number, number, number],
+  /**
+   * Water only, skipping roads, parks, trees and entrances.
+   *
+   * Explore mode asks for one very wide box — the whole harbour — purely so
+   * that the rivers do not stop at the edge of the viewport, and every other
+   * layer at that extent would be tens of thousands of features nobody is
+   * close enough to see. It is a different question with a different answer,
+   * not a wider version of the same one.
+   */
+  waterOnly = false,
 ): Promise<StreetscapeResult> {
   const bbox = snapBbox(rawBbox);
   const [w, s, e, n] = bbox;
   const polygon = `POLYGON((${w} ${s},${e} ${s},${e} ${n},${w} ${n},${w} ${s}))`;
+
+  if (waterOnly) {
+    const water = await fetchWater(polygon, bbox).catch(() => []);
+    return { roads: [], water, parks: [], trees: [], entrances: [], truncated: false, bbox };
+  }
 
   // One source failing must not take the others down with it: a ground plane
   // with streets but no trees is still far better than no ground plane. Only
