@@ -1870,7 +1870,14 @@ export default function MapView() {
           camera back.
         */}
         {mapMode === 'explore' && freeLook && !spaceExplore && orbitBuildingId && (
-          <div className="absolute left-1/2 top-20 z-20 flex -translate-x-1/2 items-center gap-2">
+          /*
+            Top left, not centred.
+            Centred is where the floor card opens, and a card that covers the
+            button which stops the camera is a trap: the one control you want
+            while a card is in the way is the one the card is on top of. The
+            browser harness found this by being unable to click it.
+          */
+          <div className="absolute left-6 top-32 z-30 flex flex-col items-start gap-2">
             <button
               type="button"
               onClick={() => setOrbitShowCity((on) => !on)}

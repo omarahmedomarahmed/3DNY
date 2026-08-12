@@ -48,7 +48,42 @@ await sleep(5000);
 await page.getByRole('button', { name: 'Explore this city in 3D' }).first().click();
 await sleep(8000);
 
-const freeLook = page.getByRole('button', { name: /free look/i });
+/**
+ * Aim at a known tower before taking the camera.
+ *
+ * Free look starts exactly where the map camera already is, and the pick that
+ * begins an orbit is taken from the crosshair in the middle of the screen. In
+ * the default view the middle of the screen is the ground, so the click
+ * resolves to nothing and the orbit never starts — which is the harness being
+ * wrong, not the feature. Selecting a building flies the map to it first.
+ */
+await page.getByRole('button', { name: /350 Fifth Avenue/ }).first().click();
+await sleep(5000);
+await page.keyboard.press('Escape');
+await sleep(800);
+await page.evaluate(() => {
+  const el = document.querySelector('.maplibregl-map');
+  const key = el && Object.keys(el).find((k) => k.startsWith('__reactFiber$'));
+  const isMap = (v) =>
+    v && typeof v === 'object' && typeof v.getCenter === 'function' && typeof v.jumpTo === 'function';
+  for (let f = el[key], d = 0; f && d < 60; d++, f = f.return) {
+    for (let h = f.memoizedState, i = 0; h && i < 80; i++, h = h.next) {
+      const st = h.memoizedState;
+      if (st && typeof st === 'object' && 'current' in st && isMap(st.current)) {
+        window.__m = st.current;
+        return;
+      }
+    }
+  }
+});
+// Low and close, so the tower fills the middle of the frame rather than the
+// street in front of it.
+await page.evaluate(() => {
+  window.__m.jumpTo({ center: [-73.98566, 40.74844], zoom: 16.4, pitch: 72, bearing: 0 });
+});
+await sleep(4000);
+
+const freeLook = page.getByRole('button', { name: 'Free camera' });
 check('free look can be entered', (await freeLook.count()) > 0);
 if ((await freeLook.count()) > 0) {
   await freeLook.first().click();
@@ -74,9 +109,20 @@ if (started) {
     (await page.getByRole('button', { name: /the other buildings/ }).count()) > 0,
   );
 
-  // Samples across a quarter of a revolution. Forty-five seconds a turn means
-  // eight degrees a second, so six seconds is about forty-eight degrees — far
-  // enough to measure and short enough not to make the harness crawl.
+  /**
+   * Sampled only once the move into the lock is over.
+   *
+   * The dolly in or out takes up to four seconds and covers far more ground
+   * than the orbit does, so a sample taken during it makes the first interval
+   * twice the second and the steady-rate check fails on a camera that is
+   * behaving correctly. Waiting is the fix; loosening the check would have
+   * hidden a real drift later.
+   *
+   * After that: forty-five seconds a revolution is eight degrees a second, so
+   * six seconds is about forty-eight degrees — far enough to measure and short
+   * enough not to make the harness crawl.
+   */
+  await sleep(5000);
   const a = await eye();
   await sleep(6000);
   const b = await eye();
