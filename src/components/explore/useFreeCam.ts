@@ -21,6 +21,15 @@ import {
   type FreeCam,
   type FreeInput,
 } from '@/lib/explore/freecam';
+import {
+  advanceOrbit,
+  blendCamera,
+  orbitCamera,
+  startOrbit,
+  transitionSeconds,
+  type OrbitState,
+  type OrbitSubject,
+} from '@/lib/explore/orbit';
 import type { ExploreLayer } from './ExploreLayer';
 
 /**
@@ -131,6 +140,15 @@ export interface FreeCamOptions {
    * should be loaded around it rather than around MapLibre's viewport.
    */
   onRegion?: (lng: number, lat: number) => void;
+  /**
+   * A building to lock onto and circle.
+   *
+   * While this is set the keyboard does not move the camera at all — see the
+   * note in the frame loop. Clearing it hands the camera straight back to free
+   * look from wherever the orbit had reached, with no transition, because the
+   * camera is already there.
+   */
+  orbit?: OrbitSubject | null;
 }
 
 export function useFreeCam(
@@ -142,6 +160,21 @@ export function useFreeCam(
 ): FreeCamHandle {
   const handle = useRef<FreeCamHandle>({ cam: null, pullBack: () => {} });
   const held = useRef(new Set<string>());
+  /**
+   * The running orbit: which subject it is for, the solved framing, and how
+   * far through the move into the lock it is.
+   *
+   * Held in a ref rather than in state because it advances every frame and
+   * rendering React sixty times a second to spin a camera would cost more than
+   * the camera does.
+   */
+  const lock = useRef<{
+    subject: OrbitSubject;
+    state: OrbitState;
+    from: FreeCam;
+    elapsed: number;
+    duration: number;
+  } | null>(null);
   const look = useRef({ dYaw: 0, dPitch: 0 });
   // Read through a ref so a new callback identity — which React gives on
   // every render — does not tear the camera down and put it back at the start.
@@ -276,6 +309,59 @@ export function useFreeCam(
     const tick = (now: number) => {
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
+
+      /**
+       * The locked orbit takes the camera away from the keyboard entirely.
+       *
+       * Held ahead of the input block rather than blended with it: an orbit
+       * you can nudge with W is not a locked shot, it is a camera with a drift,
+       * and the whole value of the mode is that the framing does not wander.
+       * The keys are read and discarded so that letting go of one does not
+       * fire a movement the moment the orbit stops.
+       *
+       * Stopping is a hand-off, not a transition. `cam` is already where the
+       * orbit left it, so free look resumes from exactly that point — which is
+       * what "return me to free look from where it is standing" has to mean.
+       */
+      const orbit = opts.current.orbit ?? null;
+      if (orbit) {
+        if (!lock.current || lock.current.subject !== orbit) {
+          // A new subject: solve the framing and begin the move into it.
+          const started = startOrbit(
+            orbit,
+            cam,
+            layer.fieldOfViewDeg,
+            (canvas.clientWidth || 1200) / (canvas.clientHeight || 800),
+          );
+          lock.current = {
+            subject: orbit,
+            state: started,
+            from: cam,
+            elapsed: 0,
+            duration: transitionSeconds(cam, orbitCamera(started)),
+          };
+        }
+
+        // Not `held` — that is the key set, and shadowing it here would be a
+        // very quiet bug.
+        const run = lock.current;
+        run.elapsed += dt;
+        if (run.elapsed < run.duration) {
+          // Still dollying in or out. The orbit does not begin turning until
+          // the camera has arrived, so the move reads as one gesture.
+          cam = blendCamera(run.from, orbitCamera(run.state), run.elapsed / run.duration);
+        } else {
+          run.state = advanceOrbit(run.state, dt);
+          cam = orbitCamera(run.state);
+        }
+
+        handle.current.cam = cam;
+        layer.setFreeCamera(cam);
+        reportRegion();
+        raf = requestAnimationFrame(tick);
+        return;
+      }
+      lock.current = null;
 
       const moving = held.current.size > 0;
       const turning = look.current.dYaw !== 0 || look.current.dPitch !== 0;

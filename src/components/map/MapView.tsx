@@ -624,6 +624,17 @@ export default function MapView() {
   const mapMode = useApp((s) => s.mapMode);
   const walking = useApp((s) => s.walking);
   const freeLook = useApp((s) => s.freeLook);
+
+  /**
+   * The locked orbit: which building the camera is circling, and whether the
+   * rest of the city has been asked back into the shot.
+   *
+   * Local rather than in the store because it cannot outlive free look — the
+   * orbit *is* a camera state, and a persisted one would come back on a later
+   * session pointing at a building that is no longer loaded.
+   */
+  const [orbitBuildingId, setOrbitBuildingId] = useState<string | null>(null);
+  const [orbitShowCity, setOrbitShowCity] = useState(false);
   const spaceExplore = useApp((s) => s.spaceExplore);
   const spaceOutside = useApp((s) => s.spaceOutside);
   const pointerLocked = useApp((s) => s.pointerLocked);
@@ -855,6 +866,18 @@ export default function MapView() {
        */
       if (document.pointerLockElement) document.exitPointerLock?.();
 
+      /**
+       * The click also locks the camera onto the building and starts it
+       * circling — see `orbit.ts`.
+       *
+       * Setting it on every pick rather than only on the first is what makes
+       * clicking a floor *while already orbiting* a no-op for the camera: it
+       * is the same building id, so the running orbit is left alone and only
+       * the card changes. Clicking a different building re-frames onto that
+       * one, which is the same gesture meaning the same thing.
+       */
+      setOrbitBuildingId(buildingId);
+
       if (state.selectedBuildingId !== buildingId) state.selectBuilding(buildingId);
       const canvas = map?.getCanvas();
       const rect = canvas?.getBoundingClientRect();
@@ -873,14 +896,53 @@ export default function MapView() {
     [buildings, map],
   );
 
+  /**
+   * The subject, measured off the geometry actually on screen.
+   *
+   * Recomputed when the building changes rather than every render: the
+   * bounding box is stable for the life of the mesh, and a new object identity
+   * every frame would restart the orbit on every frame.
+   */
+  const orbitSubject = useMemo(
+    () => (orbitBuildingId ? explore.layer?.orbitSubject(orbitBuildingId) ?? null : null),
+    [orbitBuildingId, explore.layer],
+  );
+
+  /**
+   * The city goes away while the orbit runs, and comes back on request.
+   *
+   * Hiding it is the default because a tower crossing in front of the subject
+   * on every revolution is precisely what ruins the shot — but it is *the
+   * city*, so there is always a way to have it back without leaving the orbit.
+   */
+  useEffect(() => {
+    const layer = explore.layer;
+    if (!layer) return;
+    layer.setSoloBuilding(orbitBuildingId && !orbitShowCity ? orbitBuildingId : null);
+  }, [explore.layer, orbitBuildingId, orbitShowCity]);
+
+  // Leaving free look ends the orbit; there is no camera left to drive it.
+  useEffect(() => {
+    if (!freeLook) {
+      setOrbitBuildingId(null);
+      setOrbitShowCity(false);
+    }
+  }, [freeLook]);
+
   const freeCamOptions = useMemo(
     () => ({
       confine: spaceExplore ? explore.inside : null,
       outside: spaceOutside,
       onPick: onFreePick,
       onRegion: (lng: number, lat: number) => setFreeFocus([lng, lat]),
+      /**
+       * Suspended rather than cleared while a space is being explored, so that
+       * stepping back outside resumes the same locked shot of the same
+       * building instead of dropping you into free look somewhere new.
+       */
+      orbit: spaceExplore ? null : orbitSubject,
     }),
-    [spaceExplore, spaceOutside, explore.inside, onFreePick],
+    [spaceExplore, spaceOutside, explore.inside, onFreePick, orbitSubject],
   );
 
   const freeCam = useFreeCam(
@@ -1801,6 +1863,41 @@ export default function MapView() {
             what "forward" means — flying without a fixed point to aim at is
             the fastest way to feel seasick. Two rings rather than one dot so
             it survives both a white facade and a dark night sky. */}
+        {/*
+          The orbit's own controls, shown only while it is running.
+          Two buttons and nothing else, because there are exactly two things
+          anybody wants while watching a building turn: the city back, and the
+          camera back.
+        */}
+        {mapMode === 'explore' && freeLook && !spaceExplore && orbitBuildingId && (
+          <div className="absolute left-1/2 top-20 z-20 flex -translate-x-1/2 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setOrbitShowCity((on) => !on)}
+              className="rounded-full border border-hairline bg-white/95 px-3 py-1.5 text-[11px] font-semibold text-ink shadow-card hover:bg-white"
+            >
+              {orbitShowCity ? 'Hide the other buildings' : 'Show the other buildings'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                /**
+                 * Stop, and stay exactly where the camera is.
+                 *
+                 * Clearing the orbit is the whole of it: the free camera is
+                 * already standing at the last orbit position, so the next
+                 * frame is driven by the keyboard from that point with no
+                 * transition and no snap back to anywhere.
+                 */
+                setOrbitBuildingId(null);
+                setOrbitShowCity(false);
+              }}
+              className="rounded-full border border-goldenrod bg-white/95 px-3 py-1.5 text-[11px] font-semibold text-ink shadow-card hover:bg-white"
+            >
+              Stop circling
+            </button>
+          </div>
+        )}
         {mapMode === 'explore' && freeLook && pointerLocked && (
           <div
             aria-hidden="true"

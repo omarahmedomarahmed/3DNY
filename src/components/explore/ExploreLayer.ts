@@ -45,6 +45,7 @@ import { makeTiles, type TilesHandle } from './tiles3d';
 import type { StreetscapeResult, WaterPolygon } from '@/lib/streetscape';
 import type { Inside } from '@/lib/explore/walk';
 import { freeForward, type FreeCam } from '@/lib/explore/freecam';
+import type { OrbitSubject } from '@/lib/explore/orbit';
 
 /**
  * three.js inside MapLibre's own WebGL context.
@@ -130,6 +131,15 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
   /** Held so the hour can rebuild the streets — the lamps depend on it. */
   private streetscape: StreetscapeResult | null = null;
   private contextMesh: THREE.Mesh | null = null;
+
+  /**
+   * The building the scene is soloed on during an orbit, if any.
+   *
+   * Kept so that geometry arriving *after* the solo began — a tile streaming
+   * in, a rebuilt context mesh — is hidden too. Without it the city creeps
+   * back into the shot one tile at a time.
+   */
+  private soloBuildingId: string | null = null;
   private contextMaterial: THREE.ShaderMaterial | null = null;
   private contextTriangles = 0;
   private readonly bandMeshes = new Map<string, THREE.Mesh>();
@@ -665,6 +675,8 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     if (url) {
       this.tiles = makeTiles(url, this.preset, this.sunDir);
       this.scene.add(this.tiles.group);
+      // A tileset that arrives mid-orbit must not walk back into the shot.
+      if (this.soloBuildingId) this.tiles.group.visible = false;
       // The extruded context city is redundant now and would double every
       // facade. `setContext(null)` is the caller's job; this makes it safe
       // either way.
@@ -681,6 +693,75 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
   /** Whether the streamed city is in play, so the caller can skip the fallback. */
   get tiled(): boolean {
     return this.tiles !== null;
+  }
+
+  /**
+   * A building reduced to what framing it needs, measured off the geometry
+   * that is actually being drawn.
+   *
+   * Taken from the mesh's own bounding box rather than from the record's
+   * height, because those two disagree by design: a surveyed building's roof
+   * is where the survey put it, and a record's height is a number somebody
+   * typed. The orbit has to frame what is on screen.
+   */
+  orbitSubject(buildingId: string): OrbitSubject | null {
+    const mesh = this.meshes.get(buildingId);
+    if (!mesh) return null;
+    const geometry = mesh.geometry;
+    if (!geometry.boundingBox) geometry.computeBoundingBox();
+    const box = geometry.boundingBox;
+    if (!box) return null;
+
+    return {
+      cx: (box.min.x + box.max.x) / 2,
+      cy: (box.min.y + box.max.y) / 2,
+      baseM: box.min.z,
+      roofM: box.max.z,
+      // The half-diagonal of the footprint, not half the width: a slab seen
+      // corner-on is wider than either of its sides and would be cropped.
+      radiusM: Math.hypot(box.max.x - box.min.x, box.max.y - box.min.y) / 2,
+    };
+  }
+
+  /**
+   * Hide everything except one building, for the orbit.
+   *
+   * The surrounding city is what makes the model read as New York, and it is
+   * exactly what ruins a shot of one building: towers cross in front of the
+   * subject on every revolution. So during an orbit it goes away by default
+   * and there is a control to bring it back.
+   *
+   * The bands of the *subject* stay, always. Hiding those would defeat the
+   * reason anybody is looking at the building.
+   */
+  setSoloBuilding(buildingId: string | null): void {
+    this.soloBuildingId = buildingId;
+    const solo = buildingId;
+
+    for (const [id, mesh] of this.meshes) mesh.visible = !solo || id === solo;
+    for (const [id, mesh] of this.bandMeshes) mesh.visible = !solo || id === solo;
+    if (this.contextMesh) this.contextMesh.visible = !solo;
+    if (this.tiles) this.tiles.group.visible = !solo;
+
+    this.map?.triggerRepaint();
+  }
+
+  /** Which building the scene is currently soloed on, if any. */
+  get soloBuilding(): string | null {
+    return this.soloBuildingId;
+  }
+
+  /**
+   * The vertical field of view, in degrees.
+   *
+   * MapLibre's own, because free look deliberately keeps it: changing the lens
+   * when the camera mode changes makes the world appear to breathe. Exposed so
+   * that the orbit can solve a framing distance against the lens the shot will
+   * actually be taken through, rather than against a number copied into a
+   * second place and left to drift.
+   */
+  get fieldOfViewDeg(): number {
+    return (MAPLIBRE_FOV * 180) / Math.PI;
   }
 
   /** True while anything in the scene is moving. */
