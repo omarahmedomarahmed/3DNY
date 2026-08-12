@@ -36,7 +36,7 @@
  * directory that is gitignored and regenerated the same way the flat asset is.
  */
 
-import { writeFile, mkdir, rm } from 'node:fs/promises';
+import { writeFile, mkdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { loadEnvLocal } from './env-local';
 import {
@@ -118,7 +118,44 @@ function parseCenter(raw: string | undefined): [number, number] | null {
   return null;
 }
 
+/**
+ * The buildings Explore draws itself, which the tileset must not contain.
+ *
+ * This is not an optimisation. Our own towers are drawn with their floor
+ * bands; the tileset's copy of the same building is drawn without them, at the
+ * same coordinates. The two z-fight, and the copy wins often enough that the
+ * bands stop appearing — which is the one thing in this product that must
+ * always be visible. The browser harness caught it as "0 goldenrod pixels" and
+ * that is exactly what it looked like.
+ *
+ * Read from the same fixture `fetch-lod2-massing.ts` accepts, so a machine
+ * with no connection string can still build a correct tileset. If the
+ * portfolio grows, this is rebuilt — the same rule the surveyed asset lives
+ * under.
+ */
+async function excludedBins(): Promise<Set<string>> {
+  const from = value('exclude-from') ?? 'fixtures/dev-buildings.json';
+  try {
+    const parsed = JSON.parse(await readFile(from, 'utf8')) as
+      | { buildings?: { bin?: string | null }[] }
+      | { bin?: string | null }[];
+    const list = Array.isArray(parsed) ? parsed : parsed.buildings ?? [];
+    const bins = new Set(
+      list.map((b) => String(b.bin ?? '')).filter((b) => b.length > 0),
+    );
+    console.log(`Excluding ${bins.size} buildings Explore draws itself (${from}).`);
+    return bins;
+  } catch {
+    console.warn(
+      `No exclusion list at ${from}. Every building in the bbox will be tiled, ` +
+        'including any Explore draws itself — which z-fights over the floor bands.',
+    );
+    return new Set();
+  }
+}
+
 async function main() {
+  const skip = await excludedBins();
   const anchor =
     parseCenter(value('anchor')) ??
     parseCenter(process.env.NEXT_PUBLIC_MAP_CENTER) ??
@@ -180,6 +217,8 @@ async function main() {
       seen++;
       const bin = binOf(member);
       if (!bin) return;
+      // Ours. Explore draws it, with its bands. See `excludedBins`.
+      if (skip.has(bin)) return;
       const massing: Massing | null = toMassing(surfacesOf(member));
       if (!massing) return;
 
