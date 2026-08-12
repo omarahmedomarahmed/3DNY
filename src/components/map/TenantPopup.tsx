@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useApp } from '@/lib/store';
 import { DateText, Sf } from '@/components/ui/Money';
 import SourceInfo from '@/components/ui/SourceInfo';
+import LeaseCountdown from '@/components/ui/LeaseCountdown';
 import { tenantSource } from '@/lib/provenance';
 import { formatFloorList } from '@/lib/floor-list';
 import DraggableCard from './DraggableCard';
@@ -131,11 +132,33 @@ export default function TenantPopup({
           <Sf value={tenant.sf} />
         </Row>
         <Row label="Lease expires">
-          <DateText value={tenant.lease_expiration} />
+          <span className="flex items-baseline gap-1.5">
+            <DateText value={tenant.lease_expiration} />
+            <LeaseCountdown expiration={tenant.lease_expiration} />
+          </span>
         </Row>
         <Row label="Industry">
           {tenant.industry || <span className="text-subtle">—</span>}
         </Row>
+        {tenant.lease_start || tenant.lease_term_months ? (
+          <Row label="Term">
+            {tenant.lease_term_months ? (
+              <>{tenant.lease_term_months} months</>
+            ) : (
+              <>
+                from <DateText value={tenant.lease_start} />
+              </>
+            )}
+          </Row>
+        ) : null}
+        {tenant.rent_psf != null ? (
+          <Row label="Rent">
+            ${tenant.rent_psf.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+            <span className="text-xs font-normal text-muted"> psf</span>
+          </Row>
+        ) : null}
+        {tenant.suite ? <Row label="Suite">{tenant.suite}</Row> : null}
+        {tenant.deal_stage ? <Row label="Stage">{tenant.deal_stage}</Row> : null}
       </div>
 
       {tenant.notes ? (

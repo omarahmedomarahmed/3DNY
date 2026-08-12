@@ -192,6 +192,10 @@ export interface Tenant {
   source_import_id: string | null;
   import_filename?: string | null;
   last_synced_at: string | null;
+  /** Deal facts, when the source carried them. A CSV roster usually does not. */
+  lease_term_months: number | null;
+  rent_psf: number | null;
+  deal_stage: string | null;
   field_sources?: FieldSources;
   updated_at: string;
 }

@@ -26,6 +26,14 @@ export interface TenantRow {
   /** Present on a Salesforce export, so a re-import updates in place. */
   salesforceId: string | null;
   salesforceUrl: string | null;
+  /**
+   * Deal facts a broker asks for out loud. Optional because the roster CSV has
+   * never carried them — a Salesforce report usually does, and the tenant card
+   * has somewhere to put them either way.
+   */
+  leaseTermMonths?: number | null;
+  rentPsf?: number | null;
+  dealStage?: string | null;
 }
 
 export interface TenantParseResult {

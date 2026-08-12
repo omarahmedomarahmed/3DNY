@@ -90,6 +90,10 @@ For each row in the table below, type the name into the **Key** box, paste the v
 | `NEXT_PUBLIC_GOOGLE_3D_TILES_KEY` | Photorealistic buildings — real photographed facades instead of grey shapes | Google Cloud. **This one costs money per use.** See "Photorealistic buildings" below | Optional |
 | `NYC_OPEN_DATA_APP_TOKEN` | Raises the limit on how often the app may ask the city for building shapes | data.cityofnewyork.us → Sign in → Developer Settings → Create App Token. Free | Optional |
 | `NEXT_PUBLIC_MAP_CENTER` | Where the map opens | Type it in exactly as shown below | Optional |
+| `SALESFORCE_INSTANCE_URL` | Your Salesforce address | Salesforce → Setup → Company Information → **My Domain**. Looks like `https://cresa.my.salesforce.com` | Optional |
+| `SALESFORCE_CLIENT_ID` | The key for the connected app | Created in the Salesforce section below | Optional |
+| `SALESFORCE_CLIENT_SECRET` | Its password | Same place | Optional |
+| `CRON_SECRET` | Stops anyone else triggering the nightly Salesforce sync | Make one up — thirty random characters. Anything hard to guess | Optional |
 
 The value for the last one is:
 
@@ -111,6 +115,7 @@ That is longitude and latitude, and it centres the map between Midtown and Midto
 | `NEXT_PUBLIC_GOOGLE_3D_TILES_KEY` | The photorealistic view. The camera button simply does not appear | The whole map, with the surrounding city drawn as grey shapes from free city records |
 | `NYC_OPEN_DATA_APP_TOKEN` | Nothing, unless the whole office is importing at once | Everything |
 | `NEXT_PUBLIC_MAP_CENTER` | Nothing — a default is built in | Everything |
+| The four `SALESFORCE_` / `CRON_SECRET` ones | The automatic nightly sync from Salesforce. The Salesforce panel on the setup page says it is not connected, and tells you which variables are missing | Everything, including the CSV import — which does exactly the same job, by hand |
 
 Do not delay a demo waiting for any of these. Get the database connected, import a sheet, and add the tiles later. Adding a variable later takes about a minute and one redeploy.
 
@@ -224,6 +229,121 @@ seeded from the owner name on the city's tax record. You never start from a blan
 What to write in each field is covered in [docs/LANDLORD-SHEET.md](docs/LANDLORD-SHEET.md).
 This is the one part of the app that no data feed can fill in for you, and it is the part
 that makes the compare view worth showing to a client.
+
+---
+
+## Optional — Connect Salesforce, so the map updates itself
+
+If your team keeps availability in Salesforce — including through **Ascendix
+RE** — the map can follow your reports instead of being uploaded to. Update a
+report in Salesforce, and by the next morning the map matches it. Nobody
+exports anything.
+
+You need admin access to Salesforce for the first part. About twenty minutes,
+once.
+
+### 1. Create a connected app
+
+This is Salesforce's way of letting a program read data without a person
+logging in.
+
+1. In Salesforce, click the gear icon → **Setup**.
+2. In the left-hand search box type `App Manager`, and open it.
+3. Top right → **New Connected App**. If Salesforce offers a choice, pick
+   **Create an External Client App** or the classic connected app — either
+   works.
+4. Fill in:
+   - **Connected App Name**: `Cresa Spaces Map`
+   - **API Name**: fills itself in
+   - **Contact Email**: yours
+5. Tick **Enable OAuth Settings**.
+6. **Callback URL**: `https://login.salesforce.com/services/oauth2/success`
+   (nothing sends anyone there — the box just cannot be empty).
+7. Under **Selected OAuth Scopes**, move these across:
+   - *Manage user data via APIs (api)*
+   - *Perform requests at any time (refresh_token, offline_access)*
+8. Tick **Enable Client Credentials Flow**. **This is the one people miss.**
+   Without it the connection fails with a message about an unsupported grant
+   type.
+9. Untick **Require Proof Key for Code Exchange (PKCE)** if it is on.
+10. **Save**, then **Continue**. Salesforce says it may take ten minutes.
+
+### 2. Give it a user to run as
+
+The app reads Salesforce *as somebody*. It sees exactly the reports and records
+that person sees, and nothing else.
+
+1. Back in **App Manager**, find your app → the dropdown on the right →
+   **Manage**.
+2. **Edit Policies**.
+3. Under **Client Credentials Flow**, set **Run As** to a user who can see the
+   leasing reports. An integration user is tidiest; your own account is fine to
+   start.
+4. Set **Permitted Users** to *Admin approved users are pre-authorized*, then
+   **Save**.
+5. Back on the Manage screen, under **Profiles** or **Permission Sets**, add the
+   profile or permission set that run-as user belongs to.
+
+> **The most common problem, and it is not an error message.** The report list
+> in the app shows what the *run-as user* can see. If a report is missing, its
+> folder is not shared with that user. Fix it in Salesforce: open the report's
+> folder → **Share** → add the user with **Viewer** access.
+
+### 3. Copy the key and secret
+
+1. **App Manager** → your app → **View**.
+2. Under **API (Enable OAuth Settings)**, click **Manage Consumer Details**.
+   Salesforce will send you a verification code.
+3. Copy the **Consumer Key** and **Consumer Secret**.
+4. In Vercel → your project → **Settings** → **Environment Variables**, add:
+   - `SALESFORCE_CLIENT_ID` — the Consumer Key
+   - `SALESFORCE_CLIENT_SECRET` — the Consumer Secret
+   - `SALESFORCE_INSTANCE_URL` — your My Domain URL, e.g.
+     `https://cresa.my.salesforce.com`. No trailing slash.
+   - `CRON_SECRET` — thirty random characters you make up
+5. **Redeploy** (Deployments → the top one → **⋯** → **Redeploy**).
+
+### 4. Point the map at your reports
+
+Open `/setup` on your site and scroll to **Salesforce**.
+
+The connection line should read **Connected as** with a username. If it does
+not, it says which of the three variables is missing, or what Salesforce
+objected to.
+
+Then, for each of the three feeds:
+
+| Feed | What it drives | What the report should contain |
+|---|---|---|
+| **Available spaces** | The goldenrod bands — the subject of the map | One row per available floor, with a building address and a floor |
+| **Occupiers** | Who is in each building, and when their lease rolls | One row per tenancy, with a company and a building address |
+| **Cresa clients** | Our own clients, in teal | The same, for clients |
+
+1. **Choose a report.** Search by name or folder.
+2. **Check the mapping.** The app guesses from your column names and gets a
+   normal Ascendix report mostly right. Underneath it shows **ten of your own
+   rows, already converted** — this is the part to actually read. If a building
+   *name* is sitting in the address column, change the dropdown and watch the
+   preview update.
+3. **Save this mapping.** You do this once. From then on the sync uses it.
+4. **Sync now.** It reports what it added, updated and took off the market.
+
+That is it. From then on it runs itself every morning, and *Sync now* is there
+for when you have just changed a report and do not want to wait.
+
+### What to expect
+
+| | |
+|---|---|
+| **A floor you delete from the availability report** | Comes off the map on the next sync. Nothing is destroyed — its photos and notes are kept, and it returns if the floor does |
+| **Spaces you typed in by hand, or that came from a landlord's website** | Never touched by a Salesforce sync |
+| **A tenant who drops off an occupier report** | Stays on the map. Report filters change far more often than tenants do |
+| **A report with more than 2,000 rows** | Salesforce only sends the first 2,000. The app imports those and **deliberately takes nothing off the market**, and says so. Add a filter to the report so it fits |
+| **A report that comes back empty** | The sync refuses and changes nothing. That is almost always a broken filter, not an empty market |
+| **Someone renames a column** | The sync refuses and names the column. Re-map it on the setup page |
+
+The CSV import on `/import` keeps working exactly as before, for anything not
+in Salesforce.
 
 ---
 

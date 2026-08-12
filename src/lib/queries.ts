@@ -98,6 +98,12 @@ function toTenant(r: any): Tenant {
     source_import_id: r.source_import_id ?? null,
     import_filename: r.import_filename ?? null,
     last_synced_at: r.last_synced_at ?? null,
+    lease_term_months:
+      r.lease_term_months === null || r.lease_term_months === undefined
+        ? null
+        : Number(r.lease_term_months),
+    rent_psf: r.rent_psf === null || r.rent_psf === undefined ? null : Number(r.rent_psf),
+    deal_stage: r.deal_stage ?? null,
     field_sources: toFieldSources(r.field_sources),
     updated_at: r.updated_at,
   };
@@ -729,6 +735,59 @@ export async function retireSpacesOutside(
   )) as { n: number }[];
 
   return { retired: rows.length, keptByHand: kept[0]?.n ?? 0 };
+}
+
+/**
+ * The same idea, scoped to one kind of source.
+ *
+ * A Salesforce report is the leasing team's own inventory, so a floor it stops
+ * carrying has come off the market and should leave the map. But it is not the
+ * *only* inventory: the landlord feeds and the hand-entered rows are their own
+ * truths, and a CRM sync has no standing to retire either. `retireSpacesOutside`
+ * would take all of them down, so this exists instead.
+ *
+ * Scoping by `imports.source_kind` rather than by import id is what makes it
+ * safe as the sources multiply: adding a fifth landlord, or a second CRM, does
+ * not silently widen what a sync is allowed to remove.
+ */
+export async function retireSpacesFromKind(
+  sourceKind: string,
+  keepImportIds: string[],
+): Promise<{ retired: number; rows: { address: string; floor: string }[] }> {
+  const db = sql();
+
+  // An empty keep-list is legitimate — a report that returned no rows at all —
+  // but `= ANY('{}')` is false for everything, which is exactly right here:
+  // every space from this source retires. The caller decides whether a report
+  // that suddenly went empty should be trusted; that is not this function's
+  // call to make, and it is guarded at the sync layer.
+  const rows = (await db(
+    `UPDATE spaces AS s SET is_active = false
+     FROM imports AS i
+     WHERE s.source_import_id = i.id
+       AND s.is_active
+       AND i.source_kind = $1
+       AND NOT (s.source_import_id = ANY($2::uuid[]))
+     RETURNING s.id, s.floor_label, s.building_id`,
+    [sourceKind, keepImportIds],
+  )) as { id: string; floor_label: string; building_id: string }[];
+
+  if (rows.length === 0) return { retired: 0, rows: [] };
+
+  // Addresses, so the run history says which floors left rather than how many.
+  const addresses = (await db(
+    `SELECT id, address_display FROM buildings WHERE id = ANY($1::uuid[])`,
+    [[...new Set(rows.map((r) => r.building_id))]],
+  )) as { id: string; address_display: string }[];
+  const byId = new Map(addresses.map((a) => [a.id, a.address_display]));
+
+  return {
+    retired: rows.length,
+    rows: rows.map((r) => ({
+      address: byId.get(r.building_id) ?? '(unknown building)',
+      floor: r.floor_label,
+    })),
+  };
 }
 
 // ---------------------------------------------------------------------------

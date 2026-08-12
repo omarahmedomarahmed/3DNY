@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import AppHeader from '@/components/shell/AppHeader';
 import LogoUploader from '@/components/brand/LogoUploader';
+import SalesforceSetup from '@/components/setup/SalesforceSetup';
 import { SkylineBand, GridPattern } from '@/components/brand/Skyline';
 import Icon from '@/components/ui/Icon';
 import { photorealAvailable } from '@/components/map/photoreal';
@@ -114,7 +115,7 @@ export default function SetupPage() {
         <h1 className="text-2xl font-semibold tracking-tight text-ink">Setup</h1>
         <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
           Everything on this page is a button. Nothing to install, no commands to run. The
-          full walkthrough is in SETUP.md.
+          full walkthrough is in SETUP.md, and Salesforce is set up further down.
         </p>
 
         {/* Status ---------------------------------------------------------- */}
@@ -221,6 +222,9 @@ export default function SetupPage() {
           {result && <p className="mt-3 text-sm text-ok">{result}</p>}
           {error && <p className="mt-3 text-sm text-danger">{error}</p>}
         </section>
+
+        {/* Salesforce --------------------------------------------------------- */}
+        <SalesforceSetup />
 
         {/* Refresh geometry -------------------------------------------------- */}
         <section className="mt-6 rounded-card border border-hairline bg-white p-6 shadow-card">

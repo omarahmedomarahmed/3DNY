@@ -34,6 +34,7 @@ function tenant(over: Partial<Tenant> = {}): Tenant {
     industry: null, notes: null, relationship: 'occupier', source: 'csv',
     salesforce_id: null, salesforce_url: null, source_import_id: null,
     last_synced_at: null, updated_at: '2026-01-01T00:00:00Z',
+    lease_term_months: null, rent_psf: null, deal_stage: null,
     ...over,
   };
 }

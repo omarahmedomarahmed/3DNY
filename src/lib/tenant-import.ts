@@ -122,8 +122,9 @@ export async function commitTenantImport(
           `INSERT INTO tenants (
              building_id, company_name, floors, floor_numbers, suite, sf,
              lease_start, lease_expiration, industry, notes, relationship,
-             source, salesforce_id, salesforce_url, source_import_id, last_synced_at
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,now())
+             source, salesforce_id, salesforce_url, source_import_id,
+             lease_term_months, rent_psf, deal_stage, last_synced_at
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,now())
            ON CONFLICT (salesforce_id) WHERE salesforce_id IS NOT NULL
            DO UPDATE SET
              building_id      = EXCLUDED.building_id,
@@ -140,6 +141,9 @@ export async function commitTenantImport(
              source           = EXCLUDED.source,
              salesforce_url   = EXCLUDED.salesforce_url,
              source_import_id = EXCLUDED.source_import_id,
+             lease_term_months = EXCLUDED.lease_term_months,
+             rent_psf         = EXCLUDED.rent_psf,
+             deal_stage       = EXCLUDED.deal_stage,
              last_synced_at   = now(),
              -- The CRM has just overwritten these, so any note that one was
              -- corrected by hand now describes a value that is gone.
@@ -149,14 +153,15 @@ export async function commitTenantImport(
             buildingId, row.companyName, row.floors, floorNumbers, row.suite, row.sf,
             row.leaseStart, row.leaseExpiration, row.industry, row.notes,
             row.relationship, source, row.salesforceId, row.salesforceUrl, importId,
+            row.leaseTermMonths ?? null, row.rentPsf ?? null, row.dealStage ?? null,
           ],
         )) as { was_inserted: boolean }[])
       : ((await db(
           `INSERT INTO tenants (
              building_id, company_name, floors, floor_numbers, suite, sf,
              lease_start, lease_expiration, industry, notes, relationship,
-             source, source_import_id
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+             source, source_import_id, lease_term_months, rent_psf, deal_stage
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
            ON CONFLICT (building_id, lower(company_name), COALESCE(floors, ''))
              WHERE salesforce_id IS NULL
            DO UPDATE SET
@@ -170,12 +175,16 @@ export async function commitTenantImport(
              relationship     = EXCLUDED.relationship,
              source           = EXCLUDED.source,
              source_import_id = EXCLUDED.source_import_id,
+             lease_term_months = EXCLUDED.lease_term_months,
+             rent_psf         = EXCLUDED.rent_psf,
+             deal_stage       = EXCLUDED.deal_stage,
              field_sources    = '{}'::jsonb
            RETURNING (xmax = 0) AS was_inserted`,
           [
             buildingId, row.companyName, row.floors, floorNumbers, row.suite, row.sf,
             row.leaseStart, row.leaseExpiration, row.industry, row.notes,
             row.relationship, source, importId,
+            row.leaseTermMonths ?? null, row.rentPsf ?? null, row.dealStage ?? null,
           ],
         )) as { was_inserted: boolean }[]);
 

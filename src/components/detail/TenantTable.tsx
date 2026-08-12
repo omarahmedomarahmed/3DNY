@@ -6,6 +6,7 @@ import type { Tenant } from '@/types';
 import Badge from '@/components/ui/Badge';
 import { DateText, Sf, monthsUntil } from '@/components/ui/Money';
 import SourceInfo from '@/components/ui/SourceInfo';
+import LeaseCountdown from '@/components/ui/LeaseCountdown';
 import { tenantSource } from '@/lib/provenance';
 import type { TenantRelationship } from '@/types';
 
@@ -256,8 +257,38 @@ export default function TenantTable({
           onChange={(e) => set({ ...d, industry: e.target.value })}
         />
       </td>
+      {/* Deal facts come from the CRM and are not typed here, but the cell has
+          to exist or every row below this one shifts a column left. */}
+      <td className={TD} />
     </>
   );
+
+/**
+ * Rent, term and stage, in the space of one cell.
+ *
+ * A broker scanning this table is looking for a reason to make a call. Rent and
+ * how long is left are that reason; the stage says whether somebody at the firm
+ * is already on it.
+ */
+function DealCell({ tenant }: { tenant: Tenant }) {
+  const bits: string[] = [];
+  if (tenant.rent_psf != null) {
+    bits.push(`$${tenant.rent_psf.toLocaleString(undefined, { maximumFractionDigits: 2 })} psf`);
+  }
+  if (tenant.lease_term_months != null) bits.push(`${tenant.lease_term_months} mo term`);
+
+  if (bits.length === 0 && !tenant.deal_stage) return <span className="text-subtle">—</span>;
+  return (
+    <span className="whitespace-nowrap">
+      {bits.join(' · ')}
+      {tenant.deal_stage ? (
+        <span className="ml-1.5 rounded bg-surface-sunken px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
+          {tenant.deal_stage}
+        </span>
+      ) : null}
+    </span>
+  );
+}
 
   return (
     <div className="space-y-2">
@@ -277,13 +308,14 @@ export default function TenantTable({
               <th className={clsx(TH, 'text-right')}>SF</th>
               <th className={TH}>Lease Expiration</th>
               <th className={TH}>Industry</th>
+              <th className={TH}>Deal</th>
               <th className={clsx(TH, 'text-right')}>Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-hairline">
             {loading && tenants.length === 0 && (
               <tr>
-                <td className={clsx(TD, 'text-muted')} colSpan={7}>
+                <td className={clsx(TD, 'text-muted')} colSpan={8}>
                   Loading tenants…
                 </td>
               </tr>
@@ -291,7 +323,7 @@ export default function TenantTable({
 
             {!loading && tenants.length === 0 && !adding && (
               <tr>
-                <td className={clsx(TD, 'text-center text-muted')} colSpan={7}>
+                <td className={clsx(TD, 'text-center text-muted')} colSpan={8}>
                   No tenants recorded yet.
                 </td>
               </tr>
@@ -380,11 +412,18 @@ export default function TenantTable({
                       <span className="tabular text-body">
                         <DateText value={t.lease_expiration} />
                       </span>
+                      <LeaseCountdown expiration={t.lease_expiration} />
                       {variant === 'warn' && <Badge variant="warn">Rolls within 12 mo</Badge>}
                       {variant === 'danger' && <Badge variant="danger">Expired</Badge>}
                     </div>
                   </td>
                   <td className={clsx(TD, 'text-body')}>{t.industry ?? '—'}</td>
+                  {/* Everything the CRM knows about the deal itself. Empty for
+                      a hand-kept row, which is honest rather than a gap: the
+                      roster sheet never carried any of it. */}
+                  <td className={clsx(TD, 'text-body')}>
+                    <DealCell tenant={t} />
+                  </td>
                   <td className={clsx(TD, 'text-right')}>
                     <div className="flex justify-end gap-1.5">
                       <button
@@ -452,7 +491,7 @@ export default function TenantTable({
               </tr>
             ) : (
               <tr className="bg-surface-alt">
-                <td className={TD} colSpan={7}>
+                <td className={TD} colSpan={8}>
                   <button
                     type="button"
                     onClick={() => setAdding(true)}

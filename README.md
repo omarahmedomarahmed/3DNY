@@ -114,22 +114,45 @@ Three ways in, in order of how much setup they need:
 |---|---|
 | **Client CSV** | `data/samples/cresa-clients-template.csv`. Every row is a client. |
 | **Tenant roster / Salesforce export** | `data/samples/salesforce-tenants-template.csv`. A `Type` column decides occupier / prospect / client; Salesforce record ids make a re-import an update rather than a duplicate. |
-| **Salesforce API** | Three environment variables and a sync button. |
+| **Salesforce reports** | Point a feed at a report you already keep, map its columns once, and it syncs itself every morning. The main path. |
 
-The API sync is a convenience, not the product: it converges on the same rows
-the CSV importer produces, so both share one address matcher, one floor parser
-and one upsert, and neither can drift into being the better-behaved path. Set
-`SALESFORCE_INSTANCE_URL`, `SALESFORCE_CLIENT_ID` and `SALESFORCE_CLIENT_SECRET`
-(a connected app with the client-credentials flow and a run-as user). Because
-every org names its property fields differently, `SALESFORCE_SOQL` replaces the
-query outright and `SALESFORCE_FIELD_MAP` remaps our names to yours. **Run
-"Check without writing" first** — it runs the query and the mapping and reports
-what it would write, which is much better than finding out afterwards that
-every row mapped to "no address".
-
-One rule the sync will not bend: an unrecognised account type maps to
+One rule none of them will bend: an unrecognised account type maps to
 *occupier*, never to *client*. A teal band tells a room that a company is ours,
 and being wrong in that direction is the expensive mistake.
+
+### Salesforce reports — the automated path
+
+Three feeds, each bound to one report: **available spaces**, **occupiers**,
+**Cresa clients**. Update the report in Salesforce and the map follows — every
+morning at 9am UTC, and whenever anyone presses *Sync now*. Nobody re-uploads
+anything, and the CSV import stays exactly where it is as a fallback.
+
+Set up on `/setup`:
+
+| Step | What happens |
+|---|---|
+| Connect | Three environment variables. The page exchanges them for a token and names the org and run-as user it reached, so a sandbox URL in a production variable is obvious rather than mysterious |
+| Choose a report | Every report that user can see, searchable by name and folder. A report missing from the list means the folder is not shared with the run-as user — which is itself the answer |
+| Map the columns | Suggested from the column labels, then confirmed against **ten of your own rows, already converted**. No two orgs name a field the same way, and a mapping table without a preview is a guess |
+| Sync | Now, and then daily. Every run records what it added, updated and took off the market — by address and floor, not as a count |
+
+Set `SALESFORCE_INSTANCE_URL`, `SALESFORCE_CLIENT_ID` and
+`SALESFORCE_CLIENT_SECRET` from a connected app with the **Client Credentials
+Flow** enabled and a run-as user; `CRON_SECRET` authenticates the daily run.
+`SALESFORCE_SOQL` and `SALESFORCE_FIELD_MAP` still drive the older
+object-query sync at `/api/salesforce/sync`, which stays for orgs that would
+rather write SOQL than keep a report.
+
+**What a sync is allowed to do, and what it is not:**
+
+| | |
+|---|---|
+| A floor the availability report stops carrying | Comes off the map — retired, never deleted, because a floor that returns next month is the same floor |
+| A space from a landlord feed, or typed in by hand | **Never touched.** Retirement is scoped to imports the CRM itself created |
+| A tenancy that drops off an occupier report | Stays. Report filters change far more often than tenants do, and a company vanishing from the map is a silent loss of context nobody asked for |
+| A report Salesforce truncated at 2,000 rows | Writes what it saw and **retires nothing**, recorded as `partial` with the reason. Concluding that everything past row 2,000 has come off the market would empty a third of the map |
+| A report that comes back empty | Refuses outright. Far more often a broken filter than an entire portfolio going dark on a Tuesday |
+| A column renamed in Salesforce | Refuses, and names the column. Importing blanks for every address is how a whole map gets retired at once |
 
 ### Where every number comes from
 
@@ -250,7 +273,7 @@ room and letting them break it.
 | Plan | Complete — [PLAN.md](./PLAN.md) |
 | Build | Complete and deployable |
 | Production build | Passing |
-| Tests | 390 passing — parser against both real sheets, plus transit, photoreal gating, streetscape and label layout, roofscape geometry, atmosphere and both shaders' picking guards, entrance placement, street-network routing, station deduplication, the fallback geocoder's address normalisation, the compare set's lifecycle, the source resolver's field-by-field answers, how people write floors, the occupancy bands' hierarchy, the Salesforce field mapping, and two guards that hold rules a comment cannot: that no UI file references a named agent, and that every dismiss-on-outside-click surface exempts the source popover |
+| Tests | 426 passing — parser against both real sheets, plus transit, photoreal gating, streetscape and label layout, roofscape geometry, atmosphere and both shaders' picking guards, entrance placement, street-network routing, station deduplication, the fallback geocoder's address normalisation, the compare set's lifecycle, the source resolver's field-by-field answers, how people write floors, the occupancy bands' hierarchy, the Salesforce field mapping and report parsing — including the Ascendix column pair a naive mapper gets backwards — how long is left on a lease, and two guards that hold rules a comment cannot: that no UI file references a named agent, and that every dismiss-on-outside-click surface exempts the source popover |
 | Coverage | 53 buildings, 312 availabilities, read from four landlords' own pages |
 
 ### Verifying it by looking at it
@@ -269,6 +292,7 @@ against the live database, and every assertion is on the thing itself:
 | `node scripts/shoot-ground.mjs`, `shoot-atmosphere.mjs`, `shoot-stations.mjs` | The ground plane, the four hours, and the subway entrances. |
 | `node scripts/verify-snapshot.mjs <dir>` | Stack Snapshot is produced for real and the PNG inspected: composed at 2x, and no blank filler band. |
 | `node scripts/verify-add-by-hand.mjs <dir>` | An address already on the map is recognised **before** anything is created and the create button stays disabled; a new one reports the BIN it resolved to; an unreal one is refused with a reason; and a building's own page offers the same form without asking for an address. |
+| `node scripts/verify-salesforce.mjs` | The whole CRM flow against a stand-in org (`scripts/fake-salesforce.mjs`): connected, report list searchable, the suggested mapping puts the address in the address column, the preview shows converted rows, save, sync, the floors reach the map — then a floor drops out of the report and leaves the map while the landlord-feed spaces beside it are untouched, and a truncated report retires nothing at all. |
 | `node scripts/verify-occupancy.mjs <dir>` | The three band kinds are listed, filterable and clickable on the real map; availability cannot be switched off; a tenant name finds its building; Compare answers "what else is in that tower"; and an unconfigured Salesforce fails with a remedy rather than just a failure. |
 | `node scripts/verify-sources.mjs <dir>` | The source markers are reachable on the map, on a station, on the building page and in compare; opening one does **not** close the card it sits on; only one opens at a time; and the sheet, the city and the hand-kept transit table give different answers where they should. |
 
@@ -549,7 +573,7 @@ the app runs and demos without them.
 
 ## Not in this version
 
-Authentication · Salesforce integration (tenants are CSV or manual for now) · Placer.ai · landlord breakeven and operating-expense figures · submarkets beyond Midtown and Midtown South.
+Authentication · Placer.ai · landlord breakeven and operating-expense figures · submarkets beyond Midtown and Midtown South.
 
 On the map specifically, and worth being plain about:
 

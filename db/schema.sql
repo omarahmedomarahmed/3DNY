@@ -268,3 +268,79 @@ CREATE INDEX IF NOT EXISTS tenants_relationship_idx ON tenants (relationship);
 -- ---------------------------------------------------------------------------
 ALTER TABLE imports ADD COLUMN IF NOT EXISTS source_kind text NOT NULL DEFAULT 'sheet';
 ALTER TABLE imports ADD COLUMN IF NOT EXISTS source_url  text;
+
+-- ---------------------------------------------------------------------------
+-- Salesforce report bindings.
+--
+-- The leasing team already maintains reports in Salesforce — "Available
+-- Spaces – NYC", "Active Clients". Those reports are the source of truth, and
+-- the point of this table is that somebody picks one *once*, confirms how its
+-- columns line up with ours, and from then on the map follows it.
+--
+-- One row per feed, so there is exactly one answer to "where do available
+-- spaces come from". Rebinding a feed to a different report is an update, not
+-- a second row, which is what makes "we changed the report" a two-click
+-- operation rather than a migration.
+--
+-- Credentials are deliberately NOT here. A CRM secret does not belong in a
+-- database this app renders to the browser; those stay in environment
+-- variables. This table holds only which report, and which column is which.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS salesforce_feeds (
+  kind          text PRIMARY KEY
+                  CHECK (kind IN ('spaces','occupiers','clients')),
+  report_id     text NOT NULL,
+  report_name   text NOT NULL,
+  report_folder text,
+  -- { ourFieldKey: "Their.Column.ApiName" }. Chosen in the UI against a live
+  -- preview of the org's own rows, then reused by every sync.
+  column_map    jsonb NOT NULL DEFAULT '{}'::jsonb,
+  enabled       boolean NOT NULL DEFAULT true,
+  last_run_at   timestamptz,
+  last_status   text,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now()
+);
+
+-- ---------------------------------------------------------------------------
+-- What each sync did.
+--
+-- A sync that silently removes forty spaces is indistinguishable from a sync
+-- that worked, right up until a broker opens a building in a meeting and the
+-- floor is gone. So every run records its counts and the actual addresses it
+-- touched, and the setup page shows them. `detail` holds the changes rather
+-- than a summary of them: "retired 40" is not reviewable, forty addresses is.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS salesforce_runs (
+  id           uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  kind         text NOT NULL,
+  report_id    text,
+  report_name  text,
+  started_at   timestamptz NOT NULL DEFAULT now(),
+  finished_at  timestamptz,
+  -- 'ok' | 'failed' | 'partial' — partial is a run that wrote rows but
+  -- deliberately skipped retiring because the report came back truncated.
+  status       text NOT NULL DEFAULT 'ok',
+  trigger      text NOT NULL DEFAULT 'manual',   -- 'manual' | 'daily'
+  rows_read    integer NOT NULL DEFAULT 0,
+  added        integer NOT NULL DEFAULT 0,
+  updated      integer NOT NULL DEFAULT 0,
+  retired      integer NOT NULL DEFAULT 0,
+  skipped      integer NOT NULL DEFAULT 0,
+  detail       jsonb   NOT NULL DEFAULT '{}'::jsonb,
+  error        text
+);
+
+CREATE INDEX IF NOT EXISTS salesforce_runs_kind_idx ON salesforce_runs (kind, started_at DESC);
+
+-- The daily sync retires spaces the report no longer carries. That must never
+-- reach a landlord-feed or hand-entered space, so retirement is scoped by the
+-- import's own source_kind and this index keeps that scoping cheap.
+CREATE INDEX IF NOT EXISTS imports_source_kind_idx ON imports (source_kind);
+
+-- A tenancy carries deal facts a broker asks for out loud: how long is left,
+-- what the rent is, is there a renewal option. The roster CSV never had
+-- anywhere to put them; a Salesforce report does.
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS lease_term_months integer;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS rent_psf numeric(10,2);
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS deal_stage text;
