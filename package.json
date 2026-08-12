@@ -25,6 +25,7 @@
     "@turf/turf": "^7.1.0",
     "@types/three": "^0.185.4",
     "@vercel/blob": "^0.27.0",
+    "3d-tiles-renderer": "^0.5.1",
     "clsx": "^2.1.1",
     "maplibre-gl": "^4.7.1",
     "next": "^15.1.6",

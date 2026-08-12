@@ -293,16 +293,11 @@ export function useFreeCam(
 
         look.current.dYaw = 0;
         look.current.dPitch = 0;
-        // Indoors: a walking pace, and Shift does nothing — at eight times a
-        // flying speed you would cross a floor plate in a fifth of a second.
+        // Indoors: a jog, with Shift at a fraction of the outdoor multiplier —
+        // see `INSIDE_FAST_MULTIPLIER`.
         const indoors = Boolean(opts.current.confine);
         cam = contain(
-          stepFree(
-            cam,
-            indoors ? { ...input, fast: false } : input,
-            dt,
-            indoors ? INSIDE_SPEED_MS : FREE_SPEED_MS,
-          ),
+          stepFree(cam, input, dt, indoors ? INSIDE_SPEED_MS : FREE_SPEED_MS),
         );
         handle.current.cam = cam;
         layer.setFreeCamera(cam);

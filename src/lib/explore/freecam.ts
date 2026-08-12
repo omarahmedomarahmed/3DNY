@@ -84,7 +84,19 @@ export const FREE_FAST_MULTIPLIER = 8;
  * window without waiting, slow enough that the furniture still gives you
  * scale on the way.
  */
-export const INSIDE_SPEED_MS = 4.2;
+export const INSIDE_SPEED_MS = 5.4;
+
+/**
+ * Shift indoors, at a fraction of the outdoor multiplier.
+ *
+ * Shift used to do nothing inside a space, on the grounds that eight times a
+ * flying speed crosses a floor plate in a fifth of a second. That was right
+ * about the multiplier and wrong about the conclusion: crossing a large plate
+ * to reach the far window is exactly the thing you want to do quickly, and
+ * having the key silently do nothing reads as the mode being broken. Two and a
+ * half times a jog is a run across a room.
+ */
+export const INSIDE_FAST_MULTIPLIER = 2.5;
 
 /** Nothing may go below the pavement, and nothing needs to go above the clouds. */
 export const FREE_MIN_Z = 1.5;
@@ -140,7 +152,9 @@ export function stepFree(
   );
   const turned: FreeCam = { ...cam, yaw, pitch };
 
-  const speed = speedMs * (input.fast ? FREE_FAST_MULTIPLIER : 1) * dt;
+  const multiplier =
+    speedMs === INSIDE_SPEED_MS ? INSIDE_FAST_MULTIPLIER : FREE_FAST_MULTIPLIER;
+  const speed = speedMs * (input.fast ? multiplier : 1) * dt;
   const f = freeForward(turned);
   const r = freeRight(turned);
 

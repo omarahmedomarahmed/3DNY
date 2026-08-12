@@ -111,6 +111,9 @@ Compare behaviour working with no changes in either mode.
 | `lib/explore/walk.ts` | Capsule collision, the walk step, floor plates |
 | `lib/explore/agents.ts` | Cars and people on the street graph |
 | `lib/explore/eligibility.ts` | Which buildings get the full treatment |
+| `lib/explore/tiling.ts` | The 3-D Tiles quadtree: geometric errors, height-aware partitioning, node merging, `tileset.json` |
+| `lib/explore/glb.ts` | A minimal glTF 2.0 binary writer — two accessors and an index, no dependency |
+| `components/explore/tiles3d.ts` | `TilesRenderer` in our scene, and the anchor guard |
 | `components/explore/ExploreLayer.ts` | The MapLibre custom layer and the three.js scene |
 | `components/explore/materials.ts` | The facade shader: bays, glass, interior mapping |
 | `lib/explore/freecam.ts` | The unconstrained camera: attitude, movement, clamps |
@@ -141,6 +144,39 @@ Without it, every building falls back to its extruded footprint — which is a
 perfectly good map and exactly what the two buildings the 2014 survey predates
 get permanently. Explore mode never refuses to open because the asset is
 missing.
+
+---
+
+## The surrounding city, as 3-D Tiles
+
+`massing.json` is the buildings we hold records for. Everything *else* on screen
+— the other few thousand buildings that make Midtown look like Midtown — comes
+from a tileset that is also **gitignored and regenerated**, from the same 2014
+CityGML archive, read over range requests without downloading its 916 MB:
+
+```
+npx tsx scripts/build-3dtiles.ts --bbox=-73.995,40.745,-73.975,40.760
+npx tsx scripts/build-3dtiles.ts --bbox=-74.02,40.70,-73.93,40.79   # all of Manhattan
+```
+
+The small bbox above is one archive tile, about 44 MB streamed, and produces
+2,481 buildings in 25 tiles — 301,543 triangles, 14.8 MB on disk. The full
+island is several archive tiles and a few minutes.
+
+Two things about it are worth knowing before you touch it:
+
+**It is anchored.** Every vertex is metres from one lon/lat, and the build
+writes that anchor to `frame.json` beside the tileset. If it disagrees with the
+scene's, `tiles3d.ts` logs and refuses to draw, and Explore falls back to
+extruded footprints. It is not a warning to work around — a tileset drawn at
+the wrong anchor is Manhattan several hundred metres into the Hudson, with
+nothing on screen looking wrong. The anchor comes from
+`NEXT_PUBLIC_MAP_CENTER`, then from the same default `MapView` uses, and
+`--anchor=lon,lat` overrides both.
+
+**Both cities must never be on at once.** When a tileset loads, `useExplore`
+drops the extruded context mesh. Leaving both draws every surrounding building
+twice, z-fighting with itself.
 
 ---
 

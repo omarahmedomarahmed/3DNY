@@ -41,6 +41,7 @@ import { applyWaterPreset, makeWater, type WaterHandle } from './water3d';
 import { makeFurniture, type FurnitureHandle } from './furniture3d';
 import { makeNature, type NatureHandle } from './nature3d';
 import { makeHarbour, type HarbourHandle } from './harbour3d';
+import { makeTiles, type TilesHandle } from './tiles3d';
 import type { StreetscapeResult, WaterPolygon } from '@/lib/streetscape';
 import type { Inside } from '@/lib/explore/walk';
 import { freeForward, type FreeCam } from '@/lib/explore/freecam';
@@ -125,6 +126,7 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
   private nature: NatureHandle | null = null;
   private harbourWater: WaterHandle | null = null;
   private harbour: HarbourHandle | null = null;
+  private tiles: TilesHandle | null = null;
   /** Held so the hour can rebuild the streets — the lamps depend on it. */
   private streetscape: StreetscapeResult | null = null;
   private contextMesh: THREE.Mesh | null = null;
@@ -266,6 +268,11 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
       this.scene.remove(this.harbour.group);
       this.harbour.dispose();
       this.harbour = null;
+    }
+    if (this.tiles) {
+      this.scene.remove(this.tiles.group);
+      this.tiles.dispose();
+      this.tiles = null;
     }
     if (this.life) {
       this.scene.remove(this.life.cars);
@@ -642,6 +649,40 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     this.map?.triggerRepaint();
   }
 
+  /**
+   * The surrounding city as 3-D Tiles, replacing the extruded footprints.
+   *
+   * Passing a url switches the context city over; passing null puts the
+   * extruded path back. Both cannot be on at once — that would be every
+   * building drawn twice, z-fighting with itself.
+   */
+  setTileset(url: string | null): void {
+    if (this.tiles) {
+      this.scene.remove(this.tiles.group);
+      this.tiles.dispose();
+      this.tiles = null;
+    }
+    if (url) {
+      this.tiles = makeTiles(url, this.preset, this.sunDir);
+      this.scene.add(this.tiles.group);
+      // The extruded context city is redundant now and would double every
+      // facade. `setContext(null)` is the caller's job; this makes it safe
+      // either way.
+      if (this.contextMesh) {
+        this.scene.remove(this.contextMesh);
+        this.contextMesh.geometry.dispose();
+        this.contextMesh = null;
+        this.contextTriangles = 0;
+      }
+    }
+    this.map?.triggerRepaint();
+  }
+
+  /** Whether the streamed city is in play, so the caller can skip the fallback. */
+  get tiled(): boolean {
+    return this.tiles !== null;
+  }
+
   /** True while anything in the scene is moving. */
   get animating(): boolean {
     return (
@@ -679,6 +720,7 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     if (this.water) applyWaterPreset(this.water, preset, this.sunDir);
     if (this.harbourWater) applyWaterPreset(this.harbourWater, preset, this.sunDir);
     this.harbour?.applyPreset(preset);
+    this.tiles?.applyPreset(preset, this.sunDir);
     if (this.ground) {
       (this.ground.material.uniforms.uHazeColor.value as THREE.Color).setRGB(
         preset.haze[0] / 255,
@@ -859,6 +901,27 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
       map.triggerRepaint();
     }
 
+    /**
+     * The tileset is updated after the projection is set, never before.
+     *
+     * `TilesRenderer` derives screen-space error from the camera's projection
+     * matrix and the viewport size — and this layer assigns its projection by
+     * hand, differently in free look. Updating first would refine the tree
+     * against last frame's camera, which shows up as detail arriving a beat
+     * late everywhere and being wrong entirely the moment free look is
+     * switched on.
+     */
+    if (this.tiles) {
+      this.camera.position.copy(this.cameraPos);
+      this.tiles.update(
+        this.camera,
+        canvas.clientWidth || 1200,
+        canvas.clientHeight || 800,
+        seconds,
+      );
+      map.triggerRepaint();
+    }
+
     // three.js has been caching GL state that MapLibre has been changing all
     // frame. Without this the first draw uses whatever program, buffer and
     // blend mode MapLibre left bound, and the result is anything from nothing
@@ -988,6 +1051,8 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     desks: number;
     offices: number;
     contextTriangles: number;
+    tiledCity: boolean;
+    tilesVisible: number;
     cars: number;
     people: number;
   } {
@@ -1011,7 +1076,9 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
       surveyed: this.surveyedCount,
       buildings: this.meshes.size,
       streetTriangles: this.streets?.triangles ?? 0,
-      contextTriangles: this.contextTriangles,
+      contextTriangles: this.contextTriangles + (this.tiles?.stats().triangles ?? 0),
+      tiledCity: this.tiles !== null,
+      tilesVisible: this.tiles?.stats().visible ?? 0,
       cars: this.life ? this.life.cars.count : 0,
       people: this.life ? this.life.people.count : 0,
     };

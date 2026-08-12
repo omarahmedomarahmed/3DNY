@@ -25,6 +25,7 @@ import { floorPlateFor, plateMassing } from './plate';
 import { populate } from '@/lib/explore/agents';
 import type { StreetscapeResult, WaterPolygon } from '@/lib/streetscape';
 import { buildBandGroups } from './bands3d';
+import { tilesetFor } from './tiles3d';
 import type { ColorOverrides } from '../map/colors';
 
 /**
@@ -192,14 +193,45 @@ export function useExplore(
     standingOn?.buildingId,
   ]);
 
+  /**
+   * The streamed city, if one has been published for this frame.
+   *
+   * Checked once per session. `tilesetFor` returns null when there is no
+   * tileset or when it was built at a different anchor, and the extruded
+   * fallback below carries on exactly as before — Explore has never refused to
+   * open because an asset was missing and this does not change that.
+   */
+  const [tiled, setTiled] = useState(false);
+  useEffect(() => {
+    const layer = handle.current.layer;
+    if (!layer || !active) return;
+    let cancelled = false;
+    void tilesetFor('/3dtiles', anchor).then((url) => {
+      if (cancelled || !url) return;
+      layer.setTileset(url);
+      setTiled(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // `anchor` is fixed for the life of the layer — see the lifecycle effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+
   // --- The surrounding city. Keyed on the payload's identity: `useCityContext`
   // returns the same array until a new viewport is actually fetched, so this
   // does not re-merge forty thousand footprints on every pan.
   useEffect(() => {
     const layer = handle.current.layer;
     if (!layer || !active) return;
+    // With a tileset in play the extruded footprints are the same buildings a
+    // second time, z-fighting with themselves.
+    if (tiled) {
+      layer.setContext(null);
+      return;
+    }
     layer.setContext(buildContextMassing(layer, cityContext, buildings));
-  }, [active, cityContext, buildings]);
+  }, [active, cityContext, buildings, tiled]);
 
   // --- The hour.
   useEffect(() => {

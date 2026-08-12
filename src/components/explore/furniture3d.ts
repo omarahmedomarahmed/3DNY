@@ -154,6 +154,42 @@ function chairGeometry(): THREE.BufferGeometry {
   ]);
 }
 
+/**
+ * Soft seating: a sofa and a low table.
+ *
+ * Every Manhattan floor has a break-out corner and it is the one piece of
+ * furniture whose *shape* is different from everything else in the room —
+ * long, low and horizontal against a field of desk-height rectangles. It is
+ * what stops a fitted floor reading as a call centre.
+ */
+function loungeGeometry(): THREE.BufferGeometry {
+  return merge([
+    // Sofa: base, back, two arms.
+    box(2.1, 0.85, 0.36, 0, 0, 0.18),
+    box(2.1, 0.18, 0.42, 0, -0.34, 0.57),
+    box(0.16, 0.85, 0.28, -0.97, 0, 0.5),
+    box(0.16, 0.85, 0.28, 0.97, 0, 0.5),
+    // Low table in front of it.
+    box(1.0, 0.55, 0.05, 0, 0.95, 0.4),
+    box(0.08, 0.08, 0.38, -0.42, 0.95, 0.19),
+    box(0.08, 0.08, 0.38, 0.42, 0.95, 0.19),
+  ]);
+}
+
+/**
+ * A storage wall: the run of cupboards that divides open plan from circulation.
+ *
+ * Waist height, so it reads as a boundary without blocking the view — which is
+ * exactly what it does in a real fit-out, and exactly what this mode needs it
+ * to do given that the view is the whole point.
+ */
+function storageGeometry(): THREE.BufferGeometry {
+  return merge([
+    box(2.4, 0.5, 1.15, 0, 0, 0.58),
+    box(2.5, 0.58, 0.04, 0, 0, 1.17),
+  ]);
+}
+
 /** A monitor on a stand: the thing that says "somebody works here". */
 function screenGeometry(): THREE.BufferGeometry {
   return merge([
@@ -182,7 +218,7 @@ function cellHash(i: number, j: number, salt: number): number {
   return Math.abs(Math.sin((i * 127.1 + j * 311.7 + salt) * 43758.5453)) % 1;
 }
 
-export type CellKind = 'office' | 'meeting' | 'open';
+export type CellKind = 'office' | 'meeting' | 'open' | 'lounge' | 'storage';
 
 export interface Cell {
   x: number;
@@ -242,6 +278,10 @@ export function layoutCells(inside: Inside): Cell[] {
         kind = cellHash(Math.floor(i / 2), Math.floor(j / 2), salt) > 0.42 ? 'office' : 'open';
       } else if (h > 0.93) {
         kind = 'meeting';
+      } else if (h > 0.87) {
+        // A break-out corner, and a run of storage. Rare enough that a floor
+        // has one or two of each rather than a scattering.
+        kind = h > 0.90 ? 'lounge' : 'storage';
       }
       out.push({ x, y, i, j, kind });
     }
@@ -265,6 +305,8 @@ export function makeFurniture(
   const open = cells.filter((c) => c.kind === 'open');
   const offices = cells.filter((c) => c.kind === 'office');
   const meetings = cells.filter((c) => c.kind === 'meeting');
+  const lounges = cells.filter((c) => c.kind === 'lounge');
+  const storages = cells.filter((c) => c.kind === 'storage');
 
   const deskMaterial = partMaterial(preset, 0.88);
   const chairMaterial = partMaterial(preset, 0.52);
@@ -339,6 +381,21 @@ export function makeFurniture(
   // --- Meeting rooms: a round table.
   const meetingPlaces = meetings.map((c) => ({ x: c.x, y: c.y, facing: 0 }));
   addInstanced(tableGeometry(), deskMaterial, meetingPlaces);
+
+  // --- Break-out and storage, each turned to a quarter of the compass so a
+  // run of them does not read as a row.
+  const quarter = (c: Cell, salt: number) =>
+    (Math.floor(cellHash(c.i, c.j, salt) * 4) * Math.PI) / 2;
+  addInstanced(
+    loungeGeometry(),
+    chairMaterial,
+    lounges.map((c) => ({ x: c.x, y: c.y, facing: quarter(c, 23) })),
+  );
+  addInstanced(
+    storageGeometry(),
+    deskMaterial,
+    storages.map((c) => ({ x: c.x, y: c.y, facing: quarter(c, 41) })),
+  );
 
   // --- Chairs: one behind every desk, four round every table.
   const chairPlaces: { x: number; y: number; facing: number }[] = [];
