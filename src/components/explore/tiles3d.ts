@@ -64,8 +64,17 @@ const CACHE_MAX_TILES = 700;
 
 export interface TilesHandle {
   group: THREE.Group;
-  /** Call once per frame with the camera that is actually being drawn from. */
-  update(camera: THREE.Camera, width: number, height: number, seconds: number): void;
+  /**
+   * Call once per frame, with the layer's own world→clip projection and the
+   * eye position in scene metres. Never with the scene camera — see `update`.
+   */
+  update(
+    projection: THREE.Matrix4,
+    eye: THREE.Vector3,
+    width: number,
+    height: number,
+    seconds: number,
+  ): void;
   applyPreset(preset: AtmospherePreset, sunDir: [number, number, number]): void;
   /** What is currently resident, for the budget readout. */
   stats(): { visible: number; loaded: number; triangles: number };
@@ -190,23 +199,60 @@ export function makeTiles(
 
   let triangles = 0;
 
+  /**
+   * A camera of our own, which is never the one the scene is drawn with.
+   *
+   * This is the whole of a bug that cost a sprint, so it is worth stating
+   * plainly. `ExploreLayer` assigns a **complete world→clip matrix** to
+   * `camera.projectionMatrix` and leaves the camera's world matrix as
+   * identity — the view transform is already inside the projection.
+   * `TilesRenderer` wants a camera positioned where the eye is, so that it can
+   * work out how large a tile would be on screen.
+   *
+   * The obvious way to give it one is to set `camera.position` on the scene's
+   * camera. That is catastrophic: three.js then derives a non-identity view
+   * matrix from it and applies it *on top of* a projection that already
+   * contains one, so the entire city is drawn translated by the eye position.
+   * It does not look like a camera bug. It looks like the tileset rendering
+   * white over everything, because what fills the frame is the inside of a
+   * building that should be a kilometre away — which is exactly how the
+   * harness reported it, as zero goldenrod pixels and a frame brighter than
+   * the sky.
+   *
+   * So the scene camera is left alone and this one is built to be equivalent:
+   * its world matrix is the eye translation `T`, and its projection is
+   * `P·T`, so that
+   *
+   *     P_ours · matrixWorldInverse  =  (P·T) · T⁻¹  =  P
+   *
+   * — the same clip coordinates, from a camera that is genuinely standing
+   * where the eye is. `matrixAutoUpdate` is off so nothing recomputes the
+   * matrices from a position/quaternion that were never set.
+   */
+  const tilesCamera = new THREE.PerspectiveCamera();
+  tilesCamera.matrixAutoUpdate = false;
+  const eyeMatrix = new THREE.Matrix4();
+
   return {
     group,
-    update(camera, width, height, seconds) {
+    update(projection, eye, width, height, seconds) {
       /**
-       * The camera is re-registered every frame, on purpose.
-       *
-       * `ExploreLayer` does not own a camera in the usual sense: it assigns a
-       * projection matrix directly and leaves the world matrix as identity,
-       * and in free look it swaps in a matrix of its own. `TilesRenderer`
-       * derives screen-space error from the camera's projection and resolution,
-       * so it has to be told about both after they have been set for the
-       * frame, not before.
+       * Rebuilt every frame, after the projection is set and never before.
+       * The layer assigns its projection by hand and differently in free look,
+       * so refining against last frame's camera shows up as detail arriving a
+       * beat late everywhere and being wrong entirely the moment free look is
+       * switched on.
        */
-      tiles.setCamera(camera);
-      tiles.setResolution(camera, width, height);
+      eyeMatrix.makeTranslation(eye.x, eye.y, eye.z);
+      tilesCamera.matrixWorld.copy(eyeMatrix);
+      tilesCamera.matrixWorldInverse.copy(eyeMatrix).invert();
+      tilesCamera.projectionMatrix.multiplyMatrices(projection, eyeMatrix);
+      tilesCamera.projectionMatrixInverse.copy(tilesCamera.projectionMatrix).invert();
+
+      tiles.setCamera(tilesCamera);
+      tiles.setResolution(tilesCamera, width, height);
       tiles.update();
-      updateFacadeUniforms(material, camera.position, seconds);
+      updateFacadeUniforms(material, eye, seconds);
     },
     applyPreset(next, nextSun) {
       applyPreset(material, next, nextSun);

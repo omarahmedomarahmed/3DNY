@@ -912,9 +912,16 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
      * switched on.
      */
     if (this.tiles) {
-      this.camera.position.copy(this.cameraPos);
+      /**
+       * The projection and the eye, never this layer's camera.
+       *
+       * Setting `camera.position` here to tell `TilesRenderer` where the eye
+       * is put a view transform on a camera whose projection already contains
+       * one, and drew the whole city translated. See the note in `tiles3d.ts`.
+       */
       this.tiles.update(
-        this.camera,
+        this.camera.projectionMatrix,
+        this.cameraPos,
         canvas.clientWidth || 1200,
         canvas.clientHeight || 800,
         seconds,
