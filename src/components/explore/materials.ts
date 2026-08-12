@@ -173,6 +173,8 @@ const FACADE_FRAGMENT = /* glsl */ `
   uniform float uHazeStrength;
   uniform float uFloorHeight;
   uniform float uBayWidth;
+  /* 0 punched masonry, 1 ribbon, 2 curtain wall. See archetypeFor in TS. */
+  uniform float uArchetype;
   uniform float uGlassFraction;
   uniform vec3 uStoneColor;
   uniform vec3 uGlassColor;
@@ -241,8 +243,25 @@ const FACADE_FRAGMENT = /* glsl */ `
       float aaX = max(bayPx * 1.2, 0.012);
       float aaY = max(storeyPx * 1.2, 0.012);
 
-      float paneX = smoothstep(mullion, mullion + aaX, bayF) *
-                    (1.0 - smoothstep(1.0 - mullion - aaX, 1.0 - mullion, bayF));
+      /**
+       * The bay's horizontal margin, which is what separates the three eras.
+       *
+       * A curtain wall is glass right up to a 90 mm mullion. A pre-war
+       * masonry wall is a punched opening in a pier that is most of the bay —
+       * the window is roughly half its width, with solid brick either side.
+       * Ribbon glazing sits between: continuous horizontally, so the vertical
+       * margin nearly vanishes, and the storey band is what reads instead.
+       *
+       * Everything else in this shader was already era-independent, which is
+       * exactly why every tower looked like the same tower.
+       */
+      float margin =
+        uArchetype < 0.5 ? 0.26      // punched: wide masonry piers
+        : uArchetype < 1.5 ? 0.02    // ribbon: near-continuous
+        : mullion;                   // curtain wall: the mullion itself
+
+      float paneX = smoothstep(margin, margin + aaX, bayF) *
+                    (1.0 - smoothstep(1.0 - margin - aaX, 1.0 - margin, bayF));
       float paneY = smoothstep(sill, sill + aaY, storeyF) *
                     (1.0 - smoothstep(head - aaY, head, storeyF));
       glass = paneX * paneY * resolve;
@@ -263,7 +282,9 @@ const FACADE_FRAGMENT = /* glsl */ `
 
       // --- Piers. A heavier vertical every fifth bay: what stops the grid
       // reading as hatching and starts it reading as structure.
-      float pierCoord = bay / 5.0;
+      // Every third bay on masonry, every fifth on a curtain wall: a pre-war
+      // building has structure at a much tighter rhythm and it shows.
+      float pierCoord = bay / (uArchetype < 0.5 ? 3.0 : 5.0);
       float pierPx = fwidth(pierCoord);
       float pier = 1.0 - smoothstep(0.0, max(pierPx * 1.6, 0.03),
                                     min(fract(pierCoord), 1.0 - fract(pierCoord)));
@@ -286,7 +307,24 @@ const FACADE_FRAGMENT = /* glsl */ `
 
       vec3 stone = uStoneColor;
       stone = mix(stone, uStoneColor * 0.93, spandrel * (1.0 - glass));
-      stone *= mix(1.0, 1.05, pier * resolve);
+
+      /**
+       * Brick courses, on the masonry archetype only.
+       *
+       * A brick wall at fifty metres is not flat — it is a very fine
+       * horizontal stripe, and its absence is part of why a punched-window
+       * building rendered as a grey slab with holes in it. Four courses to a
+       * storey is far coarser than real brick and is deliberately so: real
+       * coursing at this scale is sub-pixel and aliases into a shimmer.
+       */
+      if (uArchetype < 0.5) {
+        float course = fract(vUp * 4.0);
+        float courseLine = 1.0 - smoothstep(0.0, 0.5, min(course, 1.0 - course));
+        stone *= mix(1.0, 0.955, courseLine * resolve * (1.0 - glass));
+      }
+
+      // A masonry pier is a real projection catching light, not a hairline.
+      stone *= mix(1.0, uArchetype < 0.5 ? 1.10 : 1.05, pier * resolve);
       stone *= mix(1.0, 0.88, slab * resolve * (1.0 - glass));
       stone = mix(stone, stone * 0.72, divider);
 
@@ -437,14 +475,99 @@ export interface FacadeOptions {
  * grey, and nowhere near enough for any of them to read as coloured. The
  * moment this palette gets interesting, the map has lost its hierarchy.
  */
-export function stoneFor(yearBuilt: number | null): THREE.Color {
+/**
+ * What a building is made of, by the era it was built in.
+ *
+ * The four values used to sit inside six percent of each other, which was the
+ * right call while every tower was a pale abstraction — but it is the reason
+ * the city read as one grey material with a window grid on it, and the reason
+ * a pre-war masonry loft was indistinguishable from a 1980s curtain wall.
+ *
+ * They are further apart now, and the separation is **warmth, not value**. A
+ * New York facade really is one of a small number of things — red-brown brick,
+ * buff limestone, bronze-and-glass, pale precast — and which one it is should
+ * be legible from four blocks away.
+ *
+ * The first attempt at this separated them by value as well, dropping brick to
+ * 0.62 and bronze to 0.44, and it was wrong: at a low sun the whole city went
+ * to a dark heavy grey and the near-white city the art direction asks for was
+ * gone. Half the point of a pale city is that a Goldenrod band has somewhere
+ * quiet to be loud. So every value now sits between about 0.78 and 0.94 —
+ * the *tint* carries the material and the brightness stays where it was.
+ * Chroma stays under about 0.16, a fraction of Goldenrod's.
+ *
+ * `seed` picks between the two or three materials each era actually used, so
+ * a block of pre-war lofts is a mix of brick and limestone rather than a row
+ * of clones.
+ */
+export function stoneFor(yearBuilt: number | null, seed = 0): THREE.Color {
   const year = yearBuilt ?? 1965;
-  // Limestone, cast stone, precast, and the pale grey of a modern curtain
-  // wall's opaque spandrel. Four values inside six percent of each other.
-  if (year < 1930) return new THREE.Color(0.955, 0.936, 0.900);
-  if (year < 1960) return new THREE.Color(0.944, 0.932, 0.910);
-  if (year < 1990) return new THREE.Color(0.922, 0.922, 0.922);
-  return new THREE.Color(0.930, 0.938, 0.946);
+  const pick = (options: [number, number, number][]) => {
+    const c = options[Math.floor(seed * options.length) % options.length];
+    return new THREE.Color(c[0], c[1], c[2]);
+  };
+
+  // Pre-war: brick and limestone, the two things almost everything before the
+  // war is faced in.
+  if (year < 1930) {
+    return pick([
+      [0.84, 0.74, 0.68], // red-brown brick
+      [0.88, 0.80, 0.70], // buff brick
+      [0.91, 0.89, 0.83], // limestone
+      [0.80, 0.70, 0.65], // darker brick
+    ]);
+  }
+  // Mid-century: cast stone and early curtain wall, paler and greyer.
+  if (year < 1960) {
+    return pick([
+      [0.90, 0.88, 0.84],
+      [0.85, 0.83, 0.80],
+      [0.87, 0.82, 0.76],
+    ]);
+  }
+  // The bronze-and-glass and dark-precast era.
+  if (year < 1990) {
+    return pick([
+      [0.80, 0.78, 0.75],
+      [0.79, 0.75, 0.70], // bronze anodised
+      [0.86, 0.86, 0.86],
+    ]);
+  }
+  // Modern: pale precast and near-white metal panel.
+  return pick([
+    [0.92, 0.93, 0.94],
+    [0.87, 0.89, 0.91],
+    [0.83, 0.85, 0.88],
+  ]);
+}
+
+/**
+ * How a facade is *organised*, which matters more than what colour it is.
+ *
+ * | | Era | What it looks like |
+ * |---|---|---|
+ * | 0 | Before 1930 | Punched windows: small openings in a solid masonry wall, wide piers between them |
+ * | 1 | 1930–1960 | Ribbon windows: continuous horizontal glazing, thin spandrels |
+ * | 2 | After 1960 | Curtain wall: the whole bay is glass between mullions |
+ *
+ * This is the single biggest reason a procedural city reads as fake. Every
+ * building having the same wall-to-window ratio makes every building the same
+ * building at a different height — and it is wrong about New York
+ * specifically, where a 1910 loft and a 1985 tower stand on the same block and
+ * look nothing alike.
+ */
+export function archetypeFor(yearBuilt: number | null): number {
+  const year = yearBuilt ?? 1965;
+  if (year < 1930) return 0;
+  if (year < 1960) return 1;
+  return 2;
+}
+
+/** Glass as a fraction of the wall, by archetype. Punched walls are mostly wall. */
+export function glassFractionFor(archetype: number): number {
+  if (archetype === 0) return 0.34;
+  if (archetype === 1) return 0.48;
+  return 0.60;
 }
 
 export function makeFacadeMaterial(
@@ -465,8 +588,18 @@ export function makeFacadeMaterial(
     uBayWidth: { value: options.bayWidthM ?? 2.2 },
     // Zero glass fraction turns the pane test off entirely, which is what
     // makes the same shader serve the context city at no extra cost.
-    uGlassFraction: { value: options.plain ? 0 : options.glassFraction ?? 0.56 },
-    uStoneColor: { value: stoneFor(options.yearBuilt ?? null) },
+    uGlassFraction: {
+      value: options.plain
+        ? 0
+        : options.glassFraction ?? glassFractionFor(archetypeFor(options.yearBuilt ?? null)),
+    },
+    uArchetype: {
+      // The context city has no year, so it is given the ribbon archetype:
+      // the middle of the three, and the one that reads least wrongly when
+      // applied to a building whose era is unknown.
+      value: options.plain ? 1 : archetypeFor(options.yearBuilt ?? null),
+    },
+    uStoneColor: { value: stoneFor(options.yearBuilt ?? null, options.seed ?? 0) },
     uGlassColor: { value: new THREE.Color(0.74, 0.79, 0.83) },
     uCameraPos: { value: new THREE.Vector3() },
     uInterior: { value: 0 },

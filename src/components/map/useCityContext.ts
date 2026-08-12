@@ -22,6 +22,17 @@ export const CITY_CONTEXT_ZOOM = 12.4;
 /** Wait for the pan to settle before spending a request on the new viewport. */
 const SETTLE_MS = 400;
 
+/**
+ * How many viewports are kept.
+ *
+ * The cache was unbounded and lived for the life of the page, which is fine
+ * for the way this map was used before — open it, look at Midtown, close it —
+ * and is not fine now that free look can fly across the borough and pull a new
+ * payload every 250 m. Each one is thousands of road segments plus trees and
+ * parks. Twelve covers any realistic back-and-forth and puts a ceiling on it.
+ */
+const MAX_CACHED = 12;
+
 /** Extra margin around the reported viewport, as a fraction of its size. */
 const PAD = 0.35;
 
@@ -47,6 +58,23 @@ const FOCUS_HALF = 0.045;
  * are swallowed: scenery that does not arrive should never interrupt a meeting,
  * and the map is fully usable without it.
  */
+/**
+ * Drops the oldest entries past a limit.
+ *
+ * A `Map` iterates in insertion order, so the first keys out are the ones
+ * least recently *fetched* — not least recently used, which would need a touch
+ * on every hit. For a cache whose entries are viewports somebody flew through,
+ * the two orders are nearly the same and the simpler one cannot get out of
+ * step with itself.
+ */
+function trim<T>(cache: Map<string, T>, max: number): void {
+  while (cache.size > max) {
+    const oldest = cache.keys().next();
+    if (oldest.done) return;
+    cache.delete(oldest.value);
+  }
+}
+
 /** Trims a bbox to `REQUEST_SPAN` on each axis, keeping its centre. */
 function clampSpan(
   [w, s, e, n]: [number, number, number, number],
@@ -146,6 +174,7 @@ export function useCityContext(
         if (!res.ok) return;
         const data = (await res.json()) as ContextResult;
         cache.current.set(key, data.buildings);
+        trim(cache.current, MAX_CACHED);
         if (wanted.current === key) {
           lastKey.current = key;
           setBuildings(data.buildings);

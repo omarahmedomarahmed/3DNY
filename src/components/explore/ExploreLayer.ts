@@ -593,14 +593,25 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     for (const m of this.materials) applyPreset(m, preset, this.sunDir);
     if (this.sky) applySkyPreset(this.sky, preset, this.sunDir);
     /**
-     * The streets and the planting are rebuilt for the hour, not re-tinted.
+     * The hour re-tints the streets and the planting; it only rebuilds them
+     * when the lamps have to appear or disappear.
      *
-     * Their colours are baked into materials — and the street lamps do not
-     * exist at all before dusk — so there is nothing to interpolate. A rebuild
-     * is a few tens of milliseconds on a payload that is already in memory,
-     * and it happens when somebody presses the clock, not per frame.
+     * The first version rebuilt everything on every press of the clock —
+     * hundreds of thousands of triangles of roadbed, kerbs, lane lines, trees
+     * and park fills, re-tessellated to change some colours. That is a visible
+     * stall for no reason: the geometry is identical at every hour. What is
+     * *not* identical is the street lighting, which does not exist before dusk
+     * and cannot be tinted into existence — so a rebuild happens only when
+     * crossing that boundary, which is at most twice in a session.
      */
-    if (this.streetscape) this.setStreets(this.streetscape);
+    const wantsLamps = preset.key === 'night' || preset.key === 'golden';
+    const hasLamps = (this.streets?.lamps ?? 0) > 0;
+    if (this.streetscape && wantsLamps !== hasLamps) {
+      this.setStreets(this.streetscape);
+    } else {
+      this.streets?.applyPreset(preset);
+      this.nature?.applyPreset(preset);
+    }
     if (this.water) applyWaterPreset(this.water, preset, this.sunDir);
     if (this.ground) {
       (this.ground.material.uniforms.uHazeColor.value as THREE.Color).setRGB(
@@ -906,6 +917,7 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
     lamps: number;
     furnitureTriangles: number;
     desks: number;
+    offices: number;
     contextTriangles: number;
     cars: number;
     people: number;
@@ -921,6 +933,7 @@ export class ExploreLayer implements maplibregl.CustomLayerInterface {
       lamps: this.streets?.lamps ?? 0,
       furnitureTriangles: this.furniture?.triangles ?? 0,
       desks: this.furniture?.desks ?? 0,
+      offices: this.furniture?.offices ?? 0,
       bandTriangles: this.bandTriangles,
       drawCalls: this.renderer?.info.render.calls ?? 0,
       surveyed: this.surveyedCount,

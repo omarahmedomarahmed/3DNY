@@ -1702,6 +1702,9 @@ export default function MapView() {
           map={map}
           layer={explore.layer ?? null}
           buildings={filtered}
+          // The same toggle the flat map obeys. Free look drawing stations the
+          // toolbar says are off would be its own kind of wrong.
+          transit={showTransit ? transitStops : []}
           active={mapMode === 'explore' && freeLook && !spaceExplore}
         />
         <RadiusControl />

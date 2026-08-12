@@ -8,6 +8,7 @@ import { ringToLocal, toCCW } from '@/lib/explore/frame';
 import {
   extrudedMassing,
   fallbackSteps,
+  insetRingLocal,
   mergeMassings,
   steppedMassing,
   type MassingArrays,
@@ -15,7 +16,7 @@ import {
 import { detailedBuildings } from '@/lib/explore/eligibility';
 import { loadLod2, lod2For } from '@/lib/explore/lod2-registry';
 import { massingToArrays } from '@/lib/explore/lod2';
-import { roofMassing, roofscapeFor } from './roofs3d';
+import { parapetMassing, roofMassing, roofscapeFor } from './roofs3d';
 import { buildingHeightFt, buildingRing, floorHeightFt, FT_TO_M } from '@/lib/floor-bands';
 import type { BuildingWithSpaces, OccupancyKind } from '@/types';
 import type { ContextBuilding } from '@/lib/city-context';
@@ -340,6 +341,24 @@ export function useExplore(
  * Anything under five metres is dropped. A one-storey garage is invisible from
  * any height this map is read at and there are tens of thousands of them.
  */
+/**
+ * Above this, a flat-topped box is the wrong shape and everybody can see it.
+ *
+ * Thirty storeys. The first value was twenty, and the cost was not the frame
+ * budget — it was the *build*: stepping and parapeting nine hundred footprints
+ * is several seconds of main-thread tessellation when a viewport loads, which
+ * stalls the page rather than the renderer. The harness caught it as the
+ * surrounding city simply not arriving inside its poll.
+ *
+ * Thirty storeys is where a New York building stops being a box with a flat
+ * roof and starts being a silhouette, so the treatment is now aimed at the
+ * buildings whose shape anybody is actually reading.
+ */
+const STEPPED_MIN_M = 92;
+
+/** A ceiling on the cost, so one dense viewport cannot stall the page. */
+const MAX_STEPPED = 220;
+
 export function buildContextMassing(
   layer: ExploreLayer,
   context: ContextBuilding[],
@@ -350,12 +369,58 @@ export function buildContextMassing(
   const ownBins = new Set(ours.map((b) => b.bin).filter((b): b is string => Boolean(b)));
   const parts: MassingArrays[] = [];
 
+  /**
+   * The surrounding city gets real shapes, not boxes — but only where a box
+   * is actually wrong.
+   *
+   * Three tiers, and the tiering is the whole design:
+   *
+   * | Tier | What it gets | Why |
+   * |---|---|---|
+   * | Surveyed | The city's own LOD2 massing | Exact. Free — the asset is already loaded for our own towers, and it happens to carry neighbours |
+   * | Tall (over `STEPPED_MIN_M`) | A stepped profile and a parapet | A flat-topped box is most obviously wrong on a tall building: setbacks and a roof edge are what a New York tower's silhouette *is* |
+   * | Everything else | An extruded footprint | A six-storey loft genuinely is a box with a flat roof, and there are tens of thousands of them |
+   *
+   * Applying the full treatment to every footprint was the obvious thing and
+   * it is unaffordable: it roughly tripled the context triangle count, which
+   * on a scene already at its frame budget is the difference between a model
+   * and a slideshow. Tiering targets the cost at the buildings whose
+   * silhouette anybody is looking at.
+   */
+  let stepped = 0;
   for (const c of context) {
     if (c.b && ownBins.has(c.b)) continue;
     if (c.r.length < 4) continue;
     const heightM = c.h * FT_TO_M;
     if (heightM < 5) continue;
-    parts.push(extrudedMassing(ringToLocal(layer.localFrame, c.r), heightM));
+
+    const local = ringToLocal(layer.localFrame, c.r);
+
+    // The city surveyed far more than our own towers; where it has a
+    // neighbour, use it. Costs nothing — the asset is already in memory.
+    const surveyed = c.b ? lod2For(c.b)?.massing : null;
+    if (surveyed) {
+      const arrays = massingToArrays(layer.localFrame, surveyed);
+      if (arrays.triangles > 0) {
+        parts.push(arrays);
+        continue;
+      }
+    }
+
+    if (heightM >= STEPPED_MIN_M && stepped < MAX_STEPPED) {
+      stepped++;
+      // No year for a context footprint, so the mildest profile the fallback
+      // offers. It says "this is a tower with setbacks" without claiming to
+      // know where they are — the same restraint §5 imposes on our own.
+      const steps = fallbackSteps(heightM, null);
+      parts.push(steppedMassing(local, steps));
+      // A parapet is what stops a roof reading as a cut-off. One collar, and
+      // it is the single cheapest thing that makes a skyline look built.
+      parts.push(parapetMassing(local, insetRingLocal(local, 0.965), heightM, 1.1));
+      continue;
+    }
+
+    parts.push(extrudedMassing(local, heightM));
   }
 
   return parts.length > 0 ? mergeMassings(parts) : null;

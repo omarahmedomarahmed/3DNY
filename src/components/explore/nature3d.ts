@@ -55,6 +55,8 @@ export interface NatureHandle {
   group: THREE.Group;
   trees: number;
   triangles: number;
+  /** New hour, same triangles — see the note on `StreetsHandle.applyPreset`. */
+  applyPreset(preset: AtmospherePreset): void;
   dispose(): void;
 }
 
@@ -82,6 +84,9 @@ export function makeNature(
   const group = new THREE.Group();
   const disposers: (() => void)[] = [];
   let triangles = 0;
+  let parkMaterial: THREE.MeshBasicMaterial | null = null;
+  let trunkTint: THREE.MeshBasicMaterial | null = null;
+  let canopyTint: THREE.MeshBasicMaterial | null = null;
 
   // --- Parks. Flat fills, a few centimetres above the roadbed so a lawn
   // meeting a pavement has an edge rather than a fight.
@@ -114,6 +119,7 @@ export function makeNature(
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(position, 3));
     geometry.setIndex(index);
     const material = new THREE.MeshBasicMaterial({ color: greenFor(preset, 0.88) });
+    parkMaterial = material;
     const mesh = new THREE.Mesh(geometry, material);
     mesh.frustumCulled = false;
     // Above the roadbed and the pavement, below every building.
@@ -142,6 +148,8 @@ export function makeNature(
       color: greenFor(preset, 0.5).multiplyScalar(0.62),
     });
     const canopyMaterial = new THREE.MeshBasicMaterial({ color: greenFor(preset, 0.94) });
+    trunkTint = trunkMaterial;
+    canopyTint = canopyMaterial;
 
     const trunks = new THREE.InstancedMesh(trunkGeometry, trunkMaterial, points.length);
     const canopies = new THREE.InstancedMesh(canopyGeometry, canopyMaterial, points.length);
@@ -199,6 +207,13 @@ export function makeNature(
     group,
     trees: points.length,
     triangles,
+    applyPreset(next: AtmospherePreset) {
+      // The lift values match the ones the materials were built with, so a
+      // re-tint lands on exactly the colour a rebuild would have produced.
+      parkMaterial?.color.copy(greenFor(next, 0.88));
+      trunkTint?.color.copy(greenFor(next, 0.5).multiplyScalar(0.62));
+      canopyTint?.color.copy(greenFor(next, 0.94));
+    },
     dispose() {
       for (const d of disposers) d();
     },

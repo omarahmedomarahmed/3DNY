@@ -76,9 +76,15 @@ export const FREE_FAST_MULTIPLIER = 8;
  *
  * The flying speed exists to cross a market; a floor plate is forty metres
  * across and at 90 m/s you traverse it in under half a second, which makes a
- * room impossible to look at. This is a brisk walk.
+ * room impossible to look at.
+ *
+ * 1.9 m/s was a walking pace and it was too literal — you are not simulating a
+ * person, you are inspecting a room, and crossing a large plate took twenty
+ * seconds of holding a key. This is a jog: fast enough to get to the far
+ * window without waiting, slow enough that the furniture still gives you
+ * scale on the way.
  */
-export const INSIDE_SPEED_MS = 1.9;
+export const INSIDE_SPEED_MS = 4.2;
 
 /** Nothing may go below the pavement, and nothing needs to go above the clouds. */
 export const FREE_MIN_Z = 1.5;

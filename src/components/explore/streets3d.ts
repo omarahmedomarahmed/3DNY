@@ -236,6 +236,14 @@ export interface StreetsHandle {
   triangles: number;
   /** How many street lamps are lit. Zero by day. */
   lamps: number;
+  /**
+   * Re-tints every surface for a new hour without rebuilding any geometry.
+   *
+   * The roadbed at midnight and the roadbed at noon are the same triangles in
+   * different colours, and re-tessellating a borough of streets to change four
+   * `MeshBasicMaterial` colours is a stall nobody should have to sit through.
+   */
+  applyPreset(preset: AtmospherePreset): void;
 }
 
 /**
@@ -414,6 +422,13 @@ export function makeStreets(
   return {
     group,
     lamps,
+    applyPreset(next: AtmospherePreset) {
+      const g = groundColor(next);
+      roadMaterial.color.copy(g).multiplyScalar(0.80);
+      markingMaterial.color.copy(g).multiplyScalar(1.35);
+      kerbMaterial.color.copy(g).multiplyScalar(0.95);
+      pavementMaterial.color.copy(g).multiplyScalar(1.22);
+    },
     triangles:
       (roads.index.length + pavements.index.length +
         kerbs.index.length + markings.index.length) / 3 +

@@ -6,6 +6,7 @@ import { useApp } from '@/lib/store';
 import { toLocal } from '@/lib/explore/frame';
 import { buildingHeightFt, buildingRing, FT_TO_M } from '@/lib/floor-bands';
 import type { BuildingWithSpaces } from '@/types';
+import type { TransitStop } from '@/lib/transit';
 import type { ExploreLayer } from './ExploreLayer';
 
 /**
@@ -37,6 +38,15 @@ import type { ExploreLayer } from './ExploreLayer';
  * Nearest-first because that is the order the eye works in, and because it
  * makes flying toward a block reveal its names one at a time, which is what
  * "labels arrive as you get closer" actually looks like.
+ *
+ * ## Transit
+ *
+ * Station markers ride the same layout for the same reason: deck.gl draws them
+ * everywhere else and cannot here. They are placed *before* the buildings, so
+ * a station always beats a name-plate for the same pixels — a broker showing a
+ * space is asked "how far to the subway" far more often than they are asked
+ * what the building next door is called, and if only one of the two fits, that
+ * is the one that should.
  */
 
 /** Beyond this the pill is unreadable anyway, and the frame is a mess. */
@@ -58,16 +68,18 @@ interface Placed {
   y: number;
   w: number;
   distance: number;
+  transit?: boolean;
 }
 
 interface Anchor {
   id: string;
   text: string;
   sub: string | null;
-  /** Scene metres: the roof's middle. */
+  /** Scene metres: the roof's middle, or a little above a station entrance. */
   x: number;
   y: number;
   z: number;
+  transit?: boolean;
 }
 
 function labelText(b: BuildingWithSpaces): string {
@@ -84,11 +96,14 @@ export default function FreeLabels({
   map,
   layer,
   buildings,
+  transit,
   active,
 }: {
   map: maplibregl.Map | null;
   layer: ExploreLayer | null;
   buildings: BuildingWithSpaces[];
+  /** Empty when the transit toggle is off — the caller decides, not this. */
+  transit: TransitStop[];
   active: boolean;
 }) {
   const [placed, setPlaced] = useState<Placed[]>([]);
@@ -111,6 +126,27 @@ export default function FreeLabels({
     }
     const frame = layer.localFrame;
     const out: Anchor[] = [];
+
+    /**
+     * Stations first, so they win the collision pass.
+     *
+     * At 12 m rather than at street level: a marker on the pavement is
+     * swallowed by the first bus that drives over it, and a subway entrance is
+     * a thing you want to see the position of from a block away.
+     */
+    for (const stop of transit) {
+      const [x, y] = toLocal(frame, stop.lon, stop.lat);
+      out.push({
+        id: `transit:${stop.id}`,
+        text: stop.name,
+        sub: stop.routes.length > 0 ? stop.routes.slice(0, 4).join(' ') : null,
+        x,
+        y,
+        z: 12,
+        transit: true,
+      });
+    }
+
     for (const b of buildings) {
       const ring = buildingRing(b);
       if (!ring || ring.length === 0) continue;
@@ -133,7 +169,7 @@ export default function FreeLabels({
       });
     }
     anchors.current = out;
-  }, [layer, buildings, active]);
+  }, [layer, buildings, transit, active]);
 
   // --- Layout, ten times a second rather than sixty. A name-plate that
   // settles a sixteenth of a second late is imperceptible; a React render per
@@ -169,6 +205,7 @@ export default function FreeLabels({
           y: p.y,
           w: a.text.length * PILL_CHAR_W + PILL_PAD,
           distance,
+          transit: a.transit,
         });
       }
 
@@ -177,6 +214,8 @@ export default function FreeLabels({
       candidates.sort((p, q) => {
         if (front.current === p.id) return -1;
         if (front.current === q.id) return 1;
+        // A station beats a building for the same pixels — see the header.
+        if (p.transit !== q.transit) return p.transit ? -1 : 1;
         return p.distance - q.distance;
       });
 
@@ -216,7 +255,9 @@ export default function FreeLabels({
              * in this product.
              */
             front.current = front.current === p.id ? null : p.id;
-            useApp.getState().selectBuilding(p.id);
+            // A station is not a building; clicking one should not clear or
+            // change the building selection a broker is working with.
+            if (!p.transit) useApp.getState().selectBuilding(p.id);
           }}
           style={{ left: p.x, top: p.y }}
           className={
@@ -225,7 +266,9 @@ export default function FreeLabels({
             'font-semibold leading-tight text-ink shadow-card transition-colors ' +
             (front.current === p.id
               ? 'border-goldenrod'
-              : 'border-hairline-strong hover:border-midnight')
+              : p.transit
+                ? 'border-midnight-300 bg-midnight-50/95'
+                : 'border-hairline-strong hover:border-midnight')
           }
         >
           {p.text}
