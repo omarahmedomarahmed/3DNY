@@ -110,6 +110,27 @@ if (started) {
   );
 
   /**
+   * The controls are not merely present — something can actually reach them.
+   *
+   * This has now been wrong twice, in two different ways: first the floor card
+   * opened on top of the orbit controls, then the map canvas was stacked over
+   * them. Both times the button rendered, carried the right accessible name,
+   * and could not be clicked. A test that asks whether the button exists
+   * passes in both cases, which is why this asks the document what is actually
+   * on top of the button's own centre.
+   */
+  const onTop = await page.evaluate(() => {
+    const button = [...document.querySelectorAll('button')].find(
+      (b) => b.textContent.trim() === 'Stop circling',
+    );
+    if (!button) return 'missing';
+    const r = button.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    return hit === button || button.contains(hit) ? 'button' : (hit?.tagName ?? 'nothing');
+  });
+  check('and nothing is covering the control that stops it', onTop === 'button', onTop);
+
+  /**
    * Sampled only once the move into the lock is over.
    *
    * The dolly in or out takes up to four seconds and covers far more ground
