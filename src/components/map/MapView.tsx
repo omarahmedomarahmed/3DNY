@@ -1877,7 +1877,7 @@ export default function MapView() {
             while a card is in the way is the one the card is on top of. The
             browser harness found this by being unable to click it.
           */
-          <div className="absolute left-6 top-32 z-30 flex flex-col items-start gap-2">
+          <div className="pointer-events-auto absolute left-6 top-32 z-50 flex flex-col items-start gap-2">
             <button
               type="button"
               onClick={() => setOrbitShowCity((on) => !on)}
