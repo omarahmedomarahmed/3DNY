@@ -218,7 +218,13 @@ function cellHash(i: number, j: number, salt: number): number {
   return Math.abs(Math.sin((i * 127.1 + j * 311.7 + salt) * 43758.5453)) % 1;
 }
 
-export type CellKind = 'office' | 'meeting' | 'open' | 'lounge' | 'storage';
+export type CellKind =
+  | 'office'
+  | 'management'
+  | 'meeting'
+  | 'open'
+  | 'lounge'
+  | 'storage';
 
 export interface Cell {
   x: number;
@@ -271,7 +277,26 @@ export function layoutCells(inside: Inside): Cell[] {
 
       const h = cellHash(i, j, salt);
       let kind: CellKind = 'open';
-      if (edge < OFFICE_BAND_M) {
+      /**
+       * The corners are management, and they are management because they are
+       * the corners.
+       *
+       * Every floor plate in the city works this way and it is not a
+       * convention anybody chose: a corner has two walls of glass and twice
+       * the light, so it is where the corner office goes. Marking them by
+       * measured distance from the plate's own centre rather than by a hash
+       * means the tier lands where the plan says it should on any shape of
+       * floor, including the L-shaped and setback ones that have four corners
+       * in places a rectangle does not.
+       */
+      const corner =
+        edge < OFFICE_BAND_M &&
+        Math.hypot(x - (minX + maxX) / 2, y - (minY + maxY) / 2) >
+          Math.hypot(maxX - minX, maxY - minY) * 0.36;
+
+      if (corner) {
+        kind = 'management';
+      } else if (edge < OFFICE_BAND_M) {
         // Perimeter: mostly cellular, in runs rather than one cell at a time —
         // a single office marooned between open desks is not a plan anyone
         // has ever drawn.
@@ -304,6 +329,7 @@ export function makeFurniture(
   const z = inside.floorM + 0.02;
   const open = cells.filter((c) => c.kind === 'open');
   const offices = cells.filter((c) => c.kind === 'office');
+  const management = cells.filter((c) => c.kind === 'management');
   const meetings = cells.filter((c) => c.kind === 'meeting');
   const lounges = cells.filter((c) => c.kind === 'lounge');
   const storages = cells.filter((c) => c.kind === 'storage');
@@ -378,6 +404,30 @@ export function makeFurniture(
   }));
   addInstanced(lDeskGeometry(), deskMaterial, officePlaces);
 
+  /**
+   * Management: a corner office, which is a private office plus the thing
+   * that actually distinguishes one — somewhere to sit down with two people
+   * that is not the desk.
+   *
+   * The desk faces the corner rather than the room, because that is where the
+   * two walls of glass are and it is the whole reason the office is here.
+   */
+  const managementPlaces = management.map((c) => ({
+    x: c.x,
+    y: c.y,
+    facing: (Math.floor(cellHash(c.i, c.j, 17) * 4) * Math.PI) / 2,
+  }));
+  addInstanced(lDeskGeometry(), deskMaterial, managementPlaces);
+  addInstanced(
+    loungeGeometry(),
+    chairMaterial,
+    managementPlaces.map((p) => ({
+      x: p.x - Math.sin(p.facing) * 1.5,
+      y: p.y - Math.cos(p.facing) * 1.5,
+      facing: p.facing + Math.PI,
+    })),
+  );
+
   // --- Meeting rooms: a round table.
   const meetingPlaces = meetings.map((c) => ({ x: c.x, y: c.y, facing: 0 }));
   addInstanced(tableGeometry(), deskMaterial, meetingPlaces);
@@ -402,7 +452,7 @@ export function makeFurniture(
   for (const p of benchPlaces) {
     chairPlaces.push({ x: p.x, y: p.y - Math.cos(p.facing) * 0.78, facing: p.facing });
   }
-  for (const p of officePlaces) {
+  for (const p of [...officePlaces, ...managementPlaces]) {
     chairPlaces.push({ x: p.x, y: p.y, facing: p.facing + Math.PI });
   }
   for (const p of meetingPlaces) {
@@ -426,11 +476,11 @@ export function makeFurniture(
    * in a different place and orientation and there are only a few dozen.
    */
   const cellular = new Set<string>();
-  for (const c of [...offices, ...meetings]) cellular.add(`${c.i}:${c.j}`);
+  for (const c of [...offices, ...management, ...meetings]) cellular.add(`${c.i}:${c.j}`);
 
   const wallParts: THREE.BufferGeometry[] = [];
   const half = MODULE_M / 2;
-  for (const c of [...offices, ...meetings]) {
+  for (const c of [...offices, ...management, ...meetings]) {
     const neighbours: [number, number, number, number][] = [
       // di, dj, wall centre offset x, y
       [1, 0, half, 0],
@@ -462,8 +512,8 @@ export function makeFurniture(
 
   return {
     group,
-    desks: open.length + offices.length,
-    offices: offices.length,
+    desks: open.length + offices.length + management.length,
+    offices: offices.length + management.length,
     triangles,
     dispose() {
       for (const g of geometries) g.dispose();

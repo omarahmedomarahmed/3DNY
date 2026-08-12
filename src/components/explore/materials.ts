@@ -127,6 +127,9 @@ const FACADE_VERTEX = /* glsl */ `
   attribute float wall;
   attribute float isWall;
 
+  /** 1 when the geometry has no facade attributes and they must be derived. */
+  uniform float uDeriveGrid;
+
   varying vec3 vNormal;
   varying vec3 vWorld;
   varying float vAlong;
@@ -142,6 +145,42 @@ const FACADE_VERTEX = /* glsl */ `
     vUp = up;
     vWall = wall;
     vIsWall = isWall;
+
+    /**
+     * Geometry that arrives without the facade attributes derives them here.
+     *
+     * The streamed city is 3-D Tiles: positions, normals and indices, and
+     * nothing else. Shipping along/up/wall/isWall with it would roughly triple
+     * a tileset for buildings that are scenery — but without them vIsWall is
+     * zero, the entire bay treatment is skipped, and every surveyed building
+     * in Manhattan renders as flat paint. The harness reads that as a facade
+     * with no more local contrast in it than bare ground.
+     *
+     * So the rhythm is derived from the two things a tile does carry. Up is
+     * simply height above the pavement. Along is distance measured across the
+     * face, taken as the world position projected onto the wall's own
+     * horizontal tangent — which is what the attribute means anyway, and is
+     * continuous across a facade for the same reason the attribute is.
+     *
+     * It is not identical to the baked version: a wall that does not pass near
+     * the frame origin starts its bays at an arbitrary phase. On a building
+     * nobody is standing inside, a bay rhythm in the right place with the
+     * wrong phase is indistinguishable from the right one, and a flat grey
+     * slab is not.
+     */
+    if (uDeriveGrid > 0.5) {
+      vec3 wn = normalize(vNormal);
+      vec2 tangent = normalize(vec2(-wn.y, wn.x) + vec2(1e-5, 0.0));
+      vAlong = dot(world.xy, tangent);
+      vUp = world.z;
+      // Only near-vertical faces are walls; a roof with a window grid on it
+      // is worse than a roof with nothing.
+      vIsWall = 1.0 - step(0.5, abs(wn.z));
+      // Used only to shade the base of a wall darker. Without a real height
+      // this is a plausible storey count rather than a measurement.
+      vWall = 60.0;
+    }
+
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
@@ -465,6 +504,11 @@ export interface FacadeOptions {
   interior?: number;
   /** Massing only — no fenestration. Used for context buildings. */
   plain?: boolean;
+  /**
+   * Derive the bay rhythm from world position instead of from vertex
+   * attributes, for geometry that arrives without them — the streamed city.
+   */
+  deriveGrid?: boolean;
 }
 
 /**
@@ -585,6 +629,7 @@ export function makeFacadeMaterial(
     uHazeColor: { value: rgb(preset.haze) },
     uHazeStrength: { value: preset.hazeStrength },
     uFloorHeight: { value: options.floorHeightM },
+    uDeriveGrid: { value: options.deriveGrid ? 1 : 0 },
     uBayWidth: { value: options.bayWidthM ?? 2.2 },
     // Zero glass fraction turns the pane test off entirely, which is what
     // makes the same shader serve the context city at no extra cost.

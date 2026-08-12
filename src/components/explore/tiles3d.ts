@@ -45,8 +45,18 @@ import { makeFacadeMaterial, updateFacadeUniforms, applyPreset } from './materia
  * tileset and this refuses to draw when the two disagree.
  */
 
-/** How wrong a tile may be, in pixels, before the renderer refines it. */
-const ERROR_TARGET = 12;
+/**
+ * How wrong a tile may be, in pixels, before the renderer refines it.
+ *
+ * Raised from 12 after the first measurement of the tiled city: twelve pixels
+ * refines the tree several levels deeper than anything visible warrants, and
+ * the cost is paid on every frame in geometry the eye cannot separate.
+ * Doubling the target roughly quarters the number of resident tiles, because
+ * each level of the quadtree is four times the last.
+ *
+ * Not yet re-measured against the frame budget — see the decision log.
+ */
+const ERROR_TARGET = 24;
 
 /**
  * How much geometry may stay resident.
@@ -59,8 +69,8 @@ const ERROR_TARGET = 12;
  * Counted in tiles rather than bytes because our nodes are all roughly the
  * same size by construction: the tree splits on building count, not extent.
  */
-const CACHE_MIN_TILES = 300;
-const CACHE_MAX_TILES = 700;
+const CACHE_MIN_TILES = 180;
+const CACHE_MAX_TILES = 420;
 
 export interface TilesHandle {
   group: THREE.Group;
@@ -148,6 +158,15 @@ export function makeTiles(
   const material = makeFacadeMaterial(preset, sunDir, {
     floorHeightM: 3.8,
     plain: true,
+    /**
+     * The bay rhythm comes from world position, not from vertex attributes.
+     *
+     * A tile carries positions, normals and indices and nothing else — see the
+     * note below on why. Without this every surveyed building in Manhattan is
+     * a flat grey slab at street level, which the harness measures as a facade
+     * with no more detail in it than bare ground.
+     */
+    deriveGrid: true,
   });
 
   /**
@@ -159,8 +178,9 @@ export function makeTiles(
    *
    * The vertex attributes the shader wants (`along`, `up`, `wall`, `isWall`)
    * are not in the tileset, because they would triple its size for a city that
-   * is scenery. `plain: true` is the archetype that does not use them, and the
-   * defaults below keep the shader from reading undefined attributes.
+   * is scenery. `deriveGrid` reconstructs the rhythm from world position
+   * instead; the zero-filled attributes below exist only so the shader is
+   * never compiled against attributes that do not exist on the geometry.
    */
   tiles.addEventListener('load-model', (event: { scene?: THREE.Object3D }) => {
     event.scene?.traverse((object) => {
