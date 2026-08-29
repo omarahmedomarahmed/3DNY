@@ -186,6 +186,8 @@ Rules for this file:
 | 155 | 16 | The orbit is **suspended, not cleared**, while a space is explored | Going inside and coming back out is a round trip, and a round trip that ends somewhere other than where it started is a navigation problem the user then has to solve. Suspending keeps the subject, the framing and the angle, so stepping outside resumes the same shot | Clear it, and drop the user into free look next to a building they now have to find again |
 | 156 | 16 | Corner cells are **management offices**, chosen by measured distance from the plate's centre rather than by a hash | Every floor plate in the city works this way and nobody chose the convention: a corner has two walls of glass and twice the light. Measuring it rather than hashing it means the tier lands where a plan would put it on any shape of floor, including the setback and L-shaped plates that have corners where a rectangle does not | Hash them like the other tiers, and watch corner offices appear in the middle of the floor |
 
+| 157 | 16 | The **zoomed-out night city is cancelled** — lit streets seen from altitude, and real water and parks at distance — on the owner's instruction | Asked for in sprint 16 and withdrawn before any of it was built, so nothing is being removed and nothing is half-done. Recorded because the reason a plausible feature is absent is worth more later than the feature was | Reinstate it: the work is a distance-scaled emissive pass on the street ribbons plus keeping water and park fills resident past the viewport, roughly a sprint |
+
 ---
 
 ## Superseded
